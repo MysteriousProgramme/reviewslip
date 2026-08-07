@@ -1,0 +1,542 @@
+/* Baanpong Lodge review helper
+   Ground: the garden at dusk. Figure: a slip of sa paper under a lantern.
+   Marigold is spent once — on Proceed to Google. */
+
+:root {
+  --shade: #0c1f19;
+  --shade-deep: #06110e;
+  --paper: #f3ecdc;
+  --paper-shadow: #ded3bc;
+  --ink: #1b2a23;
+  --ink-soft: #5d6b62;
+  --jade: #82b49b;
+  --jade-dim: rgba(130, 180, 155, 0.5);
+  --jade-line: rgba(130, 180, 155, 0.24);
+  --marigold: #e9a03b;
+
+  --display: 'Trirong', Georgia, 'Times New Roman', serif;
+  --ui: 'Bai Jamjuree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  --ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--shade-deep);
+  background-image:
+    radial-gradient(
+      120% 62% at 50% -8%,
+      rgba(233, 160, 59, 0.16) 0%,
+      rgba(233, 160, 59, 0.04) 42%,
+      transparent 72%
+    ),
+    linear-gradient(180deg, var(--shade) 0%, var(--shade-deep) 100%);
+  background-attachment: fixed;
+  color: var(--jade);
+  font-family: var(--ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.page {
+  width: min(34rem, 100%);
+  margin: 0 auto;
+  padding: clamp(2rem, 7vw, 3.5rem) clamp(1.25rem, 5vw, 2rem)
+    calc(2.5rem + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.75rem, 5vw, 2.5rem);
+}
+
+/* ------------------------------------------------------------- masthead -- */
+
+.masthead {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.masthead-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.gear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.125rem;
+  height: 2.125rem;
+  margin: -0.375rem -0.25rem -0.375rem 0;
+  padding: 0;
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--jade-dim);
+  cursor: pointer;
+  transition:
+    color 0.18s var(--ease),
+    border-color 0.18s var(--ease);
+}
+
+.gear:hover {
+  color: var(--jade);
+  border-color: var(--jade-line);
+}
+
+.gear svg {
+  width: 1.0625rem;
+  height: 1.0625rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.688rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--jade-dim);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: clamp(2rem, 9vw, 2.75rem);
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  color: var(--paper);
+}
+
+.title-dot {
+  color: var(--marigold);
+}
+
+.lede {
+  margin: 0.25rem 0 0;
+  max-width: 30ch;
+  font-size: 0.938rem;
+  line-height: 1.55;
+  color: var(--jade);
+}
+
+/* ---------------------------------------------------------------- chips -- */
+
+.label {
+  margin: 0 0 0.75rem;
+  font-size: 0.688rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--jade-dim);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  appearance: none;
+  border: 1px solid var(--jade-line);
+  background: transparent;
+  color: var(--jade);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1;
+  padding: 0.6rem 0.95rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    border-color 0.18s var(--ease),
+    background-color 0.18s var(--ease),
+    color 0.18s var(--ease);
+}
+
+.chip:hover:not([aria-pressed='true']) {
+  border-color: var(--jade-dim);
+  color: var(--paper);
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--paper);
+  border-color: var(--paper);
+  color: var(--ink);
+}
+
+/* ----------------------------------------------------------------- slip -- */
+
+.label-slip {
+  margin-bottom: 0.625rem;
+}
+
+/* The card is clip-path'd, which would eat a box-shadow — so the drop shadow
+   lives on the wrapper as a filter instead. */
+.slip-wrap {
+  filter: drop-shadow(0 22px 34px rgba(0, 0, 0, 0.45));
+}
+
+.slip {
+  position: relative;
+  background: var(--paper);
+  padding: 1.375rem 1.25rem 2.25rem;
+  border-radius: 3px;
+  /* torn along the bottom, as if pulled from a pad */
+  clip-path: polygon(
+    0 0,
+    100% 0,
+    100% calc(100% - 7px),
+    92% calc(100% - 2px),
+    84% calc(100% - 9px),
+    76% calc(100% - 4px),
+    67% calc(100% - 10px),
+    58% calc(100% - 3px),
+    49% calc(100% - 8px),
+    40% calc(100% - 2px),
+    31% calc(100% - 9px),
+    22% calc(100% - 4px),
+    13% calc(100% - 10px),
+    6% calc(100% - 3px),
+    0 calc(100% - 8px)
+  );
+}
+
+.review {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  resize: none;
+  overflow: hidden;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.25rem;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.review::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.6;
+}
+
+.review:focus {
+  outline: 2px solid var(--ink-soft);
+  outline-offset: 6px;
+  border-radius: 2px;
+}
+
+/* Fresh text rises into place. Transform only, and no fill-mode: the review
+   must be readable even if the animation never runs — a throttled background
+   tab or a stalled frame should not leave a guest with invisible text. */
+.review.settling {
+  animation: settle 0.34s var(--ease);
+}
+
+@keyframes settle {
+  from {
+    transform: translateY(6px);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* --------------------------------------------------------- loading state -- */
+
+/* In normal flow, not overlaid: the slip sizes to the skeleton while loading,
+   so there is no old text underneath holding the card at its previous height.
+   The bar rhythm roughly matches three lines of the review type. */
+.skeleton {
+  display: none;
+  flex-direction: column;
+  gap: 1.375rem;
+  padding: 0.375rem 0 0.5rem;
+}
+
+.skeleton span {
+  height: 0.6875rem;
+  border-radius: 2px;
+  background: var(--paper-shadow);
+  animation: breathe 1.25s var(--ease) infinite;
+}
+
+.skeleton span:nth-child(2) {
+  width: 88%;
+  animation-delay: 0.14s;
+}
+
+.skeleton span:nth-child(3) {
+  width: 52%;
+  animation-delay: 0.28s;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.slip[aria-busy='true'] .skeleton {
+  display: flex;
+}
+
+.slip[aria-busy='true'] .review {
+  display: none;
+}
+
+/* --------------------------------------------------------------- notice -- */
+
+.notice {
+  margin: 0.75rem 0 0;
+  min-height: 1.25rem;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--jade-dim);
+}
+
+.notice[data-tone='error'] {
+  color: #eec27c;
+}
+
+/* -------------------------------------------------------------- actions -- */
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.actions-row {
+  display: flex;
+  gap: 0.625rem;
+}
+
+.btn {
+  appearance: none;
+  font-family: inherit;
+  font-size: 0.938rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0.95rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background-color 0.18s var(--ease),
+    border-color 0.18s var(--ease),
+    color 0.18s var(--ease),
+    opacity 0.18s var(--ease);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn-quiet {
+  flex: 1;
+  border: 1px solid var(--jade-line);
+  background: transparent;
+  color: var(--paper);
+}
+
+.btn-quiet:hover:not(:disabled) {
+  border-color: var(--jade-dim);
+  background: rgba(130, 180, 155, 0.08);
+}
+
+.btn-go {
+  border: 1px solid var(--marigold);
+  background: var(--marigold);
+  color: #22190a;
+}
+
+.btn-go:hover:not(:disabled) {
+  background: #f2ac4c;
+  border-color: #f2ac4c;
+}
+
+.hint {
+  margin: 0.125rem 0 0;
+  text-align: center;
+  font-size: 0.813rem;
+  color: var(--jade-dim);
+}
+
+/* ----------------------------------------------------- settings (staff) -- */
+
+.sheet {
+  width: min(30rem, calc(100% - 1.5rem));
+  padding: 0;
+  border: 1px solid var(--jade-line);
+  border-radius: 6px;
+  background: #0f251e;
+  color: var(--jade);
+  box-shadow: 0 30px 60px -20px rgba(0, 0, 0, 0.7);
+}
+
+.sheet::backdrop {
+  background: rgba(4, 11, 9, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.sheet-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: clamp(1.25rem, 5vw, 1.75rem);
+}
+
+.sheet-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sheet-title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: 1.5rem;
+  line-height: 1.2;
+  color: var(--paper);
+}
+
+.sheet-note {
+  margin: 0;
+  font-size: 0.813rem;
+  color: var(--jade-dim);
+}
+
+.sheet-note code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.field-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.688rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--jade-dim);
+}
+
+.origin {
+  font-size: 0.625rem;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: rgba(130, 180, 155, 0.38);
+}
+
+.field input {
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 1px solid var(--jade-line);
+  border-radius: 4px;
+  background: rgba(4, 12, 9, 0.55);
+  color: var(--paper);
+  font-family: inherit;
+  font-size: 0.938rem;
+  transition: border-color 0.18s var(--ease);
+}
+
+.field input:hover {
+  border-color: var(--jade-dim);
+}
+
+.field input::placeholder {
+  color: rgba(130, 180, 155, 0.35);
+}
+
+.field-hint {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--jade-dim);
+}
+
+.sheet-status {
+  margin: 0;
+  min-height: 1.125rem;
+  font-size: 0.813rem;
+  line-height: 1.45;
+  color: var(--jade-dim);
+}
+
+.sheet-status[data-tone='error'] {
+  color: #eec27c;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 0.625rem;
+}
+
+.sheet-actions .btn {
+  flex: 1;
+}
+
+.btn-save {
+  border: 1px solid var(--paper);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.btn-save:hover:not(:disabled) {
+  background: #fffaf0;
+  border-color: #fffaf0;
+}
+
+/* ---------------------------------------------------------------- focus -- */
+
+:focus-visible {
+  outline: 2px solid var(--marigold);
+  outline-offset: 3px;
+}
+
+.review:focus-visible {
+  outline-color: var(--ink-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
