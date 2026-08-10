@@ -4,33 +4,64 @@ require('dotenv').config();
 
 const path = require('path');
 const express = require('express');
-const { VENUE, CATEGORIES, buildMessages } = require('./config');
-const settings = require('./settings');
+
+const { VENUE, buildMessages } = require('./config');
+const {
+  buildSeedMessages,
+  parseProposal,
+  buildCategoryMessages,
+  parseCategorySuggestions,
+} = require('./seed');
+const subscribers = require('./subscribers');
+const openrouter = require('./openrouter');
+const adminRouter = require('./admin');
+const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
+const {
+  resolveTenant,
+  requireTenant,
+  publicUrl,
+  BASE_DOMAIN,
+  DEFAULT_SLUG,
+} = require('./tenant');
 
 const PORT = Number(process.env.PORT) || 3000;
 
-const OPENROUTER_CHAT = 'https://openrouter.ai/api/v1/chat/completions';
-const OPENROUTER_MODELS = 'https://openrouter.ai/api/v1/models';
-const OPENROUTER_KEY_INFO = 'https://openrouter.ai/api/v1/key';
-
 const app = express();
+
+// Behind a reverse proxy, the name the guest actually typed arrives as
+// X-Forwarded-Host and their address as X-Forwarded-For. Both matter here:
+// one picks the subscriber, the other keys the throttle. Off unless asked for,
+// since trusting those headers from an untrusted client is a way to spoof both.
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
+}
+
 app.use(express.json({ limit: '16kb' }));
 // No max-age: the files are small and served off the same box, and a stale
 // index.html on a guest's phone is far more annoying than a revalidation.
 app.use(express.static(path.join(__dirname, 'public'), { etag: true }));
 
+// Admin first, and outside tenant resolution: creating the first subscriber
+// cannot require already being on a subscriber's hostname.
+app.use('/api/admin', adminRouter);
+
+// Everything below knows which venue it is serving.
+app.use('/api', resolveTenant);
+
 /* ---------------------------------------------------------------- throttle */
 // One tab on a lobby QR code is the normal case; this only exists so an open
-// endpoint can't burn the API budget. In-memory, per-IP, resets every minute.
+// endpoint can't burn the API budget. Keyed per subscriber as well as per IP,
+// so one busy venue cannot throttle another. In-memory, resets every minute.
 const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 30;
 const hits = new Map();
 
-function throttled(ip) {
+function throttled(key) {
   const now = Date.now();
-  const entry = hits.get(ip);
+  const entry = hits.get(key);
+
   if (!entry || now > entry.resetAt) {
-    hits.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+    hits.set(key, { count: 1, resetAt: now + WINDOW_MS });
     if (hits.size > 5000) hits.clear();
     return false;
   }
@@ -38,72 +69,28 @@ function throttled(ip) {
   return entry.count > MAX_PER_WINDOW;
 }
 
-/* ------------------------------------------------------------------ routes */
+/* ------------------------------------------------------------ guest routes */
 
-app.get('/api/config', (req, res) => {
-  const { googleUrl } = settings.current();
+app.get('/api/config', requireTenant, (req, res) => {
+  const { googleUrl, tripadvisorUrl, categories } = subscribers.settingsFor(
+    req.subscriber
+  );
+
   res.json({
     venue: VENUE.name,
     place: VENUE.place,
-    categories: CATEGORIES.map(({ id, label }) => ({ id, label })),
+    // `focus` is prompt input, not guest-facing — the buttons only need a label.
+    categories: categories.map(({ id, label }) => ({ id, label })),
     googleUrl,
+    tripadvisorUrl,
+    // Which account is being served. The panel shows it so staff can tell at a
+    // glance that they are editing the right venue.
+    subscriber: { slug: req.subscriber.slug, name: req.subscriber.name },
   });
 });
 
-/* Settings panel. The key is never sent back to the browser — only whether one
-   is set, and a masked hint so staff can tell which key is in place. */
-
-app.get('/api/settings', (req, res) => {
-  res.json(settings.describe());
-});
-
-app.post('/api/settings', async (req, res) => {
-  const patch = req.body || {};
-
-  const check = settings.validate(patch);
-  if (!check.ok) return res.status(400).json({ error: check.error });
-
-  // A key that OpenRouter rejects would only surface later as a failed
-  // generation, so try it here while the panel is still open.
-  let warning;
-  const key = typeof patch.apiKey === 'string' ? patch.apiKey.trim() : '';
-  if (key) {
-    const verdict = await verifyKey(key);
-    if (verdict === 'rejected') {
-      return res
-        .status(400)
-        .json({ error: 'OpenRouter rejected that key. Check it and try again.' });
-    }
-    if (verdict === 'unreachable') {
-      warning = 'Saved, but OpenRouter could not be reached to check the key.';
-    }
-  }
-
-  const model = typeof patch.model === 'string' ? patch.model.trim() : '';
-  if (model && (await modelMissing(model))) {
-    warning = `Saved, but "${model}" is not in OpenRouter's catalogue.`;
-  }
-
-  try {
-    settings.save(patch);
-  } catch (err) {
-    console.error('Could not write settings.json:', err);
-    return res
-      .status(500)
-      .json({ error: 'Could not write settings.json. Check file permissions.' });
-  }
-
-  res.json({ settings: settings.describe(), warning });
-});
-
-/** Model slugs for the picker, so staff do not have to type one from memory. */
-app.get('/api/models', async (req, res) => {
-  const models = await catalogue();
-  res.json({ models: models.map(({ id, name }) => ({ id, name })) });
-});
-
-app.post('/api/review', async (req, res) => {
-  const { apiKey, model } = settings.current();
+app.post('/api/review', requireTenant, async (req, res) => {
+  const { apiKey, model, categories } = subscribers.settingsFor(req.subscriber);
 
   if (!apiKey) {
     return res.status(500).json({
@@ -111,7 +98,7 @@ app.post('/api/review', async (req, res) => {
     });
   }
 
-  if (throttled(req.ip)) {
+  if (throttled(`${req.subscriber.slug}:${req.ip}`)) {
     return res
       .status(429)
       .json({ error: 'That is a lot of reviews. Wait a moment and try again.' });
@@ -119,10 +106,11 @@ app.post('/api/review', async (req, res) => {
 
   const body = req.body || {};
   // config.js falls back to the first category for anything unknown; resolve it
-  // here too so the response says which category was actually written.
-  const categoryId = CATEGORIES.some((c) => c.id === body.categoryId)
+  // here too so the response says which category was actually written. A guest
+  // whose page predates a category edit lands here with a stale id.
+  const categoryId = categories.some((c) => c.id === body.categoryId)
     ? body.categoryId
-    : CATEGORIES[0].id;
+    : categories[0].id;
   const recent = Array.isArray(body.recent)
     ? body.recent
         .filter((r) => typeof r === 'string')
@@ -130,17 +118,12 @@ app.post('/api/review', async (req, res) => {
         .map((r) => r.slice(0, 400))
     : [];
 
-  const messages = buildMessages({ categoryId, recent });
+  const messages = buildMessages({ categoryId, recent, categories });
 
   try {
-    const upstream = await fetch(OPENROUTER_CHAT, {
+    const upstream = await fetch(openrouter.CHAT, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': 'http://localhost',
-        'X-Title': `${VENUE.name} review helper`,
-      },
+      headers: openrouterHeaders(apiKey, req.subscriber),
       body: JSON.stringify({
         model,
         messages,
@@ -153,7 +136,9 @@ app.post('/api/review', async (req, res) => {
 
     if (!upstream.ok) {
       const detail = await upstream.text().catch(() => '');
-      console.error(`OpenRouter ${upstream.status}: ${detail.slice(0, 500)}`);
+      console.error(
+        `OpenRouter ${upstream.status} for ${req.subscriber.slug}: ${detail.slice(0, 500)}`
+      );
       return res
         .status(502)
         .json({ error: 'The writer is unavailable right now. Try again.' });
@@ -181,7 +166,225 @@ app.post('/api/review', async (req, res) => {
   }
 });
 
+/* ------------------------------------------------------- subscriber routes */
+
+/* The settings panel. It edits one subscriber's own row, so it needs that
+   subscriber's token — the admin token works too. The key is never sent back
+   to the browser, only whether one is set and a masked hint. */
+
+app.get('/api/settings', requireTenant, requireSubscriber, (req, res) => {
+  res.json(subscribers.describe(req.subscriber));
+});
+
+app.post('/api/settings', requireTenant, requireSubscriber, async (req, res) => {
+  const patch = req.body || {};
+
+  const verdict = await openrouter.vet(patch);
+  if (verdict.error) return res.status(400).json({ error: verdict.error });
+
+  let record;
+  try {
+    // Only the settings fields — the panel has no business renaming the
+    // account or changing its status.
+    record = subscribers.update(req.subscriber.slug, {
+      apiKey: patch.apiKey,
+      model: patch.model,
+      googleUrl: patch.googleUrl,
+      tripadvisorUrl: patch.tripadvisorUrl,
+      websiteUrl: patch.websiteUrl,
+      categories: patch.categories,
+    });
+  } catch (err) {
+    if (err?.expose && err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
+    console.error('Could not save settings:', err);
+    return res.status(500).json({ error: 'Could not save the settings.' });
+  }
+
+  res.json({ settings: record.settings, warning: verdict.warning });
+});
+
+/** Model slugs for the picker, so staff do not have to type one from memory. */
+app.get('/api/models', requireTenant, requireSubscriber, async (req, res) => {
+  const models = await openrouter.catalogue();
+  res.json({ models: models.map(({ id, name }) => ({ id, name })) });
+});
+
+/**
+ * Seeding. Reads the venue's website via OpenRouter's web_fetch server tool and
+ * proposes venue details. Returns a draft only — nothing here writes to config.
+ */
+app.post('/api/seed', requireTenant, requireSubscriber, async (req, res) => {
+  const resolved = websiteSettings(req, res);
+  if (!resolved) return;
+
+  const answer = await readWebsite(req.subscriber, resolved, {
+    messages: buildSeedMessages({ url: resolved.websiteUrl }),
+    maxTokens: 2000,
+  });
+  if (!answer.ok) return res.status(answer.status).json({ error: answer.error });
+
+  const parsed = parseProposal(answer.content);
+
+  if (!parsed || !parsed.proposal.safeDetails.length) {
+    console.error(
+      'Seed produced nothing usable:',
+      String(answer.content).slice(0, 500)
+    );
+    return res.status(502).json({
+      error:
+        'Nothing checkable came back from that page. It may be image-only, or blocked. Try a different page on the site — an About page usually works best.',
+    });
+  }
+
+  res.json({ ...parsed, url: resolved.websiteUrl, model: resolved.model });
+});
+
+/**
+ * The category picker, drafted from the venue's website. Same contract as
+ * seeding: this proposes, the panel fills the editor with it, and a human
+ * decides. Nothing is saved here.
+ */
+app.post(
+  '/api/categories/suggest',
+  requireTenant,
+  requireSubscriber,
+  async (req, res) => {
+    const resolved = websiteSettings(req, res);
+    if (!resolved) return;
+
+    const answer = await readWebsite(req.subscriber, resolved, {
+      messages: buildCategoryMessages({ url: resolved.websiteUrl }),
+      maxTokens: 800,
+    });
+    if (!answer.ok) {
+      return res.status(answer.status).json({ error: answer.error });
+    }
+
+    const categories = parseCategorySuggestions(answer.content);
+
+    if (!categories) {
+      console.error(
+        'Category suggestion produced nothing usable:',
+        String(answer.content).slice(0, 500)
+      );
+      return res.status(502).json({
+        error:
+          'No usable categories came back from that page. Try a different page on the site — one that lists rooms, dining or facilities works best.',
+      });
+    }
+
+    res.json({ categories, url: resolved.websiteUrl });
+  }
+);
+
 /* ------------------------------------------------------------------ helpers */
+
+/**
+ * Both website readers need the same two things in place first.
+ *
+ * @returns {object|null} the resolved settings, or null once it has answered
+ */
+function websiteSettings(req, res) {
+  const resolved = subscribers.settingsFor(req.subscriber);
+
+  if (!resolved.apiKey) {
+    res.status(500).json({ error: 'No OpenRouter key yet. Add one above.' });
+    return null;
+  }
+  if (!resolved.websiteUrl) {
+    res
+      .status(400)
+      .json({ error: 'Add the venue website address first, then save.' });
+    return null;
+  }
+  return resolved;
+}
+
+/**
+ * One call to OpenRouter with its web_fetch server tool attached. The venue
+ * details draft and the category draft read the same page the same way; only
+ * the prompt and what is made of the answer differ.
+ *
+ * @returns {{ok: true, content: string}|{ok: false, status: number, error: string}}
+ */
+async function readWebsite(subscriber, { apiKey, model }, { messages, maxTokens }) {
+  try {
+    const upstream = await fetch(openrouter.CHAT, {
+      method: 'POST',
+      headers: openrouterHeaders(apiKey, subscriber),
+      body: JSON.stringify({
+        model,
+        messages,
+        // Server-side tool: OpenRouter fetches the page and hands the text to
+        // the model, so there is no tool-call loop to run here.
+        tools: [{ type: 'openrouter:web_fetch' }],
+        max_tokens: maxTokens,
+      }),
+      signal: AbortSignal.timeout(90_000),
+    });
+
+    if (!upstream.ok) {
+      const detail = await upstream.text().catch(() => '');
+      console.error(
+        `OpenRouter web_fetch ${upstream.status}: ${detail.slice(0, 500)}`
+      );
+      return {
+        ok: false,
+        status: 502,
+        error:
+          upstream.status === 404
+            ? `"${model}" could not be used for reading a page. Try a model that supports tools.`
+            : 'Could not read the website. Try again.',
+      };
+    }
+
+    const data = await upstream.json();
+    return { ok: true, content: data?.choices?.[0]?.message?.content };
+  } catch (err) {
+    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    console.error('Website read failed:', err);
+    return {
+      ok: false,
+      status: timedOut ? 504 : 502,
+      error: timedOut
+        ? 'Reading the website took too long. Try again.'
+        : 'Could not reach the reader. Check the connection and try again.',
+    };
+  }
+}
+
+function openrouterHeaders(apiKey, subscriber) {
+  return {
+    Authorization: `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': publicUrl(subscriber.slug),
+    'X-Title': `${subscriber.name} review helper`,
+  };
+}
+
+/** Accepts `true`, a hop count, or an address list — see express's docs. */
+function trustProxySetting(raw) {
+  const value = String(raw).trim();
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  if (/^\d+$/.test(value)) return Number(value);
+  return value;
+}
+
+/** A DNS-legal address derived from a venue name, for the legacy import. */
+function slugify(name) {
+  return (
+    String(name)
+      .toLowerCase()
+      .normalize('NFKD')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 32)
+      .replace(/-+$/, '') || 'venue'
+  );
+}
 
 const QUOTE_PAIRS = [
   ['"', '"'],
@@ -217,69 +420,59 @@ function clean(raw) {
   return t;
 }
 
-/* ---------------------------------------------------------- OpenRouter meta */
-
-let catalogueCache = { at: 0, models: [] };
-const CATALOGUE_TTL = 10 * 60_000;
-
-/** The model list, cached — used by the picker and the slug check. */
-async function catalogue() {
-  if (Date.now() - catalogueCache.at < CATALOGUE_TTL) {
-    return catalogueCache.models;
-  }
-  try {
-    const res = await fetch(OPENROUTER_MODELS, {
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!res.ok) return catalogueCache.models;
-    const { data } = await res.json();
-    if (!Array.isArray(data)) return catalogueCache.models;
-
-    const models = data
-      .map((m) => ({ id: m.id, name: m.name || m.id }))
-      .sort((a, b) => a.id.localeCompare(b.id));
-    catalogueCache = { at: Date.now(), models };
-    return models;
-  } catch {
-    // Offline, or OpenRouter is down. Fall back to whatever we last saw.
-    return catalogueCache.models;
-  }
-}
-
-/** True only when the catalogue loaded and the slug is definitely absent. */
-async function modelMissing(slug) {
-  const models = await catalogue();
-  return models.length > 0 && !models.some((m) => m.id === slug);
-}
-
-/** 'ok' | 'rejected' | 'unreachable' — never throws. */
-async function verifyKey(key) {
-  try {
-    const res = await fetch(OPENROUTER_KEY_INFO, {
-      headers: { Authorization: `Bearer ${key}` },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (res.ok) return 'ok';
-    if (res.status === 401 || res.status === 403) return 'rejected';
-    return 'unreachable';
-  } catch {
-    return 'unreachable';
-  }
-}
-
 /* ------------------------------------------------------------------- start */
 
+/**
+ * Carries a single-tenant install forward: if settings.json is still sitting
+ * there and the store is empty, it becomes the first subscriber. The token is
+ * printed once, because there is no other way to get it afterwards.
+ */
+function importLegacy() {
+  try {
+    return subscribers.importLegacyFile(slugify(VENUE.name), VENUE.name);
+  } catch (err) {
+    console.error('  ! Could not import settings.json:', err.message);
+    return null;
+  }
+}
+
 app.listen(PORT, async () => {
-  const { apiKey, model } = settings.current();
-  const source = settings.sources();
+  const imported = importLegacy();
+  const count = subscribers.count();
 
-  console.log(`\n  ${VENUE.name} review helper`);
-  console.log(`  http://localhost:${PORT}`);
-  console.log(`  model: ${model} (${source.model})`);
+  console.log(`\n  Review helper — ${count} subscriber${count === 1 ? '' : 's'}`);
+  console.log(`  http://localhost:${PORT}  (base domain: ${BASE_DOMAIN})`);
 
-  if (!apiKey) {
-    console.warn('  ! No OpenRouter key yet. Add one in Settings on the page.');
-  } else if (await modelMissing(model)) {
-    console.warn(`  ! "${model}" is not in OpenRouter's catalogue.`);
+  if (imported) {
+    console.log(`\n  Imported settings.json as "${imported.record.slug}".`);
+    console.log(`  Settings token (shown once): ${imported.token}`);
+    console.log(`  Guest page: ${publicUrl(imported.record.slug)}`);
+  }
+
+  if (!count) {
+    console.warn('\n  ! No subscribers yet. Create one:');
+    console.warn(
+      `      curl -X POST http://localhost:${PORT}/api/admin/subscribers \\\n` +
+        '        -H "Authorization: Bearer $ADMIN_TOKEN" \\\n' +
+        '        -H "Content-Type: application/json" \\\n' +
+        '        -d \'{"slug":"my-venue","name":"My Venue"}\''
+    );
+  } else if (DEFAULT_SLUG) {
+    console.log(`  Unmatched hosts fall back to "${DEFAULT_SLUG}".`);
+  }
+
+  if (!ADMIN_TOKEN) {
+    console.warn('\n  ! ADMIN_TOKEN is not set, so the admin API is off.');
+  }
+
+  // One live check, so a stale model slug warns on boot instead of failing in
+  // front of a guest.
+  for (const record of subscribers.list()) {
+    const { model } = subscribers.settingsFor(subscribers.get(record.slug));
+    if (await openrouter.modelMissing(model)) {
+      console.warn(
+        `  ! ${record.slug}: "${model}" is not in OpenRouter's catalogue.`
+      );
+    }
   }
 });

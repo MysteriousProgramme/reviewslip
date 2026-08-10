@@ -24,6 +24,12 @@
   box-sizing: border-box;
 }
 
+/* The settings panel hides whole sections behind `hidden`, and several of them
+   set their own display, which would otherwise win. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body {
   margin: 0;
@@ -380,6 +386,27 @@ body {
   border-color: #f2ac4c;
 }
 
+/* Two places to post, one accent. Marigold is still spent once — as a fill —
+   so the second listing is the outline of the same colour. Whichever button
+   ends up alone on the page gets the fill instead (app.js drops the class). */
+.btn-go-second {
+  background: transparent;
+  color: var(--marigold);
+}
+
+.btn-go-second:hover:not(:disabled) {
+  background: rgba(233, 160, 59, 0.12);
+  border-color: var(--marigold);
+}
+
+.btn-small {
+  flex: none;
+  align-self: flex-start;
+  font-size: 0.813rem;
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+}
+
 .hint {
   margin: 0.125rem 0 0;
   text-align: center;
@@ -409,6 +436,17 @@ body {
   flex-direction: column;
   gap: 1.25rem;
   padding: clamp(1.25rem, 5vw, 1.75rem);
+  /* The panel grew a seeding section — let it scroll rather than overflow the
+     viewport on a laptop or a phone in landscape. */
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+/* Everything behind the settings token, grouped so it can be hidden as one. */
+.sheet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 .sheet-head {
@@ -498,6 +536,128 @@ body {
 
 .sheet-status[data-tone='error'] {
   color: #eec27c;
+}
+
+/* --------------------------------------------------------------- seeding -- */
+
+.cats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* The button's label, the note that steers the prompt, and a way to drop it. */
+.cat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.7fr) auto;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.cat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.cat-remove {
+  appearance: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--jade-line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--jade-dim);
+  font-family: inherit;
+  font-size: 1.125rem;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    border-color 0.18s var(--ease),
+    color 0.18s var(--ease);
+}
+
+.cat-remove:hover {
+  border-color: var(--marigold);
+  color: var(--marigold);
+}
+
+/* On a phone the two inputs cannot share a row and stay usable. */
+@media (max-width: 30rem) {
+  .cat {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .cat .cat-focus {
+    grid-column: 1 / -1;
+  }
+}
+
+.seed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.875rem;
+  border: 1px dashed var(--jade-line);
+  border-radius: 5px;
+}
+
+.btn-seed {
+  flex: none;
+  width: 100%;
+}
+
+.seed-out {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.seed-head {
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--paper);
+}
+
+.seed-head span {
+  color: var(--jade-dim);
+}
+
+.seed-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.seed-list li {
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--paper);
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--jade-line);
+}
+
+/* The quoted page text each detail came from — the thing that makes a wrong
+   detail visible at a glance. */
+.seed-list q {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--jade-dim);
+  font-style: italic;
+}
+
+.seed-dropped {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--jade-dim);
 }
 
 .sheet-actions {

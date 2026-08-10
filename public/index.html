@@ -65,8 +65,11 @@
           </button>
           <button type="button" class="btn btn-quiet" id="copy">Copy</button>
         </div>
-        <button type="button" class="btn btn-go" id="proceed">
+        <button type="button" class="btn btn-go" id="proceed" hidden>
           Proceed to Google
+        </button>
+        <button type="button" class="btn btn-go" id="proceed-ta" hidden>
+          Proceed to Tripadvisor
         </button>
         <p class="hint" id="hint">Copies your review, then opens the listing.</p>
       </div>
@@ -76,11 +79,26 @@
       <form method="dialog" class="sheet-inner" id="settings-form">
         <header class="sheet-head">
           <h2 class="sheet-title">Settings</h2>
-          <p class="sheet-note">
-            Stored on this machine in <code>settings.json</code>.
+          <p class="sheet-note" id="sheet-venue">
+            Settings for this venue only.
           </p>
         </header>
 
+        <label class="field" id="settings-lock" hidden>
+          <span class="field-label">Settings token</span>
+          <input
+            type="password"
+            id="settings-token"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="rvw_…"
+          />
+          <span class="field-hint">
+            Issued when this venue was set up. Kept for this browser tab only.
+          </span>
+        </label>
+
+        <div class="sheet-body" id="settings-body" hidden>
         <label class="field">
           <span class="field-label">
             OpenRouter key
@@ -131,11 +149,87 @@
           <span class="field-hint">Where Proceed to Google sends the guest.</span>
         </label>
 
+        <label class="field">
+          <span class="field-label">
+            Tripadvisor link
+            <em class="origin" id="ta-origin"></em>
+          </span>
+          <input
+            type="url"
+            id="tripadvisor-url"
+            name="tripadvisorUrl"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="https://www.tripadvisor.com/…"
+          />
+          <span class="field-hint">
+            Optional. Leave it empty and the button stays off the page.
+          </span>
+        </label>
+
+        <div class="field">
+          <span class="field-label">
+            Review categories
+            <em class="origin" id="categories-origin"></em>
+          </span>
+          <div class="cats" id="cats"></div>
+          <div class="cat-actions">
+            <button type="button" class="btn btn-quiet btn-small" id="add-category">
+              Add category
+            </button>
+            <button
+              type="button"
+              class="btn btn-quiet btn-small"
+              id="suggest-categories"
+            >
+              Suggest from website
+            </button>
+          </div>
+          <p class="sheet-status" id="cats-status" role="status" aria-live="polite"></p>
+          <span class="field-hint">
+            The buttons a guest picks from, up to five. Write them yourself or
+            have them drafted from the venue website — either way nothing is
+            saved until you press Save. The note steers what that review talks
+            about; leave it blank to go on the label alone. Remove them all to
+            fall back to the built-in set.
+          </span>
+        </div>
+
+        <label class="field">
+          <span class="field-label">
+            Venue website
+            <em class="origin" id="website-origin"></em>
+          </span>
+          <input
+            type="url"
+            id="website-url"
+            name="websiteUrl"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="https://example.com"
+          />
+          <span class="field-hint">
+            Read once to draft the venue details. Guests never see it.
+          </span>
+        </label>
+
+        <div class="seed">
+          <button type="button" class="btn btn-quiet btn-seed" id="draft">
+            Draft details from website
+          </button>
+          <p class="sheet-status" id="seed-status" role="status" aria-live="polite"></p>
+          <div class="seed-out" id="seed-out" hidden></div>
+        </div>
+        </div>
+
         <p class="sheet-status" id="settings-status" role="status" aria-live="polite"></p>
 
         <div class="sheet-actions">
           <button type="button" class="btn btn-quiet" id="cancel-settings">
             Cancel
+          </button>
+          <button type="submit" class="btn btn-save" id="unlock-settings" hidden>
+            Unlock
           </button>
           <button type="submit" class="btn btn-save" id="save-settings">Save</button>
         </div>

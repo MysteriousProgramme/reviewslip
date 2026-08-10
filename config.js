@@ -91,11 +91,18 @@ ${VENUE.safeDetails.map((d) => `- ${d}`).join('\n')}`;
  * @param {object} args
  * @param {string} args.categoryId
  * @param {string[]} args.recent - recent reviews to avoid echoing
+ * @param {object[]} [args.categories] - the venue's own buttons, if it set any
  * @param {() => number} [args.rand] - injectable for tests
  */
-function buildMessages({ categoryId, recent = [], rand = Math.random }) {
-  const category =
-    CATEGORIES.find((c) => c.id === categoryId) || CATEGORIES[0];
+function buildMessages({
+  categoryId,
+  recent = [],
+  categories,
+  rand = Math.random,
+}) {
+  const list =
+    Array.isArray(categories) && categories.length ? categories : CATEGORIES;
+  const category = list.find((c) => c.id === categoryId) || list[0];
   const angle = ANGLES[Math.floor(rand() * ANGLES.length)];
 
   let user = `Write one review about ${category.focus}.\n\nThis time: ${angle}.`;
