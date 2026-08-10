@@ -1,8 +1,12 @@
 'use strict';
 
 /**
- * Everything venue-specific lives here. Edit this file to point the app at a
- * different property — nothing else needs to change.
+ * The built-in venue, underneath every subscriber.
+ *
+ * A subscriber that has filled in its own kind, place and details overrides
+ * these; one that has not falls back here, the same way an unset API key falls
+ * back to .env. On a single-venue install, editing this file is still the
+ * quickest way to point the app at a different property.
  */
 
 const VENUE = {
@@ -72,7 +76,14 @@ const ANGLES = [
   'note something you would do again or tell a friend about',
 ];
 
-const SYSTEM_PROMPT = `You write short Google reviews in the voice of a real guest who has just checked out of ${VENUE.name}, ${VENUE.kind} in ${VENUE.place}.
+/**
+ * The writing prompt, for one venue.
+ *
+ * @param {object} venue - name, kind, place, safeDetails; the resolved values
+ *   for whichever subscriber is being served, not necessarily the built-in.
+ */
+function buildSystemPrompt(venue) {
+  return `You write short Google reviews in the voice of a real guest who has just checked out of ${venue.name}, ${venue.kind} in ${venue.place}.
 
 Rules:
 - 1 to 3 sentences. Under 45 words. Casual, first person, past tense.
@@ -85,19 +96,22 @@ Rules:
 - Output only the review text. Nothing before it, nothing after it.
 
 Details you may draw on:
-${VENUE.safeDetails.map((d) => `- ${d}`).join('\n')}`;
+${venue.safeDetails.map((d) => `- ${d}`).join('\n')}`;
+}
 
 /**
  * @param {object} args
  * @param {string} args.categoryId
  * @param {string[]} args.recent - recent reviews to avoid echoing
  * @param {object[]} [args.categories] - the venue's own buttons, if it set any
+ * @param {object} [args.venue] - the venue being written about
  * @param {() => number} [args.rand] - injectable for tests
  */
 function buildMessages({
   categoryId,
   recent = [],
   categories,
+  venue = VENUE,
   rand = Math.random,
 }) {
   const list =
@@ -116,9 +130,15 @@ function buildMessages({
   }
 
   return [
-    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: buildSystemPrompt(venue) },
     { role: 'user', content: user },
   ];
 }
 
-module.exports = { VENUE, CATEGORIES, ANGLES, SYSTEM_PROMPT, buildMessages };
+module.exports = {
+  VENUE,
+  CATEGORIES,
+  ANGLES,
+  buildSystemPrompt,
+  buildMessages,
+};

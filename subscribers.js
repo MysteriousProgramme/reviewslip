@@ -86,6 +86,14 @@ const COLUMNS = {
   googleUrl: 'google_url',
   tripadvisorUrl: 'tripadvisor_url',
   websiteUrl: 'website_url',
+  kind: 'kind',
+  place: 'place',
+};
+
+// The columns holding a JSON list rather than a scalar, by settings field.
+const LISTS = {
+  categories: 'categories',
+  safeDetails: 'safe_details',
 };
 
 /** A row's own stored settings, in the shape settings.js works with. */
@@ -94,39 +102,56 @@ function own(row) {
   for (const [field, column] of Object.entries(COLUMNS)) {
     if (row?.[column]) out[field] = row[column];
   }
-
-  const categories = parseCategories(row?.categories);
-  if (categories) out.categories = categories;
+  for (const [field, column] of Object.entries(LISTS)) {
+    const list = parseList(row?.[column], field);
+    if (list) out[field] = list;
+  }
 
   return out;
 }
 
 /**
- * Categories live in one JSON column rather than a table of their own: they
- * are read whole, written whole, and never queried across venues.
+ * Lists live in one JSON column rather than tables of their own: they are read
+ * whole, written whole, and never queried across venues.
  *
- * @returns {object[]|null} null for unset, empty, or unparseable — all three
- *   mean "fall back to the built-in set" rather than "show no buttons".
+ * @returns {any[]|null} null for unset, empty, or unparseable — all three mean
+ *   "fall back to the built-in" rather than "show nothing".
  */
-function parseCategories(json) {
+function parseList(json, what) {
   if (!json) return null;
   try {
     const list = JSON.parse(json);
     return Array.isArray(list) && list.length ? list : null;
   } catch {
-    console.error('Ignoring unreadable categories JSON in the store.');
+    console.error(`Ignoring unreadable ${what} JSON in the store.`);
     return null;
   }
 }
 
 /** @returns {string|null} the column value for a validated list */
-function packCategories(list) {
+function packList(list) {
   return list?.length ? JSON.stringify(list) : null;
 }
 
 /** The values to actually use for this subscriber, real API key included. */
 function settingsFor(row) {
   return settings.resolve(own(row));
+}
+
+/**
+ * Who the writer is writing about. `name` comes off the row rather than the
+ * settings chain — every subscriber has one, so there is nothing to fall back
+ * to — while the rest resolve down to config.js for a venue that has not
+ * described itself yet.
+ */
+function venueFor(row) {
+  const resolved = settings.resolve(own(row));
+  return {
+    name: row.name,
+    kind: resolved.kind,
+    place: resolved.place,
+    safeDetails: resolved.safeDetails,
+  };
 }
 
 /** Panel-safe: masked key, plus where each value came from. */
@@ -162,9 +187,10 @@ const Q = {
   insert: `
     INSERT INTO subscribers
       (slug, name, status, api_key, model, google_url, tripadvisor_url,
-       website_url, categories, token_hash, created_at, updated_at)
+       website_url, categories, kind, place, safe_details, token_hash,
+       created_at, updated_at)
     VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
   `,
   remove: 'DELETE FROM subscribers WHERE slug = $1',
   setToken:
@@ -222,7 +248,10 @@ async function create(input = {}) {
       values.googleUrl || null,
       values.tripadvisorUrl || null,
       values.websiteUrl || null,
-      packCategories(check.categories),
+      packList(check.categories),
+      values.kind || null,
+      values.place || null,
+      packList(check.safeDetails),
       hashToken(token),
       now(),
     ]);
@@ -268,8 +297,9 @@ async function update(slug, patch = {}) {
   }
 
   // An explicit null, or a list that emptied out, resets to the built-in set.
-  if (patch.categories !== undefined) {
-    sets.push(`categories = ${next(packCategories(check.categories))}`);
+  for (const [field, column] of Object.entries(LISTS)) {
+    if (patch[field] === undefined) continue;
+    sets.push(`${column} = ${next(packList(check[field]))}`);
   }
 
   if (typeof patch.name === 'string') {
@@ -355,6 +385,7 @@ module.exports = {
   verifyToken,
   own,
   settingsFor,
+  venueFor,
   describe,
   toRecord,
   get,

@@ -222,6 +222,64 @@
           <p class="sheet-status" id="seed-status" role="status" aria-live="polite"></p>
           <div class="seed-out" id="seed-out" hidden></div>
         </div>
+
+        <label class="field">
+          <span class="field-label">
+            What this place is
+            <em class="origin" id="kind-origin"></em>
+          </span>
+          <input
+            type="text"
+            id="venue-kind"
+            name="kind"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="120"
+            placeholder="a small lodge"
+          />
+          <span class="field-hint">
+            How a review refers to it, mid-sentence: "a small lodge", "a
+            beachfront hotel".
+          </span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">
+            Where it is
+            <em class="origin" id="place-origin"></em>
+          </span>
+          <input
+            type="text"
+            id="venue-place"
+            name="place"
+            autocomplete="off"
+            spellcheck="false"
+            maxlength="160"
+            placeholder="San Kamphaeng, Chiang Mai, Thailand"
+          />
+          <span class="field-hint">Town, region, country.</span>
+        </label>
+
+        <div class="field">
+          <span class="field-label">
+            Details reviews may use
+            <em class="origin" id="details-origin"></em>
+          </span>
+          <div class="cats" id="details"></div>
+          <div class="cat-actions">
+            <button type="button" class="btn btn-quiet btn-small" id="add-detail">
+              Add detail
+            </button>
+          </div>
+          <p class="sheet-status" id="details-status" role="status" aria-live="polite"></p>
+          <span class="field-hint">
+            The only things a review is allowed to claim about this venue —
+            anything not listed, the writer is told not to invent. A wrong one
+            is repeated in every review from then on, not just one, so keep them
+            true and checkable. No numbers, no awards, no staff or dish names.
+            Draft them from the website above, then read each line.
+          </span>
+        </div>
         </div>
 
         <p class="sheet-status" id="settings-status" role="status" aria-live="polite"></p>

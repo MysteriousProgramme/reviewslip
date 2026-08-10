@@ -88,6 +88,17 @@ const MIGRATIONS = [
     // which is what every existing row wants.
     await c.query('ALTER TABLE subscribers ADD COLUMN categories text');
   },
+
+  async (c) => {
+    // Who the venue is, in the writer's words. Until now these lived in
+    // config.js, installation-wide, so every venue's reviews described the
+    // first one. NULL still falls back to config.js, which is what a venue
+    // that has not filled them in wants.
+    await c.query('ALTER TABLE subscribers ADD COLUMN kind text');
+    await c.query('ALTER TABLE subscribers ADD COLUMN place text');
+    // A JSON array of strings — the details a review may draw on.
+    await c.query('ALTER TABLE subscribers ADD COLUMN safe_details text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.
