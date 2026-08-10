@@ -83,7 +83,10 @@ and a venue that brings its own overrides it. Clearing a field in the panel
 falls back through the same chain, and the panel labels each value `this venue`,
 `from .env` or `default` so an inherited value is never a mystery. Categories
 are the exception — they are the venue's own or the built-in set, with no
-`.env` layer in between.
+`.env` layer in between. So are the venue's own details — what kind of place it
+is, where it is, and the list of things a review may draw on. One venue's
+description is meaningless for another, so those resolve straight from the
+venue's row to the built-in venue in `config.js`.
 
 `PORT`, `ADMIN_TOKEN`, `BASE_DOMAIN`, `DEFAULT_SUBSCRIBER`, `TRUST_PROXY` and
 `DATABASE_URL` are `.env` only — they are properties of the installation, not of
@@ -137,8 +140,11 @@ and staff or dish names, and requires a source quote. Then `screen()` in
 [seed.js](seed.js) independently drops anything that slips through, and the
 panel reports what it dropped and why.
 
-**The output is a draft.** Nothing is written to the venue config — a human
-reads the list and decides.
+**The output is a draft.** Nothing is stored by reading the website. **Use this
+draft** fills the venue-details fields in the panel with it, and Save is still a
+separate, deliberate act — so a human reads every line before it can reach a
+review. Those fields are per venue: what kind of place it is, where it is, and
+the details reviews may draw on, all stored on that venue's row.
 
 ## Categories
 
@@ -203,7 +209,7 @@ also what would let an approved seeding draft be applied rather than only read.
 
 | File | What it holds |
 | --- | --- |
-| `config.js` | The venue identity, the prompt, and the built-in category set a venue falls back to. Still installation-wide — see above. |
+| `config.js` | The writing prompt, plus the built-in venue and category set a venue falls back to when it has not described itself. |
 | `db.js` | The Postgres pool and the schema migrations. |
 | `subscribers.js` | The subscriber store: rows, tokens, the legacy import. |
 | `settings.js` | Resolves a venue's settings down the chain, and validates them. |

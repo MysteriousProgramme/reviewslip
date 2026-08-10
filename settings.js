@@ -16,13 +16,27 @@
  * for the merge, so this file stays testable with a plain object.
  */
 
-const { CATEGORIES } = require('./config');
+const { CATEGORIES, VENUE } = require('./config');
+const { bannedWord } = require('./seed');
 
-const FIELDS = ['apiKey', 'model', 'googleUrl', 'tripadvisorUrl', 'websiteUrl'];
+const FIELDS = [
+  'apiKey',
+  'model',
+  'googleUrl',
+  'tripadvisorUrl',
+  'websiteUrl',
+  'kind',
+  'place',
+];
 
 const BUILT_IN = {
   apiKey: '',
   model: 'anthropic/claude-haiku-4.5',
+  // Who the venue is, in the writer's words. No .env layer: one venue's
+  // description is meaningless for another, so these are the venue's own or the
+  // built-in, and `fromEnv` simply does not read them.
+  kind: VENUE.kind,
+  place: VENUE.place,
   // No built-in review links. One venue's listing is the wrong default for
   // every other venue — an unset link is reported as unset, and the guest page
   // drops that button rather than sending someone to a stranger's listing.
@@ -64,12 +78,19 @@ function resolve(own) {
   // Categories skip the .env layer — a list of buttons is not something you
   // usefully set installation-wide, so it is the venue's own or the built-in.
   merged.categories = ownCategories(own) || CATEGORIES;
+  merged.safeDetails = ownSafeDetails(own) || VENUE.safeDetails;
   return merged;
 }
 
 /** @returns {object[]|null} the venue's own list, if it set one */
 function ownCategories(own) {
   const list = own?.categories;
+  return Array.isArray(list) && list.length ? list : null;
+}
+
+/** @returns {string[]|null} the venue's own details, if it set any */
+function ownSafeDetails(own) {
+  const list = own?.safeDetails;
   return Array.isArray(list) && list.length ? list : null;
 }
 
@@ -82,6 +103,7 @@ function sources(own) {
     out[field] = mine[field] ? 'subscriber' : env[field] ? 'env' : 'default';
   }
   out.categories = ownCategories(own) ? 'subscriber' : 'default';
+  out.safeDetails = ownSafeDetails(own) ? 'subscriber' : 'default';
   return out;
 }
 
@@ -103,9 +125,12 @@ function describe(own) {
     },
     websiteUrl: { value: values.websiteUrl, source: source.websiteUrl },
     categories: { value: values.categories, source: source.categories },
+    kind: { value: values.kind, source: source.kind },
+    place: { value: values.place, source: source.place },
+    safeDetails: { value: values.safeDetails, source: source.safeDetails },
     // Sent rather than hardcoded in the page, so the editor and the validator
     // cannot drift apart.
-    limits: { categories: MAX_CATEGORIES },
+    limits: { categories: MAX_CATEGORIES, safeDetails: MAX_SAFE_DETAILS },
   };
 }
 
@@ -152,15 +177,100 @@ function validate(patch) {
   const websiteUrl = checkWebUrl(patch.websiteUrl, 'website address');
   if (websiteUrl) return websiteUrl;
 
+  const kind = checkLength(patch.kind, MAX_KIND, 'description');
+  if (kind) return kind;
+
+  const place = checkLength(patch.place, MAX_PLACE, 'location');
+  if (place) return place;
+
+  // Handed back normalised, so the caller stores exactly what was checked
+  // rather than re-deriving it.
+  const out = { ok: true };
+
   if (Array.isArray(patch.categories)) {
     const verdict = validateCategories(patch.categories);
     if (!verdict.ok) return verdict;
-    // Handed back normalised, ids and all, so the caller stores exactly what
-    // was checked rather than re-deriving it.
-    return { ok: true, categories: verdict.categories };
+    out.categories = verdict.categories;
   }
 
-  return { ok: true };
+  if (Array.isArray(patch.safeDetails)) {
+    const verdict = validateSafeDetails(patch.safeDetails);
+    if (!verdict.ok) return verdict;
+    out.safeDetails = verdict.safeDetails;
+  }
+
+  return out;
+}
+
+/** @returns {{ok: false, error: string}|null} null when the value is fine */
+function checkLength(value, max, label) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+  return value.trim().length > max
+    ? { ok: false, error: `That ${label} is too long.` }
+    : null;
+}
+
+/* ----------------------------------------------------------- safe details */
+
+// The prompt asks for six to ten; ten is where a list stops steering the writer
+// and starts being a menu it picks from at random.
+const MAX_SAFE_DETAILS = 10;
+const MAX_DETAIL = 180;
+const MAX_KIND = 120;
+const MAX_PLACE = 160;
+
+/**
+ * The details a review may draw on — the load-bearing part of the
+ * no-fabrication guarantee. A wrong one here is repeated in *every* review from
+ * then on, not just one, so the same screens seeding applies to a model's
+ * output apply to a human's typing: no numbers, no unverifiable claims.
+ *
+ * Unlike seeding, which silently drops what fails, this reports the problem —
+ * someone editing the list by hand should be told why their line vanished.
+ *
+ * @returns {{ok: true, safeDetails: string[]}|{ok: false, error: string}}
+ */
+function validateSafeDetails(value) {
+  if (!Array.isArray(value)) {
+    return { ok: false, error: 'Details must be a list.' };
+  }
+  if (value.length > MAX_SAFE_DETAILS) {
+    return {
+      ok: false,
+      error: `That is more than ${MAX_SAFE_DETAILS} details. Trim the list.`,
+    };
+  }
+
+  const out = [];
+
+  for (const item of value) {
+    const detail = text(item, MAX_DETAIL + 1);
+    if (!detail) continue; // a blank row is a row the user deleted
+
+    if (detail.length > MAX_DETAIL) {
+      return {
+        ok: false,
+        error: `"${detail.slice(0, 30)}…" is too long for a detail.`,
+      };
+    }
+    if (/\d/.test(detail)) {
+      return {
+        ok: false,
+        error: `"${detail.slice(0, 30)}…" has a number in it. Numbers get repeated in every review — take it out.`,
+      };
+    }
+    const hit = bannedWord(detail);
+    if (hit) {
+      return {
+        ok: false,
+        error: `"${detail.slice(0, 30)}…" claims something a guest cannot check ("${hit}"). Rephrase it.`,
+      };
+    }
+
+    out.push(detail);
+  }
+
+  return { ok: true, safeDetails: out };
 }
 
 /* ------------------------------------------------------------- categories */
@@ -264,6 +374,8 @@ module.exports = {
   FIELDS,
   BUILT_IN,
   MAX_CATEGORIES,
+  MAX_SAFE_DETAILS,
+  validateSafeDetails,
   clean,
   fromEnv,
   resolve,

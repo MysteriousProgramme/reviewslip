@@ -43,6 +43,14 @@ const el = {
   draft: document.getElementById('draft'),
   seedStatus: document.getElementById('seed-status'),
   seedOut: document.getElementById('seed-out'),
+  kind: document.getElementById('venue-kind'),
+  kindOrigin: document.getElementById('kind-origin'),
+  place: document.getElementById('venue-place'),
+  placeOrigin: document.getElementById('place-origin'),
+  details: document.getElementById('details'),
+  addDetail: document.getElementById('add-detail'),
+  detailsStatus: document.getElementById('details-status'),
+  detailsOrigin: document.getElementById('details-origin'),
 };
 
 const state = {
@@ -50,6 +58,8 @@ const state = {
   googleUrl: null,
   tripadvisorUrl: null,
   maxCategories: 5, // replaced by the server's own limit on first load
+  maxDetails: 10, // same
+
   recent: [], // last few generations, so the next one reads differently
   busy: false,
   unlocked: false, // whether the settings token has been accepted this tab
@@ -122,6 +132,9 @@ async function init() {
     addCategoryRow().querySelector('.cat-label').focus();
   });
   el.suggestCategories.addEventListener('click', onSuggestCategories);
+  el.addDetail.addEventListener('click', () => {
+    addDetailRow().querySelector('.cat-focus').focus();
+  });
 
   let config;
   try {
@@ -248,6 +261,7 @@ async function openSettings() {
   el.apiKey.value = '';
   seedSay('');
   catsSay('');
+  detailsSay('');
   el.seedOut.hidden = true;
   el.seedOut.replaceChildren();
   el.sheet.showModal();
@@ -321,8 +335,12 @@ function fillSettings(s) {
   el.googleUrl.value = s.googleUrl.value;
   el.tripadvisorUrl.value = s.tripadvisorUrl.value;
   el.websiteUrl.value = s.websiteUrl.value;
+  el.kind.value = s.kind.value;
+  el.place.value = s.place.value;
   if (s.limits?.categories) state.maxCategories = s.limits.categories;
+  if (s.limits?.safeDetails) state.maxDetails = s.limits.safeDetails;
   renderCategories(s.categories.value);
+  renderDetails(s.safeDetails.value);
 
   setOrigin(el.keyOrigin, s.apiKey.source, s.apiKey.set);
   setOrigin(el.modelOrigin, s.model.source, true);
@@ -334,6 +352,66 @@ function fillSettings(s) {
   );
   setOrigin(el.websiteOrigin, s.websiteUrl.source, Boolean(s.websiteUrl.value));
   setOrigin(el.categoriesOrigin, s.categories.source, true);
+  setOrigin(el.kindOrigin, s.kind.source, Boolean(s.kind.value));
+  setOrigin(el.placeOrigin, s.place.source, Boolean(s.place.value));
+  setOrigin(el.detailsOrigin, s.safeDetails.source, true);
+}
+
+/* ---------------------------------------------------------- venue details */
+
+function renderDetails(list) {
+  el.details.replaceChildren();
+  for (const detail of list || []) addDetailRow(detail);
+  updateDetailControls();
+}
+
+/** The cap is the server's; the button just stops offering what it would reject. */
+function updateDetailControls() {
+  const full = el.details.childElementCount >= state.maxDetails;
+  el.addDetail.disabled = full;
+  el.addDetail.textContent = full
+    ? `${state.maxDetails} is the maximum`
+    : 'Add detail';
+}
+
+function addDetailRow(detail = '') {
+  const row = document.createElement('div');
+  row.className = 'cat';
+
+  const text = document.createElement('input');
+  text.type = 'text';
+  text.className = 'cat-focus';
+  text.placeholder = 'something a guest could see for themselves';
+  text.maxLength = 180;
+  text.value = detail || '';
+
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'cat-remove';
+  remove.textContent = '×';
+  remove.setAttribute('aria-label', 'Remove detail');
+  remove.addEventListener('click', () => {
+    row.remove();
+    updateDetailControls();
+  });
+
+  row.append(text, remove);
+  el.details.append(row);
+  updateDetailControls();
+  return row;
+}
+
+/** The rows as the server wants them. It drops the blank ones. */
+function readDetails() {
+  return [...el.details.children].map(
+    (row) => row.querySelector('.cat-focus').value
+  );
+}
+
+function detailsSay(message, tone) {
+  el.detailsStatus.textContent = message;
+  if (tone) el.detailsStatus.dataset.tone = tone;
+  else delete el.detailsStatus.dataset.tone;
 }
 
 /* ------------------------------------------------------------- categories */
@@ -502,6 +580,9 @@ async function onSaveSettings(event) {
     tripadvisorUrl: el.tripadvisorUrl.value,
     websiteUrl: el.websiteUrl.value,
     categories: readCategories(),
+    kind: el.kind.value,
+    place: el.place.value,
+    safeDetails: readDetails(),
   };
   // An empty key field means "keep what's there", not "clear it".
   if (el.apiKey.value.trim()) patch.apiKey = el.apiKey.value.trim();
@@ -619,6 +700,22 @@ function renderProposal({ proposal, dropped }) {
     } left out: ${dropped.map((d) => d.reason).join('; ')}.`;
     frag.append(note);
   }
+
+  // The draft is worth nothing until it lands in the fields, but it stays a
+  // draft even then: this fills the editor, and Save is still a separate,
+  // deliberate act.
+  const use = document.createElement('button');
+  use.type = 'button';
+  use.className = 'btn btn-quiet btn-small';
+  use.textContent = 'Use this draft';
+  use.addEventListener('click', () => {
+    if (proposal.kind) el.kind.value = proposal.kind;
+    if (proposal.place) el.place.value = proposal.place;
+    renderDetails(proposal.safeDetails.map((item) => item.detail));
+    detailsSay('Filled from the draft. Check each line, then Save.');
+    el.kind.scrollIntoView({ block: 'nearest' });
+  });
+  frag.append(use);
 
   el.seedOut.replaceChildren(frag);
   el.seedOut.hidden = false;

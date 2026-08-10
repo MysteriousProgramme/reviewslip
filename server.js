@@ -73,13 +73,12 @@ function throttled(key) {
 /* ------------------------------------------------------------ guest routes */
 
 app.get('/api/config', requireTenant, (req, res) => {
-  const { googleUrl, tripadvisorUrl, categories } = subscribers.settingsFor(
-    req.subscriber
-  );
+  const { googleUrl, tripadvisorUrl, categories, place } =
+    subscribers.settingsFor(req.subscriber);
 
   res.json({
-    venue: VENUE.name,
-    place: VENUE.place,
+    venue: req.subscriber.name,
+    place,
     // `focus` is prompt input, not guest-facing — the buttons only need a label.
     categories: categories.map(({ id, label }) => ({ id, label })),
     googleUrl,
@@ -119,7 +118,12 @@ app.post('/api/review', requireTenant, async (req, res) => {
         .map((r) => r.slice(0, 400))
     : [];
 
-  const messages = buildMessages({ categoryId, recent, categories });
+  const messages = buildMessages({
+    categoryId,
+    recent,
+    categories,
+    venue: subscribers.venueFor(req.subscriber),
+  });
 
   try {
     const upstream = await fetch(openrouter.CHAT, {
@@ -194,6 +198,9 @@ app.post('/api/settings', requireTenant, requireSubscriber, async (req, res) => 
       tripadvisorUrl: patch.tripadvisorUrl,
       websiteUrl: patch.websiteUrl,
       categories: patch.categories,
+      kind: patch.kind,
+      place: patch.place,
+      safeDetails: patch.safeDetails,
     });
   } catch (err) {
     if (err?.expose && err.status) {
