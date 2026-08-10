@@ -86,12 +86,12 @@ are the exception — they are the venue's own or the built-in set, with no
 `.env` layer in between.
 
 `PORT`, `ADMIN_TOKEN`, `BASE_DOMAIN`, `DEFAULT_SUBSCRIBER`, `TRUST_PROXY` and
-`DB_FILE` are `.env` only — they are properties of the installation, not of a
-venue.
+`DATABASE_URL` are `.env` only — they are properties of the installation, not of
+a venue.
 
 The panel never receives a key back, only a masked hint like `sk-or-v1••••4f2a`.
-Keys are stored in plain text in `data/app.db` (gitignored), so that file
-belongs on the machine that runs the app and nowhere else.
+Keys are stored in plain text in Postgres, so it should listen on loopback only
+and stay on the machine that runs the app.
 
 ## API
 
@@ -204,7 +204,7 @@ also what would let an approved seeding draft be applied rather than only read.
 | File | What it holds |
 | --- | --- |
 | `config.js` | The venue identity, the prompt, and the built-in category set a venue falls back to. Still installation-wide — see above. |
-| `db.js` | The SQLite handle and the schema migrations. |
+| `db.js` | The Postgres pool and the schema migrations. |
 | `subscribers.js` | The subscriber store: rows, tokens, the legacy import. |
 | `settings.js` | Resolves a venue's settings down the chain, and validates them. |
 | `tenant.js` | Turns a hostname into a subscriber. |
@@ -214,7 +214,7 @@ also what would let an approved seeding draft be applied rather than only read.
 | `seed.js` | The seeding and category-suggestion prompts, plus the screens that drop unverifiable claims. |
 | `server.js` | Serves the page, calls OpenRouter, cleans up the completion. |
 | `public/` | The page itself. |
-| `data/app.db` | Subscribers and their settings. Gitignored. |
+| `scripts/import-sqlite.js` | One-off: copies subscribers out of the old `data/app.db` into Postgres. |
 | `.env` | Installation settings, plus the fallbacks under every venue. |
 
 ## Notes

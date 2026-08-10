@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Reviewslip">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#131c15" />
+      <stop offset="1" stop-color="#050806" />
+    </linearGradient>
+
+    <!-- The warm cast in the top-right corner of the original. -->
+    <radialGradient id="glow" cx="0.78" cy="0.1" r="0.75">
+      <stop offset="0" stop-color="#4a4520" stop-opacity="0.55" />
+      <stop offset="0.55" stop-color="#2b2c16" stop-opacity="0.18" />
+      <stop offset="1" stop-color="#000000" stop-opacity="0" />
+    </radialGradient>
+
+    <linearGradient id="paper" x1="0.15" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#fcfaf4" />
+      <stop offset="1" stop-color="#e6dfd0" />
+    </linearGradient>
+
+    <filter id="lift" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="9" stdDeviation="11" flood-color="#000000" flood-opacity="0.45" />
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="115" fill="url(#tile)" />
+  <rect width="512" height="512" rx="115" fill="url(#glow)" />
+
+  <g transform="rotate(-5 256 230)" filter="url(#lift)">
+    <!-- Receipt: straight sides, torn along the bottom. -->
+    <path
+      fill="url(#paper)"
+      d="M130 95 H375 V340
+         L362.75 366 L350.5 340 L338.25 366 L326 340 L313.75 366 L301.5 340
+         L289.25 366 L277 340 L264.75 366 L252.5 340 L240.25 366 L228 340
+         L215.75 366 L203.5 340 L191.25 366 L179 340 L166.75 366 L154.5 340
+         L142.25 366 L130 340 Z" />
+
+    <path
+      fill="#e89b3c"
+      d="M243 116 L258.28 156.97 L301.97 158.84 L267.73 186.03 L279.44 228.16
+         L243 204 L206.56 228.16 L218.27 186.03 L184.03 158.84 L227.72 156.97 Z" />
+
+    <g fill="#8fa098">
+      <rect x="168" y="252" width="176" height="23" rx="11.5" />
+      <rect x="168" y="286" width="176" height="23" rx="11.5" />
+      <rect x="168" y="320" width="118" height="23" rx="11.5" />
+    </g>
+  </g>
+</svg>

@@ -26,8 +26,13 @@ function withUrl(record) {
 
 /* ------------------------------------------------------------------ routes */
 
-router.get('/subscribers', (req, res) => {
-  res.json({ subscribers: subscribers.list().map(withUrl) });
+router.get('/subscribers', async (req, res, next) => {
+  try {
+    const records = await subscribers.list();
+    res.json({ subscribers: records.map(withUrl) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.post('/subscribers', async (req, res, next) => {
@@ -39,7 +44,7 @@ router.post('/subscribers', async (req, res, next) => {
     const verdict = await openrouter.vet(body);
     if (verdict.error) return res.status(400).json({ error: verdict.error });
 
-    const { record, token } = subscribers.create(body);
+    const { record, token } = await subscribers.create(body);
 
     res.status(201).json({
       subscriber: withUrl(record),
@@ -52,10 +57,16 @@ router.post('/subscribers', async (req, res, next) => {
   }
 });
 
-router.get('/subscribers/:slug', (req, res) => {
-  const row = subscribers.get(req.params.slug);
-  if (!row) return res.status(404).json({ error: 'No subscriber at that address.' });
-  res.json({ subscriber: withUrl(subscribers.toRecord(row)) });
+router.get('/subscribers/:slug', async (req, res, next) => {
+  try {
+    const row = await subscribers.get(req.params.slug);
+    if (!row) {
+      return res.status(404).json({ error: 'No subscriber at that address.' });
+    }
+    res.json({ subscriber: withUrl(subscribers.toRecord(row)) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.patch('/subscribers/:slug', async (req, res, next) => {
@@ -65,24 +76,28 @@ router.patch('/subscribers/:slug', async (req, res, next) => {
     const verdict = await openrouter.vet(body);
     if (verdict.error) return res.status(400).json({ error: verdict.error });
 
-    const record = subscribers.update(req.params.slug, body);
+    const record = await subscribers.update(req.params.slug, body);
     res.json({ subscriber: withUrl(record), warning: verdict.warning });
   } catch (err) {
     next(err);
   }
 });
 
-router.delete('/subscribers/:slug', (req, res) => {
-  if (!subscribers.remove(req.params.slug)) {
-    return res.status(404).json({ error: 'No subscriber at that address.' });
+router.delete('/subscribers/:slug', async (req, res, next) => {
+  try {
+    if (!(await subscribers.remove(req.params.slug))) {
+      return res.status(404).json({ error: 'No subscriber at that address.' });
+    }
+    res.status(204).end();
+  } catch (err) {
+    next(err);
   }
-  res.status(204).end();
 });
 
 /** Rotating invalidates the old token straight away. */
-router.post('/subscribers/:slug/token', (req, res, next) => {
+router.post('/subscribers/:slug/token', async (req, res, next) => {
   try {
-    res.json({ token: subscribers.rotateToken(req.params.slug) });
+    res.json({ token: await subscribers.rotateToken(req.params.slug) });
   } catch (err) {
     next(err);
   }
