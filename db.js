@@ -1,88 +1,148 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const Database = require('better-sqlite3');
+const { Pool } = require('pg');
 
 /**
- * The SQLite handle, plus the schema migrations.
+ * The Postgres pool, plus the schema migrations.
  *
- * One file on disk, opened once at require time. It holds every subscriber's
- * OpenRouter key in plain text — the same exposure `settings.json` had, only
- * now it is one file for many venues, so it belongs on the machine that runs
- * the app and nowhere else.
+ * One pool for the process, opened at require time. It holds every subscriber's
+ * OpenRouter key in plain text — so the database belongs on the machine that
+ * runs the app, listening on loopback and nowhere else.
  */
 
-const FILE = process.env.DB_FILE
-  ? path.resolve(process.env.DB_FILE)
-  : path.join(__dirname, 'data', 'app.db');
+const CONNECTION = process.env.DATABASE_URL;
 
-fs.mkdirSync(path.dirname(FILE), { recursive: true });
+if (!CONNECTION) {
+  throw new Error(
+    'DATABASE_URL is not set. Point it at Postgres, for example:\n' +
+      '  DATABASE_URL=postgres://reviewslip:password@127.0.0.1:5432/reviewslip'
+  );
+}
 
-const db = new Database(FILE);
+// Small on purpose. One Node process, against a server tuned for twenty
+// backends — a pool bigger than the work queue only costs memory.
+const pool = new Pool({
+  connectionString: CONNECTION,
+  max: 5,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+});
 
-// WAL so a slow read (the admin listing) never blocks a guest's write.
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+// An idle client dropped by the server — a restart, a network blip — surfaces
+// here rather than at the next query, and an unhandled 'error' event on the
+// pool would take the process down with it.
+pool.on('error', (err) => {
+  console.error('Idle Postgres client error:', err.message);
+});
 
-try {
-  fs.chmodSync(FILE, 0o600);
-} catch {
-  // Windows maps modes onto ACLs only loosely, and a failure here is not worth
-  // refusing to boot over. The file still sits wherever the operator put it.
+/* ------------------------------------------------------------------ queries */
+
+function query(text, params) {
+  return pool.query(text, params);
+}
+
+/** @returns {Promise<object|null>} the first row, or null for none */
+async function one(text, params) {
+  const { rows } = await pool.query(text, params);
+  return rows[0] || null;
+}
+
+/** @returns {Promise<object[]>} */
+async function all(text, params) {
+  const { rows } = await pool.query(text, params);
+  return rows;
 }
 
 /* -------------------------------------------------------------- migrations */
 
 /**
- * Append-only. Each entry moves the schema forward by one, and `user_version`
- * records how far we have gone — so a fresh file and an existing one take the
- * same path.
+ * Append-only. Each entry moves the schema forward by one, and `schema_version`
+ * records how far we have gone — so a fresh database and an existing one take
+ * the same path.
+ *
+ * SQLite kept that counter in `user_version`. Postgres has no per-database slot
+ * like it, so it lives in a one-row table instead.
  */
 const MIGRATIONS = [
-  (d) => {
-    d.exec(`
+  async (c) => {
+    await c.query(`
       CREATE TABLE subscribers (
-        id          INTEGER PRIMARY KEY,
-        slug        TEXT NOT NULL UNIQUE,
-        name        TEXT NOT NULL,
-        status      TEXT NOT NULL DEFAULT 'active',
-        api_key     TEXT,
-        model       TEXT,
-        google_url  TEXT,
-        website_url TEXT,
-        token_hash  TEXT NOT NULL,
-        created_at  TEXT NOT NULL,
-        updated_at  TEXT NOT NULL
-      );
-
-      CREATE UNIQUE INDEX subscribers_slug ON subscribers (slug);
+        id          integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        slug        text NOT NULL UNIQUE,
+        name        text NOT NULL,
+        status      text NOT NULL DEFAULT 'active',
+        api_key     text,
+        model       text,
+        google_url  text,
+        website_url text,
+        token_hash  text NOT NULL,
+        created_at  text NOT NULL,
+        updated_at  text NOT NULL
+      )
     `);
   },
 
-  (d) => {
-    d.exec(`
-      ALTER TABLE subscribers ADD COLUMN tripadvisor_url TEXT;
-      -- A JSON array of {id, label, focus}. NULL means "use the built-in set",
-      -- which is what every existing row wants.
-      ALTER TABLE subscribers ADD COLUMN categories TEXT;
-    `);
+  async (c) => {
+    await c.query('ALTER TABLE subscribers ADD COLUMN tripadvisor_url text');
+    // A JSON array of {id, label, focus}. NULL means "use the built-in set",
+    // which is what every existing row wants.
+    await c.query('ALTER TABLE subscribers ADD COLUMN categories text');
   },
 ];
 
-function migrate() {
-  const from = db.pragma('user_version', { simple: true });
+// Any constant will do; it only has to be the same in every process.
+const MIGRATION_LOCK = 8_274_123;
 
-  for (let version = from; version < MIGRATIONS.length; version++) {
-    const step = db.transaction(() => {
-      MIGRATIONS[version](db);
-      db.pragma(`user_version = ${version + 1}`);
-    });
-    step();
+async function migrate() {
+  const client = await pool.connect();
+
+  try {
+    // Two processes starting at once — a restart overlapping the old one —
+    // would otherwise race to create the same table. The lock is tied to the
+    // session, so a crash mid-migration cannot wedge the next boot.
+    await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK]);
+
+    await client.query(
+      'CREATE TABLE IF NOT EXISTS schema_version (version integer NOT NULL)'
+    );
+
+    const { rows } = await client.query('SELECT version FROM schema_version');
+    if (!rows.length) {
+      await client.query('INSERT INTO schema_version (version) VALUES (0)');
+    }
+    const from = rows[0]?.version ?? 0;
+
+    for (let version = from; version < MIGRATIONS.length; version++) {
+      // Per step rather than around the whole run: a failure half way leaves
+      // the completed steps in place, and the next boot resumes from there.
+      await client.query('BEGIN');
+      try {
+        await MIGRATIONS[version](client);
+        await client.query('UPDATE schema_version SET version = $1', [
+          version + 1,
+        ]);
+        await client.query('COMMIT');
+      } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+      }
+    }
+  } finally {
+    try {
+      await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK]);
+    } catch {
+      // Releasing the connection drops the lock anyway. Failing here would
+      // only mask whatever real error sent us into this block.
+    }
+    client.release();
   }
 }
 
-migrate();
+/**
+ * Migrations run once, at require time. Callers that must not query before the
+ * schema exists — the server on boot — await this; everything else is reached
+ * through a request, by which point it has long since settled.
+ */
+const ready = migrate();
 
-module.exports = db;
-module.exports.FILE = FILE;
+module.exports = { pool, query, one, all, ready };

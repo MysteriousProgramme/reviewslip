@@ -4,7 +4,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const db = require('./db');
+const { query, one, all } = require('./db');
 const settings = require('./settings');
 
 /**
@@ -155,21 +155,20 @@ function fail(status, message) {
 /* ------------------------------------------------------------------ queries */
 
 const Q = {
-  all: db.prepare('SELECT * FROM subscribers ORDER BY slug'),
-  bySlug: db.prepare('SELECT * FROM subscribers WHERE slug = ?'),
-  count: db.prepare('SELECT COUNT(*) AS n FROM subscribers'),
-  insert: db.prepare(`
+  all: 'SELECT * FROM subscribers ORDER BY slug',
+  bySlug: 'SELECT * FROM subscribers WHERE slug = $1',
+  // Cast, or the driver hands back COUNT's bigint as a string.
+  count: 'SELECT COUNT(*)::int AS n FROM subscribers',
+  insert: `
     INSERT INTO subscribers
       (slug, name, status, api_key, model, google_url, tripadvisor_url,
        website_url, categories, token_hash, created_at, updated_at)
     VALUES
-      (@slug, @name, @status, @api_key, @model, @google_url, @tripadvisor_url,
-       @website_url, @categories, @token_hash, @now, @now)
-  `),
-  remove: db.prepare('DELETE FROM subscribers WHERE slug = ?'),
-  setToken: db.prepare(
-    'UPDATE subscribers SET token_hash = ?, updated_at = ? WHERE slug = ?'
-  ),
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+  `,
+  remove: 'DELETE FROM subscribers WHERE slug = $1',
+  setToken:
+    'UPDATE subscribers SET token_hash = $1, updated_at = $2 WHERE slug = $3',
 };
 
 function now() {
@@ -178,17 +177,17 @@ function now() {
 
 /* -------------------------------------------------------------------- read */
 
-function get(slug) {
+async function get(slug) {
   if (typeof slug !== 'string' || !slug) return null;
-  return Q.bySlug.get(slug.trim().toLowerCase()) || null;
+  return one(Q.bySlug, [slug.trim().toLowerCase()]);
 }
 
-function list() {
-  return Q.all.all().map(toRecord);
+async function list() {
+  return (await all(Q.all)).map(toRecord);
 }
 
-function count() {
-  return Q.count.get().n;
+async function count() {
+  return (await one(Q.count)).n;
 }
 
 /* ------------------------------------------------------------------- write */
@@ -197,7 +196,7 @@ function count() {
  * @param {object} input - slug, name, status, and any of the settings fields
  * @returns {{record: object, token: string}} the token is shown once, here
  */
-function create(input = {}) {
+async function create(input = {}) {
   const slug = String(input.slug || '').trim().toLowerCase();
   const slugCheck = checkSlug(slug);
   if (!slugCheck.ok) throw fail(400, slugCheck.error);
@@ -214,27 +213,29 @@ function create(input = {}) {
   const token = newToken();
 
   try {
-    Q.insert.run({
+    await query(Q.insert, [
       slug,
       name,
       status,
-      api_key: values.apiKey || null,
-      model: values.model || null,
-      google_url: values.googleUrl || null,
-      tripadvisor_url: values.tripadvisorUrl || null,
-      website_url: values.websiteUrl || null,
-      categories: packCategories(check.categories),
-      token_hash: hashToken(token),
-      now: now(),
-    });
+      values.apiKey || null,
+      values.model || null,
+      values.googleUrl || null,
+      values.tripadvisorUrl || null,
+      values.websiteUrl || null,
+      packCategories(check.categories),
+      hashToken(token),
+      now(),
+    ]);
   } catch (err) {
-    if (String(err.code).startsWith('SQLITE_CONSTRAINT')) {
+    // 23505 is unique_violation, and `slug` carries the only unique constraint
+    // on the table.
+    if (err?.code === '23505') {
       throw fail(409, `"${slug}" is taken. Pick another address.`);
     }
     throw err;
   }
 
-  return { record: toRecord(get(slug)), token };
+  return { record: toRecord(await get(slug)), token };
 }
 
 /**
@@ -243,8 +244,8 @@ function create(input = {}) {
  *
  * @returns {object} the updated record
  */
-function update(slug, patch = {}) {
-  const row = get(slug);
+async function update(slug, patch = {}) {
+  const row = await get(slug);
   if (!row) throw fail(404, 'No subscriber at that address.');
 
   const check = settings.validate(patch);
@@ -253,55 +254,61 @@ function update(slug, patch = {}) {
   const sets = [];
   const args = [];
 
+  // Placeholders are numbered rather than positional, so each one is written
+  // from how many arguments have been collected so far.
+  const next = (value) => {
+    args.push(value);
+    return `$${args.length}`;
+  };
+
   for (const [field, column] of Object.entries(COLUMNS)) {
     if (typeof patch[field] !== 'string') continue;
     const value = patch[field].trim();
-    sets.push(`${column} = ?`);
-    args.push(value || null);
+    sets.push(`${column} = ${next(value || null)}`);
   }
 
   // An explicit null, or a list that emptied out, resets to the built-in set.
   if (patch.categories !== undefined) {
-    sets.push('categories = ?');
-    args.push(packCategories(check.categories));
+    sets.push(`categories = ${next(packCategories(check.categories))}`);
   }
 
   if (typeof patch.name === 'string') {
     const name = patch.name.trim();
     if (!name) throw fail(400, 'A subscriber needs a name.');
     if (name.length > 120) throw fail(400, 'That name is too long.');
-    sets.push('name = ?');
-    args.push(name);
+    sets.push(`name = ${next(name)}`);
   }
 
   if (patch.status !== undefined) {
-    sets.push('status = ?');
-    args.push(readStatus(patch.status));
+    sets.push(`status = ${next(readStatus(patch.status))}`);
   }
 
   if (!sets.length) return toRecord(row);
 
-  sets.push('updated_at = ?');
-  args.push(now(), row.slug);
+  sets.push(`updated_at = ${next(now())}`);
 
-  db.prepare(
-    `UPDATE subscribers SET ${sets.join(', ')} WHERE slug = ?`
-  ).run(...args);
+  await query(
+    `UPDATE subscribers SET ${sets.join(', ')} WHERE slug = ${next(row.slug)}`,
+    args
+  );
 
-  return toRecord(get(row.slug));
+  return toRecord(await get(row.slug));
 }
 
-function remove(slug) {
-  return Q.remove.run(String(slug || '').trim().toLowerCase()).changes > 0;
+async function remove(slug) {
+  const result = await query(Q.remove, [
+    String(slug || '').trim().toLowerCase(),
+  ]);
+  return result.rowCount > 0;
 }
 
 /** Invalidates the old token immediately. @returns {string} the new one */
-function rotateToken(slug) {
-  const row = get(slug);
+async function rotateToken(slug) {
+  const row = await get(slug);
   if (!row) throw fail(404, 'No subscriber at that address.');
 
   const token = newToken();
-  Q.setToken.run(hashToken(token), now(), row.slug);
+  await query(Q.setToken, [hashToken(token), now(), row.slug]);
   return token;
 }
 
@@ -324,8 +331,8 @@ function readStatus(value) {
  * @returns {{record: object, token: string}|null} null when there is nothing
  *   to import, so the caller can stay quiet on every boot after the first.
  */
-function importLegacyFile(slug = 'venue', name = 'Venue') {
-  if (count() > 0) return null;
+async function importLegacyFile(slug = 'venue', name = 'Venue') {
+  if ((await count()) > 0) return null;
 
   const file = path.join(__dirname, 'settings.json');
   let raw;

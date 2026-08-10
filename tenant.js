@@ -57,12 +57,20 @@ function publicUrl(slug) {
 
 /* -------------------------------------------------------------- middleware */
 
-/** Attaches req.subscriber (or null). Never rejects — see requireTenant. */
-function resolveTenant(req, res, next) {
-  const slug = slugFromHost(req.hostname) || DEFAULT_SLUG || null;
-  req.subscriberSlug = slug;
-  req.subscriber = slug ? subscribers.get(slug) : null;
-  next();
+/**
+ * Attaches req.subscriber (or null). An unknown host is not an error here —
+ * see requireTenant — but an unreachable store is, and express 4 does not catch
+ * a rejected promise on its own, so it is handed to next() by hand.
+ */
+async function resolveTenant(req, res, next) {
+  try {
+    const slug = slugFromHost(req.hostname) || DEFAULT_SLUG || null;
+    req.subscriberSlug = slug;
+    req.subscriber = slug ? await subscribers.get(slug) : null;
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 /** Rejects anything that did not resolve to a usable subscriber. */

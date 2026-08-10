@@ -12,6 +12,7 @@ const {
   buildCategoryMessages,
   parseCategorySuggestions,
 } = require('./seed');
+const { ready } = require('./db');
 const subscribers = require('./subscribers');
 const openrouter = require('./openrouter');
 const adminRouter = require('./admin');
@@ -186,7 +187,7 @@ app.post('/api/settings', requireTenant, requireSubscriber, async (req, res) => 
   try {
     // Only the settings fields — the panel has no business renaming the
     // account or changing its status.
-    record = subscribers.update(req.subscriber.slug, {
+    record = await subscribers.update(req.subscriber.slug, {
       apiKey: patch.apiKey,
       model: patch.model,
       googleUrl: patch.googleUrl,
@@ -420,6 +421,19 @@ function clean(raw) {
   return t;
 }
 
+/* ------------------------------------------------------------------ errors */
+
+// Reached by anything a route did not answer itself — in practice the store
+// being unreachable, since tenant resolution now touches it on every request.
+// Without this, express 4 would answer an HTML error page to an API client.
+app.use((err, req, res, _next) => {
+  if (err?.expose && err.status) {
+    return res.status(err.status).json({ error: err.message });
+  }
+  console.error('Request failed:', err);
+  res.status(500).json({ error: 'Something went wrong.' });
+});
+
 /* ------------------------------------------------------------------- start */
 
 /**
@@ -427,52 +441,68 @@ function clean(raw) {
  * there and the store is empty, it becomes the first subscriber. The token is
  * printed once, because there is no other way to get it afterwards.
  */
-function importLegacy() {
+async function importLegacy() {
   try {
-    return subscribers.importLegacyFile(slugify(VENUE.name), VENUE.name);
+    return await subscribers.importLegacyFile(slugify(VENUE.name), VENUE.name);
   } catch (err) {
     console.error('  ! Could not import settings.json:', err.message);
     return null;
   }
 }
 
-app.listen(PORT, async () => {
-  const imported = importLegacy();
-  const count = subscribers.count();
+async function start() {
+  // Nothing may query before the schema exists, and the first request can
+  // arrive the moment we listen.
+  await ready;
 
-  console.log(`\n  Review helper — ${count} subscriber${count === 1 ? '' : 's'}`);
-  console.log(`  http://localhost:${PORT}  (base domain: ${BASE_DOMAIN})`);
+  app.listen(PORT, async () => {
+    const imported = await importLegacy();
+    const count = await subscribers.count();
 
-  if (imported) {
-    console.log(`\n  Imported settings.json as "${imported.record.slug}".`);
-    console.log(`  Settings token (shown once): ${imported.token}`);
-    console.log(`  Guest page: ${publicUrl(imported.record.slug)}`);
-  }
-
-  if (!count) {
-    console.warn('\n  ! No subscribers yet. Create one:');
-    console.warn(
-      `      curl -X POST http://localhost:${PORT}/api/admin/subscribers \\\n` +
-        '        -H "Authorization: Bearer $ADMIN_TOKEN" \\\n' +
-        '        -H "Content-Type: application/json" \\\n' +
-        '        -d \'{"slug":"my-venue","name":"My Venue"}\''
+    console.log(
+      `\n  Review helper — ${count} subscriber${count === 1 ? '' : 's'}`
     );
-  } else if (DEFAULT_SLUG) {
-    console.log(`  Unmatched hosts fall back to "${DEFAULT_SLUG}".`);
-  }
+    console.log(`  http://localhost:${PORT}  (base domain: ${BASE_DOMAIN})`);
 
-  if (!ADMIN_TOKEN) {
-    console.warn('\n  ! ADMIN_TOKEN is not set, so the admin API is off.');
-  }
-
-  // One live check, so a stale model slug warns on boot instead of failing in
-  // front of a guest.
-  for (const record of subscribers.list()) {
-    const { model } = subscribers.settingsFor(subscribers.get(record.slug));
-    if (await openrouter.modelMissing(model)) {
-      console.warn(
-        `  ! ${record.slug}: "${model}" is not in OpenRouter's catalogue.`
-      );
+    if (imported) {
+      console.log(`\n  Imported settings.json as "${imported.record.slug}".`);
+      console.log(`  Settings token (shown once): ${imported.token}`);
+      console.log(`  Guest page: ${publicUrl(imported.record.slug)}`);
     }
-  }
+
+    if (!count) {
+      console.warn('\n  ! No subscribers yet. Create one:');
+      console.warn(
+        `      curl -X POST http://localhost:${PORT}/api/admin/subscribers \\\n` +
+          '        -H "Authorization: Bearer $ADMIN_TOKEN" \\\n' +
+          '        -H "Content-Type: application/json" \\\n' +
+          '        -d \'{"slug":"my-venue","name":"My Venue"}\''
+      );
+    } else if (DEFAULT_SLUG) {
+      console.log(`  Unmatched hosts fall back to "${DEFAULT_SLUG}".`);
+    }
+
+    if (!ADMIN_TOKEN) {
+      console.warn('\n  ! ADMIN_TOKEN is not set, so the admin API is off.');
+    }
+
+    // One live check, so a stale model slug warns on boot instead of failing
+    // in front of a guest.
+    for (const record of await subscribers.list()) {
+      const row = await subscribers.get(record.slug);
+      const { model } = subscribers.settingsFor(row);
+      if (await openrouter.modelMissing(model)) {
+        console.warn(
+          `  ! ${record.slug}: "${model}" is not in OpenRouter's catalogue.`
+        );
+      }
+    }
+  });
+}
+
+// A store that will not answer is not something to serve around: without it
+// every request would 500 anyway, and failing here makes systemd retry.
+start().catch((err) => {
+  console.error('\n  ! Could not start:', err.message);
+  process.exit(1);
 });
