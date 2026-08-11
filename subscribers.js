@@ -24,10 +24,18 @@ const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/;
 
 // Names that belong to the platform rather than to any venue. Handing one out
 // would shadow the apex site or the admin host.
+//
+// The second row is different: those are path segments under /dashboard on the
+// website. A static route outranks a dynamic one, so a venue called `billing`
+// would exist and serve guests perfectly well while being permanently
+// unreachable from its owner's dashboard — the worst kind of bug, because
+// nothing anywhere would report it.
 const RESERVED = new Set([
   'www', 'admin', 'api', 'app', 'apps', 'dashboard', 'static', 'assets', 'cdn',
   'mail', 'smtp', 'imap', 'ftp', 'ns', 'ns1', 'ns2', 'support', 'help',
   'status', 'blog', 'docs', 'test', 'staging', 'dev', 'localhost',
+
+  'billing', 'venues', 'account', 'plans', 'pricing', 'login', 'signup',
 ]);
 
 /** @returns {{ok: boolean, error?: string}} */

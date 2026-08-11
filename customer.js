@@ -190,6 +190,41 @@ router.post('/plan', requireAccount, async (req, res, next) => {
 
 /* ----------------------------------------------------------------- venues */
 
+/**
+ * Is this address free?
+ *
+ * Behind sign-in on purpose. Availability is exactly the kind of thing a
+ * scraper would walk to enumerate every venue on the platform, and a customer
+ * choosing an address is the only person who needs to ask.
+ */
+router.get('/slug/:slug', requireAccount, async (req, res, next) => {
+  try {
+    const slug = String(req.params.slug || '').trim().toLowerCase();
+
+    const check = subscribers.checkSlug(slug);
+    if (!check.ok) {
+      return res.json({
+        slug,
+        valid: false,
+        available: false,
+        reason: check.error,
+      });
+    }
+
+    const taken = await subscribers.get(slug);
+
+    res.json({
+      slug,
+      valid: true,
+      available: !taken,
+      url: publicUrl(slug),
+      reason: taken ? 'That address is already taken.' : undefined,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.post('/venues', requireAccount, async (req, res, next) => {
   try {
     const owned = await subscribers.countForAccount(req.account.id);
