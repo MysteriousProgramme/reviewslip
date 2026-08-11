@@ -14,8 +14,10 @@ const {
 } = require('./seed');
 const { ready } = require('./db');
 const subscribers = require('./subscribers');
+const events = require('./events');
 const openrouter = require('./openrouter');
 const adminRouter = require('./admin');
+const customerRouter = require('./customer');
 const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
 const {
   resolveTenant,
@@ -45,6 +47,10 @@ app.use(express.static(path.join(__dirname, 'public'), { etag: true }));
 // Admin first, and outside tenant resolution: creating the first subscriber
 // cannot require already being on a subscriber's hostname.
 app.use('/api/admin', adminRouter);
+
+// Customers sign in on the marketing site's hostname, not on a venue's, so
+// this sits outside tenant resolution too.
+app.use('/api/customer', customerRouter);
 
 // Everything below knows which venue it is serving.
 app.use('/api', resolveTenant);
@@ -160,6 +166,15 @@ app.post('/api/review', requireTenant, async (req, res) => {
     }
 
     res.json({ review, categoryId });
+
+    // After the response, and never awaited: the meter is for the dashboard,
+    // and a guest should not wait on it or fail because of it.
+    events.record({
+      subscriberId: req.subscriber.id,
+      categoryId,
+      model,
+      usage: data?.usage,
+    });
   } catch (err) {
     const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     console.error('Review request failed:', err);

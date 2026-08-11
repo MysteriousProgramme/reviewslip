@@ -165,6 +165,7 @@ function toRecord(row) {
     slug: row.slug,
     name: row.name,
     status: row.status,
+    accountId: row.account_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     settings: describe(row),
@@ -184,13 +185,16 @@ const Q = {
   bySlug: 'SELECT * FROM subscribers WHERE slug = $1',
   // Cast, or the driver hands back COUNT's bigint as a string.
   count: 'SELECT COUNT(*)::int AS n FROM subscribers',
+  byAccount: 'SELECT * FROM subscribers WHERE account_id = $1 ORDER BY slug',
+  countForAccount:
+    'SELECT COUNT(*)::int AS n FROM subscribers WHERE account_id = $1',
   insert: `
     INSERT INTO subscribers
-      (slug, name, status, api_key, model, google_url, tripadvisor_url,
-       website_url, categories, kind, place, safe_details, token_hash,
-       created_at, updated_at)
+      (slug, name, status, account_id, api_key, model, google_url,
+       tripadvisor_url, website_url, categories, kind, place, safe_details,
+       token_hash, created_at, updated_at)
     VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14)
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
   `,
   remove: 'DELETE FROM subscribers WHERE slug = $1',
   setToken:
@@ -214,6 +218,15 @@ async function list() {
 
 async function count() {
   return (await one(Q.count)).n;
+}
+
+/** The rows themselves, not records — the dashboard needs ids for the meter. */
+async function listForAccount(accountId) {
+  return all(Q.byAccount, [accountId]);
+}
+
+async function countForAccount(accountId) {
+  return (await one(Q.countForAccount, [accountId])).n;
 }
 
 /* ------------------------------------------------------------------- write */
@@ -243,6 +256,7 @@ async function create(input = {}) {
       slug,
       name,
       status,
+      Number.isInteger(input.accountId) ? input.accountId : null,
       values.apiKey || null,
       values.model || null,
       values.googleUrl || null,
@@ -391,6 +405,8 @@ module.exports = {
   get,
   list,
   count,
+  listForAccount,
+  countForAccount,
   create,
   update,
   remove,

@@ -99,6 +99,76 @@ const MIGRATIONS = [
     // A JSON array of strings — the details a review may draw on.
     await c.query('ALTER TABLE subscribers ADD COLUMN safe_details text');
   },
+
+  async (c) => {
+    // Customers. A venue used to be configured through a token handed to its
+    // staff; now it belongs to an account, and the account signs in.
+    await c.query(`
+      CREATE TABLE accounts (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        email         text NOT NULL,
+        username      text NOT NULL,
+        password_hash text NOT NULL,
+        plan          text NOT NULL DEFAULT 'starter',
+        status        text NOT NULL DEFAULT 'active',
+        created_at    text NOT NULL,
+        updated_at    text NOT NULL
+      )
+    `);
+    // Case-insensitive: nobody should be able to register Zac@x.com twice by
+    // changing the capitals, and nobody should fail to sign in over it either.
+    await c.query(
+      'CREATE UNIQUE INDEX accounts_email ON accounts (lower(email))'
+    );
+    await c.query(
+      'CREATE UNIQUE INDEX accounts_username ON accounts (lower(username))'
+    );
+
+    // Opaque session tokens, hashed the way subscriber tokens are: the cookie
+    // in the browser is the only copy of the real thing.
+    await c.query(`
+      CREATE TABLE sessions (
+        token_hash text PRIMARY KEY,
+        account_id integer NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        expires_at timestamptz NOT NULL
+      )
+    `);
+    await c.query(
+      'CREATE INDEX sessions_account ON sessions (account_id)'
+    );
+
+    // A venue with no account is one created straight from the admin API, which
+    // is still allowed — hence nullable rather than NOT NULL.
+    await c.query(`
+      ALTER TABLE subscribers
+        ADD COLUMN account_id integer REFERENCES accounts (id) ON DELETE SET NULL
+    `);
+    await c.query(
+      'CREATE INDEX subscribers_account ON subscribers (account_id)'
+    );
+
+    // One row per generated review. This is where the dashboard's counts and
+    // the token meter come from, so it is written on the guest path — kept
+    // narrow deliberately: no review text, nothing about the guest.
+    await c.query(`
+      CREATE TABLE review_events (
+        id                bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id     integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        created_at        timestamptz NOT NULL DEFAULT now(),
+        category_id       text,
+        model             text,
+        prompt_tokens     integer,
+        completion_tokens integer,
+        total_tokens      integer
+      )
+    `);
+    // Every dashboard query is "this venue, this month", so index that pair.
+    await c.query(`
+      CREATE INDEX review_events_subscriber_created
+        ON review_events (subscriber_id, created_at DESC)
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.
