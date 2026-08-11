@@ -276,11 +276,13 @@ router.patch(
       const verdict = await openrouter.vet(patch);
       if (verdict.error) return res.status(400).json({ error: verdict.error });
 
+      // apiKey and model are deliberately not here. The platform key and the
+      // fixed model are ours; a customer changing either is not a setting, it
+      // is a support ticket. Sending them is ignored rather than rejected —
+      // there is nothing for the customer to correct.
       const record = await subscribers.update(req.venue.slug, {
         name: patch.name,
         status: patch.status,
-        apiKey: patch.apiKey,
-        model: patch.model,
         googleUrl: patch.googleUrl,
         tripadvisorUrl: patch.tripadvisorUrl,
         websiteUrl: patch.websiteUrl,

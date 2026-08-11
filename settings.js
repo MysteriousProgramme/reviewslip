@@ -19,9 +19,18 @@
 const { CATEGORIES, VENUE } = require('./config');
 const { bannedWord } = require('./seed');
 
+/**
+ * The model every venue writes with, fixed.
+ *
+ * Not part of the resolution chain below: neither a venue nor .env can change
+ * it. Model choice is a platform decision — the prompt, the screens and the
+ * token budget are all tuned around one model, and a venue quietly running a
+ * different one is a support problem nobody would see coming.
+ */
+const MODEL = 'x-ai/grok-4.3';
+
 const FIELDS = [
   'apiKey',
-  'model',
   'googleUrl',
   'tripadvisorUrl',
   'websiteUrl',
@@ -31,7 +40,7 @@ const FIELDS = [
 
 const BUILT_IN = {
   apiKey: '',
-  model: 'anthropic/claude-haiku-4.5',
+  model: MODEL,
   // Who the venue is, in the writer's words. No .env layer: one venue's
   // description is meaningless for another, so these are the venue's own or the
   // built-in, and `fromEnv` simply does not read them.
@@ -62,7 +71,6 @@ function clean(values) {
 function fromEnv() {
   return clean({
     apiKey: process.env.OPENROUTER_API_KEY,
-    model: process.env.OPENROUTER_MODEL,
     googleUrl: process.env.GOOGLE_REVIEW_URL,
     tripadvisorUrl: process.env.TRIPADVISOR_REVIEW_URL,
     websiteUrl: process.env.VENUE_WEBSITE_URL,
@@ -75,6 +83,8 @@ function fromEnv() {
  */
 function resolve(own) {
   const merged = { ...BUILT_IN, ...fromEnv(), ...clean(own) };
+  // Last, so nothing above can have replaced it.
+  merged.model = MODEL;
   // Categories skip the .env layer — a list of buttons is not something you
   // usefully set installation-wide, so it is the venue's own or the built-in.
   merged.categories = ownCategories(own) || CATEGORIES;
@@ -102,6 +112,8 @@ function sources(own) {
   for (const field of FIELDS) {
     out[field] = mine[field] ? 'subscriber' : env[field] ? 'env' : 'default';
   }
+  // Not in FIELDS, so the loop above never sets it — and it is always ours.
+  out.model = 'default';
   out.categories = ownCategories(own) ? 'subscriber' : 'default';
   out.safeDetails = ownSafeDetails(own) ? 'subscriber' : 'default';
   return out;
@@ -373,6 +385,7 @@ function checkWebUrl(value, label) {
 module.exports = {
   FIELDS,
   BUILT_IN,
+  MODEL,
   MAX_CATEGORIES,
   MAX_SAFE_DETAILS,
   validateSafeDetails,
