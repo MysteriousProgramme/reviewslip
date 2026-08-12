@@ -27,7 +27,7 @@ const { bannedWord } = require('./seed');
  * token budget are all tuned around one model, and a venue quietly running a
  * different one is a support problem nobody would see coming.
  */
-const MODEL = 'x-ai/grok-4.3';
+const MODEL = 'google/gemma-4-26b-a4b-it:free';
 
 const FIELDS = [
   'apiKey',
