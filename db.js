@@ -225,6 +225,17 @@ const MIGRATIONS = [
         ON referrals (referrer_id, lower(email))
     `);
   },
+
+  async (c) => {
+    // Agency is gone. planFor() falls back to Starter for an id it does not
+    // recognise, so leaving these rows alone would silently drop an unlimited
+    // account to one venue — the kind of change nobody notices until a venue
+    // stops working. Enterprise is the nearest tier that still exists.
+    await c.query(
+      "UPDATE accounts SET plan = 'enterprise', updated_at = $1 WHERE plan = 'agency'",
+      [new Date().toISOString()]
+    );
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

@@ -32,12 +32,6 @@ const PLANS = {
     reviewsPerMonth: 15_000,
     reviewsArePerVenue: false,
   },
-  agency: {
-    name: 'Agency',
-    venues: null,
-    reviewsPerMonth: 1_500,
-    reviewsArePerVenue: true,
-  },
 };
 
 const DEFAULT_PLAN = 'starter';
