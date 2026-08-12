@@ -8,6 +8,13 @@ const events = require('./events');
 const plans = require('./plans');
 const openrouter = require('./openrouter');
 const { publicUrl } = require('./tenant');
+const { readWebsite } = require('./reader');
+const {
+  buildSeedMessages,
+  parseProposal,
+  buildCategoryMessages,
+  parseCategorySuggestions,
+} = require('./seed');
 
 /**
  * The customer API: sign up, sign in, and manage your own businesses.
@@ -403,6 +410,97 @@ router.post(
       if (!saved) return res.status(404).json({ error: 'No such review.' });
 
       res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Reading a business's own website and proposing what a review may draw on.
+ *
+ * These two moved here from the guest page's settings panel, which no longer
+ * exists. Both return a draft and write nothing: the whole no-fabrication
+ * guarantee rests on a human reading the details before they reach a prompt.
+ */
+function readable(venue, res) {
+  const resolved = subscribers.settingsFor(venue);
+
+  if (!resolved.apiKey) {
+    res.status(500).json({ error: 'No OpenRouter key is configured.' });
+    return null;
+  }
+  if (!resolved.websiteUrl) {
+    res
+      .status(400)
+      .json({ error: 'Add the business website address first, then save.' });
+    return null;
+  }
+  return resolved;
+}
+
+router.post(
+  '/businesses/:slug/seed',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const resolved = readable(req.venue, res);
+      if (!resolved) return;
+
+      const answer = await readWebsite(req.venue, resolved, {
+        messages: buildSeedMessages({ url: resolved.websiteUrl }),
+        maxTokens: 2000,
+      });
+      if (!answer.ok) {
+        return res.status(answer.status).json({ error: answer.error });
+      }
+
+      const parsed = parseProposal(answer.content);
+      if (!parsed || !parsed.proposal.safeDetails.length) {
+        console.error(
+          'Seed produced nothing usable:',
+          String(answer.content).slice(0, 500)
+        );
+        return res.status(502).json({
+          error:
+            'Nothing checkable came back from that page. It may be image-only, or blocked. Try a different page on the site — an About page usually works best.',
+        });
+      }
+
+      res.json({ ...parsed, url: resolved.websiteUrl });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/businesses/:slug/categories/suggest',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const resolved = readable(req.venue, res);
+      if (!resolved) return;
+
+      const answer = await readWebsite(req.venue, resolved, {
+        messages: buildCategoryMessages({ url: resolved.websiteUrl }),
+        maxTokens: 800,
+      });
+      if (!answer.ok) {
+        return res.status(answer.status).json({ error: answer.error });
+      }
+
+      const categories = parseCategorySuggestions(answer.content);
+      if (!categories) {
+        return res.status(502).json({
+          error:
+            'No usable categories came back from that page. Try one that lists what the business offers.',
+        });
+      }
+
+      res.json({ categories, url: resolved.websiteUrl });
     } catch (err) {
       next(err);
     }
