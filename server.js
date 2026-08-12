@@ -124,11 +124,18 @@ app.post('/api/review', requireTenant, async (req, res) => {
         .map((r) => r.slice(0, 400))
     : [];
 
+  // What the owner has thumbed up, as examples. Caught rather than awaited into
+  // the happy path only: a review must still be written if the lookup fails.
+  const examples = await events
+    .liked(req.subscriber.id, 3)
+    .catch(() => []);
+
   const messages = buildMessages({
     categoryId,
     recent,
     categories,
     venue: subscribers.venueFor(req.subscriber),
+    examples,
   });
 
   try {

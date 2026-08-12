@@ -105,6 +105,7 @@ ${venue.safeDetails.map((d) => `- ${d}`).join('\n')}`;
  * @param {string[]} args.recent - recent reviews to avoid echoing
  * @param {object[]} [args.categories] - the venue's own buttons, if it set any
  * @param {object} [args.venue] - the venue being written about
+ * @param {string[]} [args.examples] - reviews this business approved
  * @param {() => number} [args.rand] - injectable for tests
  */
 function buildMessages({
@@ -112,6 +113,7 @@ function buildMessages({
   recent = [],
   categories,
   venue = VENUE,
+  examples = [],
   rand = Math.random,
 }) {
   const list =
@@ -120,6 +122,18 @@ function buildMessages({
   const angle = ANGLES[Math.floor(rand() * ANGLES.length)];
 
   let user = `Write one review about ${category.focus}.\n\nThis time: ${angle}.`;
+
+  // Approved samples pull towards a house voice; the recent list below pushes
+  // away from repetition. They would fight if both asked about wording, so this
+  // one asks only for tone and length — and it goes first, so the "make this
+  // clearly different" instruction is the last thing read and wins on phrasing.
+  if (examples.length) {
+    const list = examples
+      .slice(0, 3)
+      .map((r) => `- ${r}`)
+      .join('\n');
+    user += `\n\nThis business approved these earlier reviews. Match their tone and length, not their wording:\n${list}`;
+  }
 
   if (recent.length) {
     const list = recent
