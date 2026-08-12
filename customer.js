@@ -334,6 +334,29 @@ router.patch(
   }
 );
 
+/**
+ * Deleting a venue.
+ *
+ * review_events cascades with the row, so this destroys that venue's entire
+ * history along with it — and the address becomes free for someone else to
+ * claim, which means any QR code already printed for it could later point at a
+ * different business. The website asks for the slug to be typed before calling
+ * this; nothing here can undo it.
+ */
+router.delete(
+  '/venues/:slug',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      await subscribers.remove(req.venue.slug);
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 /* --------------------------------------------------- website drafting tools */
 
 router.get(

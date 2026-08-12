@@ -169,6 +169,62 @@ const MIGRATIONS = [
         ON review_events (subscriber_id, created_at DESC)
     `);
   },
+
+  async (c) => {
+    // Staff. One flag rather than a roles table: there are two kinds of person
+    // here, us and customers, and inventing a permission system for that would
+    // be building for a problem nobody has yet.
+    await c.query(
+      'ALTER TABLE accounts ADD COLUMN is_admin boolean NOT NULL DEFAULT false'
+    );
+
+    // subscriber_id is nullable and SET NULL on delete: a ticket about a venue
+    // that has since been deleted is still a ticket, and often the interesting
+    // kind.
+    await c.query(`
+      CREATE TABLE support_tickets (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        account_id    integer NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+        subscriber_id integer REFERENCES subscribers (id) ON DELETE SET NULL,
+        title         text NOT NULL,
+        body          text NOT NULL,
+        status        text NOT NULL DEFAULT 'open',
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await c.query(`
+      CREATE INDEX support_tickets_account
+        ON support_tickets (account_id, created_at DESC)
+    `);
+    // The admin queue reads by status, oldest first within it.
+    await c.query(`
+      CREATE INDEX support_tickets_queue
+        ON support_tickets (status, created_at)
+    `);
+
+    // Referrals move through three states, and each needs its own timestamp
+    // because the discount depends on the last one: invited, signed up, and
+    // paying. Only the third counts.
+    await c.query(`
+      CREATE TABLE referrals (
+        id           integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        referrer_id  integer NOT NULL REFERENCES accounts (id) ON DELETE CASCADE,
+        email        text NOT NULL,
+        code         text NOT NULL UNIQUE,
+        invited_at   timestamptz NOT NULL DEFAULT now(),
+        account_id   integer REFERENCES accounts (id) ON DELETE SET NULL,
+        signed_up_at timestamptz,
+        qualified_at timestamptz
+      )
+    `);
+    // One invite per address per referrer — re-inviting someone should resend,
+    // not quietly count twice towards the discount.
+    await c.query(`
+      CREATE UNIQUE INDEX referrals_referrer_email
+        ON referrals (referrer_id, lower(email))
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.
