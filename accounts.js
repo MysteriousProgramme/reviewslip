@@ -84,6 +84,26 @@ function checkEmail(value) {
   return { ok: true };
 }
 
+/**
+ * A username for someone who was never asked for one.
+ *
+ * The local part of the email, stripped to letters and digits, plus four hex
+ * characters — so two people at the same domain do not collide, and neither do
+ * two accounts from the same address at different times. Deliberately does not
+ * satisfy `checkUsername`: that rule is for a name a person picked, and holding
+ * a generated one to it would only produce uglier generated names.
+ */
+function deriveUsername(email) {
+  const base =
+    String(email)
+      .split('@')[0]
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '')
+      .slice(0, 12) || 'user';
+
+  return `${base}${crypto.randomBytes(2).toString('hex')}`;
+}
+
 function listOf(items) {
   if (items.length === 1) return items[0];
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
@@ -179,13 +199,19 @@ async function byLogin(identifier) {
  */
 async function create(input = {}) {
   const email = String(input.email || '').trim();
-  const username = String(input.username || '').trim();
+  const username =
+    String(input.username || '').trim() || deriveUsername(email);
 
-  for (const check of [
-    checkEmail(email),
-    checkUsername(username),
-    checkPassword(input.password),
-  ]) {
+  for (const check of [checkEmail(email), checkPassword(input.password)]) {
+    if (!check.ok) throw fail(400, check.error);
+  }
+
+  // The composition rule applies to a username someone chose. Sign-up does not
+  // ask for one — a name nobody will ever type is friction with nothing behind
+  // it — so one is derived from the email and can be changed later.
+  const chosen = Boolean(String(input.username || '').trim());
+  if (chosen) {
+    const check = checkUsername(username);
     if (!check.ok) throw fail(400, check.error);
   }
 
