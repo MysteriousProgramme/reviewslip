@@ -54,7 +54,7 @@ async function requireOwnVenue(req, res, next) {
   try {
     const row = await subscribers.get(req.params.slug);
     if (!row || row.account_id !== req.account.id) {
-      return res.status(404).json({ error: 'No venue at that address.' });
+      return res.status(404).json({ error: 'No business at that address.' });
     }
     req.venue = row;
     next();
@@ -135,20 +135,29 @@ router.get('/me', requireAccount, async (req, res, next) => {
       0
     );
 
+    const list = rows.map((row) =>
+      venueSummary(row, usage.get(row.id), req.account.plan)
+    );
+
     res.json({
       account: accounts.toRecord(req.account),
       plan: {
         id: req.account.plan,
         name: plan.name,
+        businesses: plan.venues,
         venues: plan.venues,
         reviewAllowance: plans.reviewAllowance(req.account.plan, rows.length),
         tokensPerMonthPerVenue: plans.TOKENS_PER_MONTH_PER_VENUE,
       },
-      usage: { reviewsThisMonth, venues: rows.length },
+      usage: { reviewsThisMonth, businesses: rows.length, venues: rows.length },
+      canAddBusiness: plans.canAddVenue(req.account.plan, rows.length),
       canAddVenue: plans.canAddVenue(req.account.plan, rows.length),
-      venues: rows.map((row) =>
-        venueSummary(row, usage.get(row.id), req.account.plan)
-      ),
+      businesses: list,
+      // `venues` and the venue-shaped keys above are the old names, emitted
+      // alongside the new ones so a deployed website keeps working while it
+      // migrates. Drop them once nothing reads them — a rename that breaks
+      // production the moment one caller is missed is not worth doing at once.
+      venues: list,
     });
   } catch (err) {
     next(err);
@@ -225,13 +234,13 @@ router.get('/slug/:slug', requireAccount, async (req, res, next) => {
   }
 });
 
-router.post('/venues', requireAccount, async (req, res, next) => {
+router.post(['/businesses', '/venues'], requireAccount, async (req, res, next) => {
   try {
     const owned = await subscribers.countForAccount(req.account.id);
     if (!plans.canAddVenue(req.account.plan, owned)) {
       const plan = plans.planFor(req.account.plan);
       return res.status(403).json({
-        error: `${plan.name} covers ${plan.venues} venue${plan.venues === 1 ? '' : 's'}. Change plan to add another.`,
+        error: `${plan.name} covers ${plan.venues} business${plan.venues === 1 ? '' : 'es'}. Change plan to add another.`,
       });
     }
 
@@ -254,7 +263,7 @@ router.post('/venues', requireAccount, async (req, res, next) => {
 
 /** One venue: its settings, and the numbers behind the dashboard. */
 router.get(
-  '/venues/:slug',
+  ['/businesses/:slug', '/venues/:slug'],
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
@@ -301,7 +310,7 @@ router.get(
  * that were never the venue's to change — its address and its plan.
  */
 router.patch(
-  '/venues/:slug',
+  ['/businesses/:slug', '/venues/:slug'],
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
@@ -344,7 +353,7 @@ router.patch(
  * this; nothing here can undo it.
  */
 router.delete(
-  '/venues/:slug',
+  ['/businesses/:slug', '/venues/:slug'],
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
@@ -360,7 +369,7 @@ router.delete(
 /* --------------------------------------------------- website drafting tools */
 
 router.get(
-  '/venues/:slug/models',
+  ['/businesses/:slug/models', '/venues/:slug/models'],
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
