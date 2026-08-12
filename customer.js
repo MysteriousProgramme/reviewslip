@@ -147,6 +147,7 @@ router.get('/me', requireAccount, async (req, res, next) => {
         businesses: plan.venues,
         venues: plan.venues,
         reviewAllowance: plans.reviewAllowance(req.account.plan, rows.length),
+        tokensPerMonthPerBusiness: plans.TOKENS_PER_MONTH_PER_VENUE,
         tokensPerMonthPerVenue: plans.TOKENS_PER_MONTH_PER_VENUE,
       },
       usage: { reviewsThisMonth, businesses: rows.length, venues: rows.length },
@@ -275,14 +276,19 @@ router.get(
         events.byCategory(req.venue.id),
       ]);
 
+      const identity = {
+        slug: req.venue.slug,
+        name: req.venue.name,
+        status: req.venue.status,
+        url: publicUrl(req.venue.slug),
+        createdAt: req.venue.created_at,
+      };
+
       res.json({
-        venue: {
-          slug: req.venue.slug,
-          name: req.venue.name,
-          status: req.venue.status,
-          url: publicUrl(req.venue.slug),
-          createdAt: req.venue.created_at,
-        },
+        business: identity,
+        // The old key, alongside the new one, for as long as the /venues paths
+        // are still answered.
+        venue: identity,
         settings: subscribers.describe(req.venue),
         stats: {
           month: {

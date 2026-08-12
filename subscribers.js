@@ -35,7 +35,7 @@ const RESERVED = new Set([
   'mail', 'smtp', 'imap', 'ftp', 'ns', 'ns1', 'ns2', 'support', 'help',
   'status', 'blog', 'docs', 'test', 'staging', 'dev', 'localhost',
 
-  'billing', 'venues', 'account', 'plans', 'pricing', 'login', 'signup',
+  'billing', 'venues', 'businesses', 'account', 'plans', 'pricing', 'login', 'signup',
 ]);
 
 /** @returns {{ok: boolean, error?: string}} */
