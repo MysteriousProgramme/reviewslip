@@ -236,6 +236,30 @@ const MIGRATIONS = [
       [new Date().toISOString()]
     );
   },
+
+  async (c) => {
+    // review_events was deliberately narrow — counts and tokens, no text. This
+    // reverses that, because a rated list of what the writer produced is the
+    // only way to tell good output from bad, and "read them yourself" does not
+    // scale past one business.
+    //
+    // What is stored is a review the guest was about to post publicly anyway.
+    // Nothing about the guest is kept: no address, no identifier, no session.
+    await c.query('ALTER TABLE review_events ADD COLUMN review_text text');
+
+    // NULL means nobody rated it, which is most of them. Only true and false
+    // carry information, so a three-state column beats a boolean defaulting to
+    // false — that would read as "everyone disliked it".
+    await c.query('ALTER TABLE review_events ADD COLUMN liked boolean');
+    await c.query('ALTER TABLE review_events ADD COLUMN rated_at timestamptz');
+
+    // The dashboard's rated list reads "this business, rated, newest first".
+    await c.query(`
+      CREATE INDEX review_events_rated
+        ON review_events (subscriber_id, rated_at DESC)
+        WHERE liked IS NOT NULL
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

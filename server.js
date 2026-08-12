@@ -165,16 +165,19 @@ app.post('/api/review', requireTenant, async (req, res) => {
         .json({ error: 'The writer came back empty. Try again.' });
     }
 
-    res.json({ review, categoryId });
-
-    // After the response, and never awaited: the meter is for the dashboard,
-    // and a guest should not wait on it or fail because of it.
-    events.record({
+    // Awaited now, unlike before, because the guest needs the row id to rate
+    // the review. record() swallows its own failures and returns null, so a
+    // meter problem costs the thumbs and not the review — and the write is a
+    // single insert over loopback.
+    const reviewId = await events.record({
       subscriberId: req.subscriber.id,
       categoryId,
       model,
       usage: data?.usage,
+      reviewText: review,
     });
+
+    res.json({ review, categoryId, reviewId });
   } catch (err) {
     const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     console.error('Review request failed:', err);
@@ -183,6 +186,41 @@ app.post('/api/review', requireTenant, async (req, res) => {
         ? 'The writer took too long. Try again.'
         : 'Could not reach the writer. Check the connection and try again.',
     });
+  }
+});
+
+/**
+ * A guest's thumb on the review they were just handed.
+ *
+ * Open, like the rest of the guest path — a guest has no token to present. The
+ * row has to belong to this business, so the worst anyone can do by guessing
+ * ids is rate reviews on a page they could already open: noise, not damage. The
+ * throttle above covers volume.
+ */
+app.post('/api/feedback', requireTenant, async (req, res) => {
+  const { reviewId, liked } = req.body || {};
+
+  if (!Number.isInteger(reviewId) || typeof liked !== 'boolean') {
+    return res.status(400).json({ error: 'Bad request.' });
+  }
+
+  if (throttled(`${req.subscriber.slug}:${req.ip}`)) {
+    return res
+      .status(429)
+      .json({ error: 'That is a lot of ratings. Wait a moment.' });
+  }
+
+  try {
+    const saved = await events.setFeedback({
+      subscriberId: req.subscriber.id,
+      id: reviewId,
+      liked,
+    });
+    if (!saved) return res.status(404).json({ error: 'No such review.' });
+    res.status(204).end();
+  } catch (err) {
+    console.error('Could not save the rating:', err);
+    res.status(500).json({ error: 'Could not save that.' });
   }
 });
 

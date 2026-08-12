@@ -6,9 +6,9 @@ const { query, one, all } = require('./db');
  * Review events: one row per generated review, and the counts the dashboard
  * reads back off them.
  *
- * Deliberately narrow. No review text, nothing identifying the guest — the
- * point is to answer "how much did this venue use this month", not to keep a
- * record of what anybody wrote.
+ * Stores the review text and, when a guest rates it, their thumb. Nothing about
+ * the guest is kept — no address, no identifier, no session — so a row says what
+ * the writer produced and whether it was any good, and nothing about who saw it.
  */
 
 /** Postgres integer columns; a bad number is better stored as NULL than as 0. */
@@ -21,12 +21,14 @@ function int(value) {
  * because the meter could not be written — the count being one short is the
  * lesser problem, and it is logged.
  */
-async function record({ subscriberId, categoryId, model, usage }) {
+async function record({ subscriberId, categoryId, model, usage, reviewText }) {
   try {
-    await query(
+    const row = await one(
       `INSERT INTO review_events
-         (subscriber_id, category_id, model, prompt_tokens, completion_tokens, total_tokens)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+         (subscriber_id, category_id, model, prompt_tokens, completion_tokens,
+          total_tokens, review_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id`,
       [
         subscriberId,
         categoryId || null,
@@ -34,11 +36,64 @@ async function record({ subscriberId, categoryId, model, usage }) {
         int(usage?.prompt_tokens),
         int(usage?.completion_tokens),
         int(usage?.total_tokens),
+        typeof reviewText === 'string' ? reviewText.slice(0, 2000) : null,
       ]
     );
+    return row?.id ?? null;
   } catch (err) {
     console.error('Could not record the review event:', err.message);
+    return null;
   }
+}
+
+/**
+ * A guest's thumb on one review.
+ *
+ * Scoped to the business as well as the row id, so a guest on one page cannot
+ * rate another business's reviews by guessing numbers. Re-rating overwrites:
+ * someone who taps the wrong thumb should be able to fix it.
+ *
+ * @returns {Promise<boolean>} whether a row was actually rated
+ */
+async function setFeedback({ subscriberId, id, liked }) {
+  const result = await query(
+    `UPDATE review_events
+        SET liked = $1, rated_at = now()
+      WHERE id = $2 AND subscriber_id = $3`,
+    [Boolean(liked), Number(id), subscriberId]
+  );
+  return result.rowCount > 0;
+}
+
+/** The rated reviews, newest first — what the dashboard list shows. */
+async function rated(subscriberId, limit = 50) {
+  return all(
+    `SELECT id, review_text, category_id, liked, rated_at, created_at
+       FROM review_events
+      WHERE subscriber_id = $1 AND liked IS NOT NULL
+      ORDER BY rated_at DESC
+      LIMIT $2`,
+    [subscriberId, Math.min(Number(limit) || 50, 200)]
+  );
+}
+
+/**
+ * Liked reviews, for feeding back into the prompt as examples.
+ *
+ * This is what "AI training" actually means at this scale: a handful of approved
+ * samples in the prompt, per business. Fine-tuning needs orders of magnitude
+ * more rated data than any one business will produce.
+ */
+async function liked(subscriberId, limit = 5) {
+  const rows = await all(
+    `SELECT review_text
+       FROM review_events
+      WHERE subscriber_id = $1 AND liked = true AND review_text IS NOT NULL
+      ORDER BY rated_at DESC
+      LIMIT $2`,
+    [subscriberId, Math.min(Number(limit) || 5, 20)]
+  );
+  return rows.map((row) => row.review_text);
 }
 
 /**
@@ -130,6 +185,9 @@ async function lifetime(subscriberId) {
 
 module.exports = {
   record,
+  setFeedback,
+  rated,
+  liked,
   usageThisMonth,
   usageThisMonthFor,
   daily,
