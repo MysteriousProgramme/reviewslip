@@ -361,6 +361,54 @@ router.delete(
   }
 );
 
+/** The latest reviews, for the list beside the stats. */
+router.get(
+  '/businesses/:slug/reviews',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json({ reviews: await events.recent(req.venue.id, 20) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Rating one.
+ *
+ * This is the owner's judgement rather than a guest's, and it is what decides
+ * which reviews come back as approved samples in the prompt. Re-rating
+ * overwrites, and the row has to belong to this business.
+ */
+router.post(
+  '/businesses/:slug/reviews/:id/feedback',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const { liked } = req.body || {};
+      const id = Number(req.params.id);
+
+      if (typeof liked !== 'boolean' || !Number.isInteger(id)) {
+        return res.status(400).json({ error: 'Bad request.' });
+      }
+
+      const saved = await events.setFeedback({
+        subscriberId: req.venue.id,
+        id,
+        liked,
+      });
+      if (!saved) return res.status(404).json({ error: 'No such review.' });
+
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 /* --------------------------------------------------- website drafting tools */
 
 router.get(

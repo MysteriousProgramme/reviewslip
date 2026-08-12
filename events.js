@@ -65,7 +65,26 @@ async function setFeedback({ subscriberId, id, liked }) {
   return result.rowCount > 0;
 }
 
-/** The rated reviews, newest first — what the dashboard list shows. */
+/**
+ * The latest reviews, newest first, rated or not — what the dashboard list
+ * shows so the owner can work through them.
+ *
+ * Rows from before the text column existed come back with review_text null;
+ * they are still counted in the stats, so they are excluded here rather than
+ * shown as blanks with nothing to judge.
+ */
+async function recent(subscriberId, limit = 20) {
+  return all(
+    `SELECT id, review_text, category_id, liked, rated_at, created_at
+       FROM review_events
+      WHERE subscriber_id = $1 AND review_text IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT $2`,
+    [subscriberId, Math.min(Number(limit) || 20, 100)]
+  );
+}
+
+/** The rated reviews, newest first — for a filtered view of the same list. */
 async function rated(subscriberId, limit = 50) {
   return all(
     `SELECT id, review_text, category_id, liked, rated_at, created_at
@@ -185,6 +204,7 @@ async function lifetime(subscriberId) {
 
 module.exports = {
   record,
+  recent,
   setFeedback,
   rated,
   liked,
