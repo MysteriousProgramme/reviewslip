@@ -10,7 +10,7 @@ const openrouter = require('./openrouter');
 const { publicUrl } = require('./tenant');
 
 /**
- * The customer API: sign up, sign in, and manage your own venues.
+ * The customer API: sign up, sign in, and manage your own businesses.
  *
  * Mounted outside tenant resolution, like the admin API — a customer signs in
  * on the marketing site's hostname, not on any one venue's subdomain.
@@ -145,20 +145,12 @@ router.get('/me', requireAccount, async (req, res, next) => {
         id: req.account.plan,
         name: plan.name,
         businesses: plan.venues,
-        venues: plan.venues,
         reviewAllowance: plans.reviewAllowance(req.account.plan, rows.length),
         tokensPerMonthPerBusiness: plans.TOKENS_PER_MONTH_PER_VENUE,
-        tokensPerMonthPerVenue: plans.TOKENS_PER_MONTH_PER_VENUE,
       },
-      usage: { reviewsThisMonth, businesses: rows.length, venues: rows.length },
+      usage: { reviewsThisMonth, businesses: rows.length },
       canAddBusiness: plans.canAddVenue(req.account.plan, rows.length),
-      canAddVenue: plans.canAddVenue(req.account.plan, rows.length),
       businesses: list,
-      // `venues` and the venue-shaped keys above are the old names, emitted
-      // alongside the new ones so a deployed website keeps working while it
-      // migrates. Drop them once nothing reads them — a rename that breaks
-      // production the moment one caller is missed is not worth doing at once.
-      venues: list,
     });
   } catch (err) {
     next(err);
@@ -198,7 +190,7 @@ router.post('/plan', requireAccount, async (req, res, next) => {
   }
 });
 
-/* ----------------------------------------------------------------- venues */
+/* ------------------------------------------------------------- businesses */
 
 /**
  * Is this address free?
@@ -235,7 +227,7 @@ router.get('/slug/:slug', requireAccount, async (req, res, next) => {
   }
 });
 
-router.post(['/businesses', '/venues'], requireAccount, async (req, res, next) => {
+router.post('/businesses', requireAccount, async (req, res, next) => {
   try {
     const owned = await subscribers.countForAccount(req.account.id);
     if (!plans.canAddVenue(req.account.plan, owned)) {
@@ -254,7 +246,7 @@ router.post(['/businesses', '/venues'], requireAccount, async (req, res, next) =
     });
 
     res.status(201).json({
-      venue: { ...record, url: publicUrl(record.slug) },
+      business: { ...record, url: publicUrl(record.slug) },
       warning: verdict.warning,
     });
   } catch (err) {
@@ -262,9 +254,9 @@ router.post(['/businesses', '/venues'], requireAccount, async (req, res, next) =
   }
 });
 
-/** One venue: its settings, and the numbers behind the dashboard. */
+/** One business: its settings, and the numbers behind the dashboard. */
 router.get(
-  ['/businesses/:slug', '/venues/:slug'],
+  '/businesses/:slug',
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
@@ -286,9 +278,6 @@ router.get(
 
       res.json({
         business: identity,
-        // The old key, alongside the new one, for as long as the /venues paths
-        // are still answered.
-        venue: identity,
         settings: subscribers.describe(req.venue),
         stats: {
           month: {
@@ -316,7 +305,7 @@ router.get(
  * that were never the venue's to change — its address and its plan.
  */
 router.patch(
-  ['/businesses/:slug', '/venues/:slug'],
+  '/businesses/:slug',
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
@@ -342,7 +331,7 @@ router.patch(
         safeDetails: patch.safeDetails,
       });
 
-      res.json({ venue: record, warning: verdict.warning });
+      res.json({ business: record, warning: verdict.warning });
     } catch (err) {
       next(err);
     }
@@ -359,7 +348,7 @@ router.patch(
  * this; nothing here can undo it.
  */
 router.delete(
-  ['/businesses/:slug', '/venues/:slug'],
+  '/businesses/:slug',
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
@@ -375,7 +364,7 @@ router.delete(
 /* --------------------------------------------------- website drafting tools */
 
 router.get(
-  ['/businesses/:slug/models', '/venues/:slug/models'],
+  '/businesses/:slug/models',
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
