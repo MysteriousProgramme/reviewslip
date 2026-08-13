@@ -260,6 +260,17 @@ const MIGRATIONS = [
         WHERE liked IS NOT NULL
     `);
   },
+
+  async (c) => {
+    // Four more places a guest can post. Separate columns rather than one JSON
+    // blob, to match google_url and tripadvisor_url: a links column would be
+    // tidier but would mean rewriting every reader of those two, and this ships
+    // without touching them.
+    await c.query('ALTER TABLE subscribers ADD COLUMN line_url text');
+    await c.query('ALTER TABLE subscribers ADD COLUMN facebook_url text');
+    await c.query('ALTER TABLE subscribers ADD COLUMN xiaohongshu_url text');
+    await c.query('ALTER TABLE subscribers ADD COLUMN wongnai_url text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

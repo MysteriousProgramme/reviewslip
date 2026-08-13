@@ -94,6 +94,10 @@ const COLUMNS = {
   googleUrl: 'google_url',
   tripadvisorUrl: 'tripadvisor_url',
   websiteUrl: 'website_url',
+  lineUrl: 'line_url',
+  facebookUrl: 'facebook_url',
+  xiaohongshuUrl: 'xiaohongshu_url',
+  wongnaiUrl: 'wongnai_url',
   kind: 'kind',
   place: 'place',
 };
