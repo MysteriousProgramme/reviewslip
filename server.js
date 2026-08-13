@@ -201,6 +201,15 @@ app.post('/api/review', requireTenant, async (req, res) => {
         .map((r) => r.slice(0, 400))
     : [];
 
+  // What this business has actually published lately — not just what this tab
+  // generated. Two guests an hour apart otherwise get near-identical reviews
+  // from the same six details and the same prompt, and a wall of near-duplicates
+  // is exactly the pattern review platforms filter.
+  const published = await events
+    .recent(req.subscriber.id, 8)
+    .then((rows) => rows.map((r) => r.review_text).filter(Boolean))
+    .catch(() => []);
+
   // What the owner has thumbed up, as examples. Caught rather than awaited into
   // the happy path only: a review must still be written if the lookup fails.
   const examples = await events
@@ -213,7 +222,9 @@ app.post('/api/review', requireTenant, async (req, res) => {
 
   const messages = buildMessages({
     categoryIds,
-    recent,
+    // This tab's last, then the business's recent ones. Ordered so the guest's
+    // own are nearest the instruction that matters most.
+    recent: [...published, ...recent],
     categories,
     language,
     venue: subscribers.venueFor(req.subscriber),

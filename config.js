@@ -184,10 +184,13 @@ function buildMessages({
 
   if (recent.length) {
     const list = recent
-      .slice(-3)
+      // Eight, not three: three was one guest's own session, and this list now
+      // carries what the business has published lately too. Each costs prompt
+      // tokens, so this is a ceiling rather than everything on file.
+      .slice(-8)
       .map((r) => `- ${r}`)
       .join('\n');
-    user += `\n\nYou already wrote these. Make this one clearly different in wording, structure, and opening:\n${list}`;
+    user += `\n\nThese reviews already exist for this business. Make this one clearly different in wording, structure and opening — someone reading the listing must not see the same review twice:\n${list}`;
   }
 
   // Last, and stated plainly: a language instruction buried above the examples
