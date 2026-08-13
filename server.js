@@ -5,7 +5,13 @@ require('dotenv').config();
 const path = require('path');
 const express = require('express');
 
-const { VENUE, buildMessages } = require('./config');
+const {
+  VENUE,
+  LANGUAGES,
+  DEFAULT_LANGUAGE,
+  languageFor,
+  buildMessages,
+} = require('./config');
 const {
   buildSeedMessages,
   parseProposal,
@@ -90,6 +96,9 @@ app.get('/api/config', requireTenant, (req, res) => {
     categories: categories.map(({ id, label }) => ({ id, label })),
     googleUrl,
     tripadvisorUrl,
+    // Sent rather than hardcoded in the page, so the list cannot drift from the
+    // one the prompt knows about.
+    languages: LANGUAGES.map(({ code, label }) => ({ code, label })),
     // Which account is being served. The panel shows it so staff can tell at a
     // glance that they are editing the right venue.
     subscriber: { slug: req.subscriber.slug, name: req.subscriber.name },
@@ -112,12 +121,19 @@ app.post('/api/review', requireTenant, async (req, res) => {
   }
 
   const body = req.body || {};
-  // config.js falls back to the first category for anything unknown; resolve it
-  // here too so the response says which category was actually written. A guest
-  // whose page predates a category edit lands here with a stale id.
-  const categoryId = categories.some((c) => c.id === body.categoryId)
-    ? body.categoryId
-    : categories[0].id;
+  // A set now, and possibly empty — a business may have no categories, and
+  // `categories[0].id` on an empty list threw. Unknown ids are dropped rather
+  // than rejected, so a guest whose page predates a category edit still works.
+  const asked = Array.isArray(body.categoryIds)
+    ? body.categoryIds
+    : [body.categoryId];
+  const categoryIds = categories
+    .filter((c) => asked.includes(c.id))
+    .map((c) => c.id);
+
+  // One string for the meter, so the breakdown still groups: a multi-topic
+  // review is its own combination rather than a vote for each part.
+  const categoryId = categoryIds.join('+') || null;
   const recent = Array.isArray(body.recent)
     ? body.recent
         .filter((r) => typeof r === 'string')
@@ -131,10 +147,15 @@ app.post('/api/review', requireTenant, async (req, res) => {
     .liked(req.subscriber.id, 3)
     .catch(() => []);
 
+  // An unknown code falls back to English rather than refusing: a guest with a
+  // stale page should still get a review.
+  const language = languageFor(body.language).code;
+
   const messages = buildMessages({
-    categoryId,
+    categoryIds,
     recent,
     categories,
+    language,
     venue: subscribers.venueFor(req.subscriber),
     examples,
   });

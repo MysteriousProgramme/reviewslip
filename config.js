@@ -61,6 +61,34 @@ const CATEGORIES = [
   },
 ];
 
+
+/**
+ * The languages a guest may write in.
+ *
+ * `label` is what the selector shows — in that language, because someone
+ * looking for Thai is not reading the English word "Thai". `name` is what the
+ * prompt says, in English, because that is what the model reliably understands.
+ */
+const LANGUAGES = [
+  { code: 'en', label: 'English', name: 'English' },
+  { code: 'th', label: 'ไทย', name: 'Thai' },
+  { code: 'zh', label: '中文', name: 'Simplified Chinese' },
+  { code: 'ja', label: '日本語', name: 'Japanese' },
+  { code: 'ko', label: '한국어', name: 'Korean' },
+  { code: 'es', label: 'Español', name: 'Spanish' },
+  { code: 'fr', label: 'Français', name: 'French' },
+  { code: 'de', label: 'Deutsch', name: 'German' },
+  { code: 'it', label: 'Italiano', name: 'Italian' },
+  { code: 'pt', label: 'Português', name: 'Portuguese' },
+  { code: 'nl', label: 'Nederlands', name: 'Dutch' },
+];
+
+const DEFAULT_LANGUAGE = 'en';
+
+function languageFor(code) {
+  return LANGUAGES.find((l) => l.code === code) || LANGUAGES[0];
+}
+
 /**
  * Rotating angles keep regenerations from converging on the same sentence
  * shape. One is picked at random per request.
@@ -101,27 +129,46 @@ ${venue.safeDetails.map((d) => `- ${d}`).join('\n')}`;
 
 /**
  * @param {object} args
- * @param {string} args.categoryId
+ * @param {string[]} args.categoryIds - the topics the guest picked, if any
  * @param {string[]} args.recent - recent reviews to avoid echoing
  * @param {object[]} [args.categories] - the venue's own buttons, if it set any
  * @param {object} [args.venue] - the venue being written about
  * @param {string[]} [args.examples] - reviews this business approved
+ * @param {string} [args.language] - which language to write in
  * @param {() => number} [args.rand] - injectable for tests
  */
 function buildMessages({
-  categoryId,
+  categoryIds = [],
   recent = [],
   categories,
   venue = VENUE,
   examples = [],
+  language = DEFAULT_LANGUAGE,
   rand = Math.random,
 }) {
-  const list =
-    Array.isArray(categories) && categories.length ? categories : CATEGORIES;
-  const category = list.find((c) => c.id === categoryId) || list[0];
+  // No fallback to the built-in set. A business with no categories has none,
+  // and CATEGORIES describes a lodge — handing it to a dentist was worse than
+  // having no buttons.
+  const list = Array.isArray(categories) ? categories : [];
+  const picked = list.filter((c) => categoryIds.includes(c.id));
   const angle = ANGLES[Math.floor(rand() * ANGLES.length)];
 
-  let user = `Write one review about ${category.focus}.\n\nThis time: ${angle}.`;
+  // Nothing picked, or nothing to pick: write about the visit rather than
+  // refusing. A guest who goes straight to Regenerate still gets something.
+  let about =
+    'the visit overall — pick whichever single aspect feels most natural to lead with';
+
+  if (picked.length === 1) {
+    about = picked[0].focus;
+  } else if (picked.length > 1) {
+    // Woven, not listed. Several topics in 45 words becomes an inventory unless
+    // the prompt says otherwise, and an inventory does not read like a guest.
+    about =
+      picked.map((c) => c.focus).join('; and ') +
+      `.\n\nThat is ${picked.length} things at once — do not list them. Lead with whichever felt most worth saying and let the rest show up in passing, or leave one out if it will not fit naturally`;
+  }
+
+  let user = `Write one review about ${about}.\n\nThis time: ${angle}.`;
 
   // Approved samples pull towards a house voice; the recent list below pushes
   // away from repetition. They would fight if both asked about wording, so this
@@ -143,6 +190,16 @@ function buildMessages({
     user += `\n\nYou already wrote these. Make this one clearly different in wording, structure, and opening:\n${list}`;
   }
 
+  // Last, and stated plainly: a language instruction buried above the examples
+  // gets ignored, and the examples are almost certainly in a different language
+  // from the one being asked for.
+  const chosen = languageFor(language);
+  if (chosen.code !== DEFAULT_LANGUAGE) {
+    user += `
+
+Write the review in ${chosen.name}. Only the review — do not translate or restate anything else, and do not add the English version.`;
+  }
+
   return [
     { role: 'system', content: buildSystemPrompt(venue) },
     { role: 'user', content: user },
@@ -152,6 +209,9 @@ function buildMessages({
 module.exports = {
   VENUE,
   CATEGORIES,
+  LANGUAGES,
+  DEFAULT_LANGUAGE,
+  languageFor,
   ANGLES,
   buildSystemPrompt,
   buildMessages,

@@ -87,7 +87,10 @@ function resolve(own) {
   merged.model = MODEL;
   // Categories skip the .env layer — a list of buttons is not something you
   // usefully set installation-wide, so it is the venue's own or the built-in.
-  merged.categories = ownCategories(own) || CATEGORIES;
+  // No fallback. A business with no categories has none: the built-in five
+  // describe a lodge, and silently handing them to a dentist was worse than
+  // showing no buttons at all. Callers must cope with an empty list.
+  merged.categories = ownCategories(own) || [];
   merged.safeDetails = ownSafeDetails(own) || VENUE.safeDetails;
   return merged;
 }

@@ -15,7 +15,8 @@ const el = {
 };
 
 const state = {
-  categoryId: 'any',
+  // A set, not one value: a guest may want the room and the food in one review.
+  categoryIds: [],
   googleUrl: null,
   tripadvisorUrl: null,
 
@@ -92,9 +93,8 @@ function renderChips(categories) {
 
   // The categories can be edited underneath a page that is already open, so a
   // remembered selection is not necessarily still on offer.
-  if (!categories.some((c) => c.id === state.categoryId)) {
-    state.categoryId = categories[0]?.id;
-  }
+  const offered = categories.map((c) => c.id);
+  state.categoryIds = state.categoryIds.filter((id) => offered.includes(id));
 
   for (const category of categories) {
     const chip = document.createElement('button');
@@ -102,18 +102,23 @@ function renderChips(categories) {
     chip.className = 'chip';
     chip.textContent = category.label;
     chip.dataset.id = category.id;
-    chip.setAttribute('aria-pressed', String(category.id === state.categoryId));
+    chip.setAttribute(
+      'aria-pressed',
+      String(state.categoryIds.includes(category.id))
+    );
 
+    // Toggling does not regenerate. Picking three topics would otherwise spend
+    // three reviews to get one, and each costs tokens the business pays for —
+    // Regenerate is one tap away once the selection is right.
     chip.addEventListener('click', () => {
-      if (state.busy || state.categoryId === category.id) return;
-      state.categoryId = category.id;
-      for (const other of el.chips.children) {
-        other.setAttribute(
-          'aria-pressed',
-          String(other.dataset.id === category.id)
-        );
-      }
-      generate();
+      if (state.busy) return;
+
+      const on = state.categoryIds.includes(category.id);
+      state.categoryIds = on
+        ? state.categoryIds.filter((id) => id !== category.id)
+        : [...state.categoryIds, category.id];
+
+      chip.setAttribute('aria-pressed', String(!on));
     });
 
     el.chips.append(chip);
@@ -133,7 +138,7 @@ async function generate() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        categoryId: state.categoryId,
+        categoryIds: state.categoryIds,
         recent: state.recent,
       }),
     });
