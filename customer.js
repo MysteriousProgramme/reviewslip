@@ -152,7 +152,11 @@ router.get('/me', requireAccount, async (req, res, next) => {
         id: req.account.plan,
         name: plan.name,
         businesses: plan.venues,
-        reviewAllowance: plans.reviewAllowance(req.account.plan, rows.length),
+        // The advertised total, for the header, and the limit each business is
+        // actually held to. They are different numbers and the dashboard needs
+        // both.
+        reviewAllowance: plans.advertisedReviews(req.account.plan),
+        reviewsPerBusiness: plans.REVIEWS_PER_BUSINESS,
         tokensPerMonthPerBusiness: plans.TOKENS_PER_MONTH_PER_VENUE,
       },
       usage: { reviewsThisMonth, businesses: rows.length },
