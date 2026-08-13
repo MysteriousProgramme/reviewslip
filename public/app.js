@@ -20,6 +20,7 @@ const state = {
 
   recent: [], // last few generations, so the next one reads differently
   busy: false,
+  left: null, // regenerations remaining, once the server has said
 };
 
 let copyResetTimer = null;
@@ -162,6 +163,17 @@ async function generate() {
     el.review.value = data.review;
     state.recent = [...state.recent, data.review].slice(-3);
 
+    // The server decides; this only reflects it, so a reload cannot buy more.
+    if (typeof data.left === 'number') {
+      state.left = data.left;
+      if (data.left === 0) {
+        el.regenerate.disabled = true;
+        say('That is the last one for now. Edit it however you like.');
+      } else if (data.left <= 3) {
+        say(`${data.left} more ${data.left === 1 ? 'try' : 'tries'} for now.`);
+      }
+    }
+
     setBusy(false);
     autosize();
     replay(el.review, 'settling');
@@ -232,7 +244,8 @@ async function copyReview() {
 function setBusy(busy) {
   state.busy = busy;
   el.slip.setAttribute('aria-busy', String(busy));
-  el.regenerate.disabled = busy;
+  // Out of tries stays out of tries: unbusying must not re-enable it.
+  el.regenerate.disabled = busy || state.left === 0;
   el.copy.disabled = busy;
 }
 

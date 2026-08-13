@@ -71,6 +71,45 @@ const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 30;
 const hits = new Map();
 
+/**
+ * The generation cap.
+ *
+ * The per-minute throttle above stops a script; this stops an honest guest
+ * regenerating forty times looking for a sentence they like. Each attempt is a
+ * model call the business pays for, and a guest who has not settled by the tenth
+ * is not going to.
+ *
+ * An hour, keyed the same way as the throttle. In memory, like the throttle:
+ * a restart forgives everyone, which is the right way to fail for a limit whose
+ * only job is to bound spending.
+ */
+const MAX_GENERATIONS = 10;
+const GENERATION_WINDOW_MS = 60 * 60_000;
+const generations = new Map();
+
+/** @returns {{allowed: boolean, used: number, left: number}} */
+function countGeneration(key) {
+  const now = Date.now();
+  const entry = generations.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    generations.set(key, { count: 1, resetAt: now + GENERATION_WINDOW_MS });
+    if (generations.size > 5000) generations.clear();
+    return { allowed: true, used: 1, left: MAX_GENERATIONS - 1 };
+  }
+
+  if (entry.count >= MAX_GENERATIONS) {
+    return { allowed: false, used: entry.count, left: 0 };
+  }
+
+  entry.count += 1;
+  return {
+    allowed: true,
+    used: entry.count,
+    left: MAX_GENERATIONS - entry.count,
+  };
+}
+
 function throttled(key) {
   const now = Date.now();
   const entry = hits.get(key);
@@ -128,6 +167,17 @@ app.post('/api/review', requireTenant, async (req, res) => {
     return res
       .status(429)
       .json({ error: 'That is a lot of reviews. Wait a moment and try again.' });
+  }
+
+  // Counted before the model is called, not after: a cap enforced on the way
+  // out has already spent the tokens it exists to protect.
+  const quota = countGeneration(`${req.subscriber.slug}:${req.ip}`);
+  if (!quota.allowed) {
+    return res.status(429).json({
+      error:
+        'You have used the reviews available for now. Edit the one you have — it is yours to change.',
+      left: 0,
+    });
   }
 
   const body = req.body || {};
@@ -216,7 +266,7 @@ app.post('/api/review', requireTenant, async (req, res) => {
       reviewText: review,
     });
 
-    res.json({ review, categoryId, reviewId });
+    res.json({ review, categoryId, reviewId, left: quota.left });
   } catch (err) {
     const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     console.error('Review request failed:', err);
