@@ -719,3 +719,28 @@ body {
 .destinations svg {
   flex: 0 0 auto;
 }
+
+/* The review-language selector, where the settings gear used to sit. Quiet on
+   purpose: a guest who needs it will look for their own script, and one who
+   does not should barely notice it. */
+.lang {
+  appearance: none;
+  border: 1px solid var(--jade-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.lang:hover,
+.lang:focus-visible {
+  color: var(--paper);
+  border-color: var(--jade);
+}
+
+.lang option {
+  color: initial;
+}

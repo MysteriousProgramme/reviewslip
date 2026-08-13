@@ -3,6 +3,7 @@
 const el = {
   eyebrow: document.getElementById('eyebrow'),
   chips: document.getElementById('chips'),
+  lang: document.getElementById('lang'),
   slip: document.getElementById('slip'),
   review: document.getElementById('review'),
   notice: document.getElementById('notice'),
@@ -19,6 +20,7 @@ const state = {
   destinations: [], // {id, label, hex, path, url} for each link that is set
 
   recent: [], // last few generations, so the next one reads differently
+  language: 'en',
   busy: false,
   left: null, // regenerations remaining, once the server has said
 };
@@ -51,6 +53,7 @@ async function init() {
       document.title = `Leave a review — ${config.venue}`;
     }
     renderChips(config.categories || []);
+    renderLanguages(config.languages || []);
   } catch (err) {
     setBusy(false);
     say(err.message || 'Could not load the page settings.', 'error');
@@ -139,6 +142,43 @@ function renderChips(categories) {
   }
 }
 
+/**
+ * Which language the review is written in — not the page.
+ *
+ * A guest who cannot read English still needs the review itself in their own
+ * language: it is the thing they are about to post publicly under their name,
+ * and they cannot judge a sentence they cannot read.
+ */
+function renderLanguages(languages) {
+  if (languages.length < 2) {
+    el.lang.hidden = true;
+    return;
+  }
+
+  const remembered = localStorage.getItem('reviewslip.lang');
+  state.language = languages.some((l) => l.code === remembered)
+    ? remembered
+    : languages[0].code;
+
+  for (const language of languages) {
+    const option = document.createElement('option');
+    option.value = language.code;
+    // Its own name, in its own script: someone looking for Thai is not reading
+    // the English word for it.
+    option.textContent = language.label;
+    option.selected = language.code === state.language;
+    el.lang.append(option);
+  }
+
+  // Changing it does not regenerate, for the same reason toggling a category
+  // does not — every attempt is one of a limited number the guest has.
+  el.lang.addEventListener('change', () => {
+    state.language = el.lang.value;
+    localStorage.setItem('reviewslip.lang', state.language);
+    say('The next one will be written in that language.');
+  });
+}
+
 /* -------------------------------------------------------------- generate */
 
 async function generate() {
@@ -153,6 +193,7 @@ async function generate() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         categoryIds: state.categoryIds,
+        language: state.language,
         recent: state.recent,
       }),
     });
