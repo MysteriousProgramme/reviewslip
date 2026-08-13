@@ -8,8 +8,7 @@ const el = {
   notice: document.getElementById('notice'),
   regenerate: document.getElementById('regenerate'),
   copy: document.getElementById('copy'),
-  proceed: document.getElementById('proceed'),
-  proceedTa: document.getElementById('proceed-ta'),
+  destinations: document.getElementById('destinations'),
   hint: document.getElementById('hint'),
 
 };
@@ -17,8 +16,7 @@ const el = {
 const state = {
   // A set, not one value: a guest may want the room and the food in one review.
   categoryIds: [],
-  googleUrl: null,
-  tripadvisorUrl: null,
+  destinations: [], // {id, label, hex, path, url} for each link that is set
 
   recent: [], // last few generations, so the next one reads differently
   busy: false,
@@ -35,10 +33,6 @@ async function init() {
   el.review.addEventListener('input', autosize);
   el.regenerate.addEventListener('click', () => generate());
   el.copy.addEventListener('click', onCopy);
-  el.proceed.addEventListener('click', () => onProceed(state.googleUrl, 'Google'));
-  el.proceedTa.addEventListener('click', () =>
-    onProceed(state.tripadvisorUrl, 'Tripadvisor')
-  );
 
   let config;
   try {
@@ -48,8 +42,9 @@ async function init() {
     // server says so far more usefully than a generic message could.
     if (!res.ok) throw new Error(config.error || 'Could not load the page.');
 
-    state.googleUrl = config.googleUrl;
-    state.tripadvisorUrl = config.tripadvisorUrl;
+    state.destinations = Array.isArray(config.destinations)
+      ? config.destinations
+      : [];
     if (config.venue) {
       el.eyebrow.textContent = config.venue;
       document.title = `Leave a review — ${config.venue}`;
@@ -59,7 +54,6 @@ async function init() {
     setBusy(false);
     say(err.message || 'Could not load the page settings.', 'error');
     el.regenerate.disabled = true;
-    el.proceed.disabled = true;
     return;
   }
 
@@ -73,19 +67,38 @@ async function init() {
  * once there is somewhere to send the guest.
  */
 function renderDestinations() {
-  const google = Boolean(state.googleUrl);
-  const tripadvisor = Boolean(state.tripadvisorUrl);
+  el.destinations.replaceChildren();
 
-  el.proceed.hidden = !google;
-  el.proceedTa.hidden = !tripadvisor;
-  // Marigold is spent once, as a fill. With both listings up Google keeps it;
-  // alone, Tripadvisor takes it rather than sitting there as a lone outline.
-  el.proceedTa.classList.toggle('btn-go-second', google && tripadvisor);
+  for (const [index, place] of state.destinations.entries()) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    // Marigold is spent once, as a fill. The first listing keeps it and the
+    // rest are outlined, however many there are.
+    button.className = `btn btn-go${index ? ' btn-go-second' : ''}`;
 
-  el.hint.textContent =
-    google || tripadvisor
-      ? 'Copies your review, then opens the listing.'
-      : 'No review link set yet.';
+    if (place.path) {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '17');
+      svg.setAttribute('height', '17');
+      svg.setAttribute('aria-hidden', 'true');
+      // The brand's own colour, not the button's — a mark recoloured to match a
+      // button stops being that brand's mark.
+      svg.setAttribute('fill', place.hex);
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', place.path);
+      svg.append(path);
+      button.append(svg);
+    }
+
+    button.append(document.createTextNode(`Proceed to ${place.label}`));
+    button.addEventListener('click', () => onProceed(place.url, place.label));
+    el.destinations.append(button);
+  }
+
+  el.hint.textContent = state.destinations.length
+    ? 'Copies your review, then opens the listing.'
+    : 'No review link set yet.';
 }
 
 function renderChips(categories) {

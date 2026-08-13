@@ -23,6 +23,7 @@ const subscribers = require('./subscribers');
 const events = require('./events');
 const openrouter = require('./openrouter');
 const { readWebsite, openrouterHeaders } = require('./reader');
+const { PLATFORMS } = require('./platforms');
 const adminRouter = require('./admin');
 const customerRouter = require('./customer');
 const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
@@ -86,8 +87,16 @@ function throttled(key) {
 /* ------------------------------------------------------------ guest routes */
 
 app.get('/api/config', requireTenant, (req, res) => {
-  const { googleUrl, tripadvisorUrl, categories, place } =
-    subscribers.settingsFor(req.subscriber);
+  const resolved = subscribers.settingsFor(req.subscriber);
+  const { googleUrl, tripadvisorUrl, categories, place } = resolved;
+
+  // Only the links that are set, in platform order, each carrying its own mark.
+  // Sending the marks here rather than serving platforms.js keeps one copy of
+  // them, and an unset platform costs nothing — a Xiaohongshu path is 3.5kB.
+  const destinations = PLATFORMS.map((p) => ({
+    ...p,
+    url: resolved[`${p.id}Url`] || '',
+  })).filter((p) => p.url);
 
   res.json({
     venue: req.subscriber.name,
@@ -96,6 +105,7 @@ app.get('/api/config', requireTenant, (req, res) => {
     categories: categories.map(({ id, label }) => ({ id, label })),
     googleUrl,
     tripadvisorUrl,
+    destinations,
     // Sent rather than hardcoded in the page, so the list cannot drift from the
     // one the prompt knows about.
     languages: LANGUAGES.map(({ code, label }) => ({ code, label })),

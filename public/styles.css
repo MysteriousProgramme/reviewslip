@@ -700,3 +700,22 @@ body {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* The listing buttons, built from whichever links the business has set. They
+   stack, and each carries its brand mark beside the label — so the button needs
+   to be a flex row rather than centred text. */
+.destinations {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.destinations .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.destinations svg {
+  flex: 0 0 auto;
+}
