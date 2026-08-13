@@ -741,6 +741,11 @@ body {
   border-color: var(--jade);
 }
 
+/* The dropdown itself is drawn by the OS, not by the page, and it does not
+   inherit the dark canvas — it opens on white. `color: initial` resolves to the
+   inherited light ink there, so the options were white on white. Both colours
+   have to be stated. */
 .lang option {
-  color: initial;
+  background-color: var(--paper);
+  color: var(--ink);
 }
