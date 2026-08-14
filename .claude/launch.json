@@ -7,6 +7,20 @@
       "runtimeArgs": ["run", "dev"],
       "port": 3000,
       "autoPort": true
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "C:/Projects/reviewslip-website",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "3001"
+      ],
+      "port": 3001
     }
   ]
 }
