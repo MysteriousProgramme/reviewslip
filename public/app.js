@@ -75,30 +75,43 @@ function renderDestinations() {
   el.destinations.replaceChildren();
 
   for (const [index, place] of state.destinations.entries()) {
+    const row = document.createElement('div');
+    row.className = 'destination';
+
+    // The mark sits outside the button, on its own light tile. Brand guidelines
+    // for these logos ask for clear space and a plain background — Google's is
+    // four colours, and dropping it onto a marigold fill breaches both. Outside
+    // it also stays legible when the button is outlined rather than filled.
+    if (place.path) {
+      const tile = document.createElement('span');
+      tile.className = 'destination-mark';
+
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('width', '20');
+      svg.setAttribute('height', '20');
+      svg.setAttribute('aria-hidden', 'true');
+      // Never recoloured. A mark tinted to match its surroundings has stopped
+      // being that company's mark, and every one of these guidelines says so.
+      svg.setAttribute('fill', place.hex);
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', place.path);
+      svg.append(path);
+      tile.append(svg);
+      row.append(tile);
+    }
+
     const button = document.createElement('button');
     button.type = 'button';
     // Marigold is spent once, as a fill. The first listing keeps it and the
     // rest are outlined, however many there are.
     button.className = `btn btn-go${index ? ' btn-go-second' : ''}`;
-
-    if (place.path) {
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('viewBox', '0 0 24 24');
-      svg.setAttribute('width', '17');
-      svg.setAttribute('height', '17');
-      svg.setAttribute('aria-hidden', 'true');
-      // The brand's own colour, not the button's — a mark recoloured to match a
-      // button stops being that brand's mark.
-      svg.setAttribute('fill', place.hex);
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', place.path);
-      svg.append(path);
-      button.append(svg);
-    }
-
-    button.append(document.createTextNode(`Proceed to ${place.label}`));
+    button.textContent = `Proceed to ${place.label}`;
     button.addEventListener('click', () => onProceed(place.url, place.label));
-    el.destinations.append(button);
+
+    row.append(button);
+    el.destinations.append(row);
   }
 
   el.hint.textContent = state.destinations.length

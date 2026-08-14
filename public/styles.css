@@ -749,3 +749,26 @@ body {
   background-color: var(--paper);
   color: var(--ink);
 }
+
+/* One row per listing: the brand mark on its own tile, then the button. The
+   mark is kept off the button's fill because these logos come with clear-space
+   and background rules, and a four-colour G on marigold satisfies neither. */
+.destination {
+  display: flex;
+  align-items: stretch;
+  gap: 0.6rem;
+}
+
+.destination .btn {
+  flex: 1;
+}
+
+.destination-mark {
+  flex: 0 0 auto;
+  width: 3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  /* Plain and light, which is what every one of these guidelines asks for. */
+  background: var(--paper);
+}
