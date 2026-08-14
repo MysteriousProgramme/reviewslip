@@ -205,16 +205,19 @@ app.post('/api/review', requireTenant, async (req, res) => {
   // generated. Two guests an hour apart otherwise get near-identical reviews
   // from the same six details and the same prompt, and a wall of near-duplicates
   // is exactly the pattern review platforms filter.
-  const published = await events
-    .recent(req.subscriber.id, 8)
-    .then((rows) => rows.map((r) => r.review_text).filter(Boolean))
-    .catch(() => []);
+  //
+  // Sampled across the last hundred rather than taking the newest eight: the
+  // newest eight are the ones already most alike, and steering around only those
+  // leaves the model free to drift back onto last week's review.
+  const published = await events.spread(req.subscriber.id, 8, 100).catch(() => []);
 
-  // What the owner has thumbed up, as examples. Caught rather than awaited into
-  // the happy path only: a review must still be written if the lookup fails.
-  const examples = await events
-    .liked(req.subscriber.id, 3)
-    .catch(() => []);
+  // Both thumbs. The likes say what this business wants; the dislikes say what it
+  // does not, which the likes cannot express. Caught rather than awaited into the
+  // happy path only: a review must still be written if either lookup fails.
+  const [examples, rejected] = await Promise.all([
+    events.liked(req.subscriber.id, 3).catch(() => []),
+    events.disliked(req.subscriber.id, 3).catch(() => []),
+  ]);
 
   // An unknown code falls back to English rather than refusing: a guest with a
   // stale page should still get a review.
@@ -229,6 +232,7 @@ app.post('/api/review', requireTenant, async (req, res) => {
     language,
     venue: subscribers.venueFor(req.subscriber),
     examples,
+    rejected,
   });
 
   try {

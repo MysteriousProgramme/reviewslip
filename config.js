@@ -90,6 +90,28 @@ function languageFor(code) {
 }
 
 /**
+ * Real listings are not uniform. Every review being the same length in the same
+ * register is itself a pattern, and a visible one — so both are drawn per
+ * request rather than fixed.
+ */
+const LENGTHS = [
+  'one sentence, and stop there',
+  'one short sentence and one longer one',
+  'two sentences',
+  'two sentences, the second much shorter',
+  'three short sentences',
+  'a single line, under fifteen words',
+];
+
+const VOICES = [
+  'plain and unfussy, the way most people write',
+  'warm, but not gushing',
+  'clipped, like someone typing quickly on a phone',
+  'a little more considered, as if they thought before writing',
+  'understated — the praise is there but quiet',
+];
+
+/**
  * Rotating angles keep regenerations from converging on the same sentence
  * shape. One is picked at random per request.
  */
@@ -134,6 +156,7 @@ ${venue.safeDetails.map((d) => `- ${d}`).join('\n')}`;
  * @param {object[]} [args.categories] - the venue's own buttons, if it set any
  * @param {object} [args.venue] - the venue being written about
  * @param {string[]} [args.examples] - reviews this business approved
+ * @param {string[]} [args.rejected] - reviews this business turned down
  * @param {string} [args.language] - which language to write in
  * @param {() => number} [args.rand] - injectable for tests
  */
@@ -143,6 +166,7 @@ function buildMessages({
   categories,
   venue = VENUE,
   examples = [],
+  rejected = [],
   language = DEFAULT_LANGUAGE,
   rand = Math.random,
 }) {
@@ -152,6 +176,8 @@ function buildMessages({
   const list = Array.isArray(categories) ? categories : [];
   const picked = list.filter((c) => categoryIds.includes(c.id));
   const angle = ANGLES[Math.floor(rand() * ANGLES.length)];
+  const length = LENGTHS[Math.floor(rand() * LENGTHS.length)];
+  const voice = VOICES[Math.floor(rand() * VOICES.length)];
 
   // Nothing picked, or nothing to pick: write about the visit rather than
   // refusing. A guest who goes straight to Regenerate still gets something.
@@ -168,7 +194,7 @@ function buildMessages({
       `.\n\nThat is ${picked.length} things at once — do not list them. Lead with whichever felt most worth saying and let the rest show up in passing, or leave one out if it will not fit naturally`;
   }
 
-  let user = `Write one review about ${about}.\n\nThis time: ${angle}.`;
+  let user = `Write one review about ${about}.\n\nThis time: ${angle}. Make it ${length}, and write it ${voice}.`;
 
   // Approved samples pull towards a house voice; the recent list below pushes
   // away from repetition. They would fight if both asked about wording, so this
@@ -180,6 +206,16 @@ function buildMessages({
       .map((r) => `- ${r}`)
       .join('\n');
     user += `\n\nThis business approved these earlier reviews. Match their tone and length, not their wording:\n${list}`;
+  }
+
+  // A rejected review says what this business does not want said about it,
+  // which the approved ones cannot express.
+  if (rejected.length) {
+    const list = rejected
+      .slice(0, 3)
+      .map((r) => `- ${r}`)
+      .join('\n');
+    user += `\n\nThis business rejected these. Do not write anything like them:\n${list}`;
   }
 
   if (recent.length) {

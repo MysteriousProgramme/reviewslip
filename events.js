@@ -116,6 +116,49 @@ async function liked(subscriberId, limit = 5) {
 }
 
 /**
+ * What the owner turned down, as things to avoid.
+ *
+ * A rejected review is at least as informative as an approved one — it says what
+ * this business does not want said about it — and nothing was reading them.
+ */
+async function disliked(subscriberId, limit = 3) {
+  const rows = await all(
+    `SELECT review_text
+       FROM review_events
+      WHERE subscriber_id = $1 AND liked = false AND review_text IS NOT NULL
+      ORDER BY rated_at DESC
+      LIMIT $2`,
+    [subscriberId, Math.min(Number(limit) || 3, 10)]
+  );
+  return rows.map((row) => row.review_text);
+}
+
+/**
+ * A spread of what this business has already published, to write away from.
+ *
+ * Sampled at random across the last hundred rather than taking the newest few.
+ * The newest few are the ones most likely to resemble each other already, so
+ * avoiding only those leaves the model free to drift back towards a review from
+ * last week. Random sampling costs the same tokens and covers far more ground.
+ */
+async function spread(subscriberId, take = 8, pool = 100) {
+  const rows = await all(
+    `SELECT review_text
+       FROM (
+         SELECT review_text
+           FROM review_events
+          WHERE subscriber_id = $1 AND review_text IS NOT NULL
+          ORDER BY created_at DESC
+          LIMIT $3
+       ) AS recent
+      ORDER BY random()
+      LIMIT $2`,
+    [subscriberId, Math.min(Number(take) || 8, 20), Math.min(Number(pool) || 100, 500)]
+  );
+  return rows.map((row) => row.review_text);
+}
+
+/**
  * This calendar month, in UTC. Billing periods are a later problem; a month
  * boundary everyone can agree on is enough for a usage meter.
  */
@@ -208,6 +251,8 @@ module.exports = {
   setFeedback,
   rated,
   liked,
+  disliked,
+  spread,
   usageThisMonth,
   usageThisMonthFor,
   daily,
