@@ -725,26 +725,30 @@ body {
    does not should barely notice it. */
 .lang {
   appearance: none;
-  border: 1px solid var(--jade-line);
+  border: 1px solid var(--jade);
   border-radius: 999px;
-  background: transparent;
-  color: var(--ink-soft);
+  background: rgba(130, 180, 155, 0.12);
+  color: var(--paper);
   font: inherit;
-  font-size: 0.82rem;
-  padding: 0.3rem 0.7rem;
+  font-size: 0.95rem;
+  padding: 0.45rem 2rem 0.45rem 0.95rem;
   cursor: pointer;
+  /* The native arrow disappears once appearance is stripped, and a select with
+     no arrow reads as a label rather than a control — which is the whole
+     problem when a guest needs to find it without being able to read the page. */
+  background-image: linear-gradient(45deg, transparent 50%, var(--jade) 50%),
+    linear-gradient(135deg, var(--jade) 50%, transparent 50%);
+  background-position: right 1.05rem center, right 0.8rem center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
 }
 
 .lang:hover,
 .lang:focus-visible {
-  color: var(--paper);
-  border-color: var(--jade);
+  border-color: var(--paper);
+  background-color: rgba(130, 180, 155, 0.2);
 }
 
-/* The dropdown itself is drawn by the OS, not by the page, and it does not
-   inherit the dark canvas — it opens on white. `color: initial` resolves to the
-   inherited light ink there, so the options were white on white. Both colours
-   have to be stated. */
 .lang option {
   background-color: var(--paper);
   color: var(--ink);

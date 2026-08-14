@@ -157,6 +157,31 @@ function renderChips(categories) {
 }
 
 /**
+ * What to select before the guest has chosen anything.
+ *
+ * A previous choice wins. Otherwise the browser's own preferences, in the order
+ * it lists them, matched on the base tag — zh-CN, zh-TW and zh all mean the same
+ * offer here. A guest who cannot read English should not have to find the
+ * selector before the page is any use to them.
+ */
+function preferredLanguage(languages) {
+  const remembered = localStorage.getItem('reviewslip.lang');
+  if (languages.some((l) => l.code === remembered)) return remembered;
+
+  const offered = new Set(languages.map((l) => l.code));
+  const asked = navigator.languages?.length
+    ? navigator.languages
+    : [navigator.language].filter(Boolean);
+
+  for (const tag of asked) {
+    const base = String(tag).toLowerCase().split('-')[0];
+    if (offered.has(base)) return base;
+  }
+
+  return languages[0].code;
+}
+
+/**
  * Which language the review is written in — not the page.
  *
  * A guest who cannot read English still needs the review itself in their own
@@ -169,10 +194,7 @@ function renderLanguages(languages) {
     return;
   }
 
-  const remembered = localStorage.getItem('reviewslip.lang');
-  state.language = languages.some((l) => l.code === remembered)
-    ? remembered
-    : languages[0].code;
+  state.language = preferredLanguage(languages);
 
   for (const language of languages) {
     const option = document.createElement('option');
