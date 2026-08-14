@@ -23,6 +23,7 @@ const state = {
   language: 'en',
   busy: false,
   left: null, // regenerations remaining, once the server has said
+  max: null, // and how many there were to begin with
 };
 
 let copyResetTimer = null;
@@ -207,6 +208,8 @@ async function generate() {
     // The server decides; this only reflects it, so a reload cannot buy more.
     if (typeof data.left === 'number') {
       state.left = data.left;
+      state.max = typeof data.max === 'number' ? data.max : state.max;
+      renderCount();
       if (data.left === 0) {
         el.regenerate.disabled = true;
         say('That is the last one for now. Edit it however you like.');
@@ -281,6 +284,19 @@ async function copyReview() {
 }
 
 /* ----------------------------------------------------------------- utils */
+
+/**
+ * How many of the guest's tries are gone, on the button itself.
+ *
+ * On the button rather than in the notice, because the notice is where errors
+ * and the copy confirmation go — a count that shares that line disappears the
+ * moment anything else has something to say.
+ */
+function renderCount() {
+  if (state.max === null || state.left === null) return;
+  const used = state.max - state.left;
+  el.regenerate.textContent = `Regenerate (${used}/${state.max})`;
+}
 
 function setBusy(busy) {
   state.busy = busy;

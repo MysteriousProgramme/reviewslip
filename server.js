@@ -277,7 +277,15 @@ app.post('/api/review', requireTenant, async (req, res) => {
       reviewText: review,
     });
 
-    res.json({ review, categoryId, reviewId, left: quota.left });
+    // `left` alone cannot be shown as a fraction, and "3 left" reads as a
+    // warning where "7/10" reads as information.
+    res.json({
+      review,
+      categoryId,
+      reviewId,
+      left: quota.left,
+      max: MAX_GENERATIONS,
+    });
   } catch (err) {
     const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
     console.error('Review request failed:', err);
