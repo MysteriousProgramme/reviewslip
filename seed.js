@@ -387,9 +387,98 @@ function parseContextDoc(raw, { maxChars = 2000 } = {}) {
   return contextDoc ? { contextDoc, dropped } : null;
 }
 
+/* ------------------------------------------------------------- the theme */
+
+/**
+ * Four colours, read off the business's own site.
+ *
+ * Four rather than a full palette because four is what a model can genuinely
+ * take from a page — the header, the body, a button — while the tints, shades
+ * and text colours are arithmetic, and theme.js does that better than a prompt
+ * can. It is also what makes the result checkable: four hex values either parse
+ * or they do not.
+ *
+ * The prompt asks for a `source` per colour for the same reason the details
+ * prompt does. A model that cannot say where a colour came from has invented it,
+ * and a business seeing "the primary button" beside a hex can tell at a glance
+ * whether it really read the site or guessed from the name.
+ *
+ * Contrast is deliberately not the model's problem. It is asked for a *dark*
+ * ground and a *light* paper and nothing more; theme.js then nudges anything
+ * that cannot carry text until it can, and reports what moved. Asking a model to
+ * do WCAG arithmetic produces confident wrong numbers.
+ */
+const THEME_SYSTEM = `You read a business's own website and pick the four colours its review page should use.
+
+Return a single JSON object of this shape:
+{
+  "ground": { "hex": "#0c1f19", "source": "the site header background" },
+  "paper":  { "hex": "#f3ecdc", "source": "the page background behind body text" },
+  "accent": { "hex": "#82b49b", "source": "the link colour" },
+  "highlight": { "hex": "#e9a03b", "source": "the Book Now button" }
+}
+
+What each one is for:
+- "ground" is the deep background of the whole page. It must be DARK. Take the site's darkest brand colour — a header, a footer, a hero overlay. If the site is entirely pale, deepen its main brand colour until it is dark rather than returning a light one.
+- "paper" is the light card the review is written on, and the printed table card. It must be LIGHT and close to neutral: an off-white, a cream, a very pale tint of the brand. Never a saturated colour — text has to sit on it.
+- "accent" is the quiet furniture: labels, borders, the topic buttons. A mid-tone brand colour.
+- "highlight" is spent once, on the button that opens the review listing. The site's most attention-seeking colour — the one on its main call to action.
+
+Rules:
+- Every value must be a full six-digit hex like #1b2a23. No colour names, no rgb(), no shorthand.
+- "ground" and "paper" must be clearly different in lightness. A dark ground and a light paper.
+- Take colours the site actually uses. Say where each came from in "source", naming the element you saw it on.
+- If the site gives you nothing for a slot, choose one that sits with the others rather than leaving it out. All four are required.
+- Do not return four near-identical colours. This is a palette, not a monochrome study.
+
+Output only the JSON object. Nothing before it, nothing after it.`;
+
+/**
+ * @param {object} args
+ * @param {string} args.url - the business's website
+ */
+function buildThemeMessages({ url }) {
+  return [
+    { role: 'system', content: THEME_SYSTEM },
+    {
+      role: 'user',
+      content: `Read ${url} and pick the four colours. Fetch the page before answering — do not guess a palette from the business name or the domain. Look at the stylesheet and the inline styles as well as the visible text, and prefer a colour you can point at over one that merely feels right.`,
+    },
+  ];
+}
+
+/**
+ * @returns {{theme: object, sources: object}|null} null when nothing usable
+ *   came back. Colour validation lives in theme.js — this only reshapes.
+ */
+function parseTheme(raw) {
+  const data = extractJson(raw);
+  if (!data) return null;
+
+  const theme = {};
+  const sources = {};
+
+  for (const slot of ['ground', 'paper', 'accent', 'highlight']) {
+    const entry = data[slot];
+    // Accept the bare string too. A model told to return objects still
+    // occasionally returns `"ground": "#0c1f19"`, and refusing that would cost
+    // the customer another minute of page reading for nothing.
+    const value = typeof entry === 'string' ? entry : entry?.hex;
+    if (typeof value !== 'string') return null;
+
+    theme[slot] = value.trim();
+    sources[slot] = text(typeof entry === 'string' ? '' : entry?.source, 120);
+  }
+
+  return { theme, sources };
+}
+
 module.exports = {
   bannedWord,
   buildSeedMessages,
+  buildThemeMessages,
+  parseTheme,
+  THEME_SYSTEM,
   parseProposal,
   buildTopicMessages,
   parseTopics,

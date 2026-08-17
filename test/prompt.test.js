@@ -21,6 +21,7 @@ const context = require('../context');
 const config = require('../config');
 const seed = require('../seed');
 const settings = require('../settings');
+const theme = require('../theme');
 
 /** A business that has described itself. */
 const CLINIC = {
@@ -375,4 +376,127 @@ test('a hand-typed detail is screened exactly as a drafted one is', () => {
   assert.equal(settings.validate({ safeDetails: ['our award-winning bar'] }).ok, false);
   assert.equal(settings.validate({ safeDetails: ['12 rooms'] }).ok, false);
   assert.ok(settings.validate({ safeDetails: ['a quiet waiting room'] }).ok);
+});
+
+/* ------------------------------------------------------------------ themes */
+
+/** Every pair the design renders as text, with the ratio it has to clear. */
+const PAIRS = [
+  ['--ink', '--paper', theme.RATIOS.reviewText, 'review text'],
+  ['--ink-soft', '--paper', theme.RATIOS.softText, 'soft text'],
+  ['--jade', '--shade', theme.RATIOS.bodyText, 'labels'],
+  ['--marigold', '--shade', theme.RATIOS.actionText, 'action text'],
+  ['--on-marigold', '--marigold', theme.RATIOS.onHighlight, 'button label'],
+  ['--warn', '--shade', theme.RATIOS.bodyText, 'error notice'],
+  ['--paper', '--shade', theme.RATIOS.surface, 'paper against ground'],
+  ['--card-ink', '#ffffff', theme.RATIOS.reviewText, 'card name'],
+  ['--card-muted', '#ffffff', theme.RATIOS.softText, 'card small print'],
+];
+
+test('any palette that validates produces a readable page', () => {
+  // The point of the whole module: a brand palette is not an interface palette,
+  // and the ones that go wrong are not exotic. A mid-tone highlight is the case
+  // that caught the first implementation — it pushed the button label toward
+  // white, which never reaches 4.5 on coral, when black clears it at once.
+  const palettes = {
+    shipped: theme.DEFAULT_THEME,
+    'navy and coral': { ground: '#0b1b33', paper: '#fbf7f0', accent: '#3fa7a0', highlight: '#ff6f5e' },
+    'all mid-tone': { ground: '#4a4a4a', paper: '#b0b0b0', accent: '#7a7a7a', highlight: '#808080' },
+    'hot pink': { ground: '#2b0a1e', paper: '#fff0f6', accent: '#ff4fa3', highlight: '#ffd166' },
+    'light ground': { ground: '#f7f4ee', paper: '#1a1a1a', accent: '#7a5c2e', highlight: '#0057b8' },
+    'maximum contrast': { ground: '#000000', paper: '#ffffff', accent: '#ffff00', highlight: '#ffff00' },
+    'pale brand on dark': { ground: '#101010', paper: '#f6f6f6', accent: '#fff8d0', highlight: '#fffbe0' },
+  };
+
+  for (const [name, palette] of Object.entries(palettes)) {
+    assert.ok(theme.validate(palette).ok, `${name} should validate`);
+    const { vars } = theme.derive(palette);
+
+    for (const [a, b, target, what] of PAIRS) {
+      const front = vars[a];
+      const back = vars[b] ?? b;
+      const ratio = theme.contrast(front, back);
+      assert.ok(
+        ratio >= target - 0.005,
+        `${name}: ${what} is ${ratio.toFixed(2)}:1, needs ${target}:1`
+      );
+    }
+  }
+});
+
+test('a ground and paper too close to tell apart is refused', () => {
+  // The one case derivation cannot rescue: every text colour is pushed toward
+  // white or black, and that needs a direction to push in.
+  const flat = { ground: '#ffffff', paper: '#fffdf5', accent: '#f5e6b8', highlight: '#ffe9a8' };
+  const verdict = theme.validate(flat);
+
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /too close to tell apart/);
+});
+
+test('colours are normalised, and anything that is not one is refused', () => {
+  const short = theme.validate({
+    ground: '#012', paper: '#FFF', accent: '#0A0', highlight: '#F80',
+  });
+  assert.ok(short.ok);
+  // Shorthand expanded and lowercased, so the store holds one shape.
+  assert.equal(short.theme.ground, '#001122');
+  assert.equal(short.theme.accent, '#00aa00');
+
+  for (const bad of ['rebeccapurple', 'rgb(1,2,3)', '#12345', '', null]) {
+    const verdict = theme.validate({ ...theme.DEFAULT_THEME, accent: bad });
+    assert.equal(verdict.ok, false, `${bad} should be refused`);
+  }
+});
+
+test('an unthemed business gets an empty stylesheet, not a rebuilt one', () => {
+  // The shipped palette lives in styles.css. Reconstructing it from arithmetic
+  // would land close but not exact, so a business with no theme is served
+  // nothing at all and the file it already loaded stands.
+  assert.equal(theme.css(null), '');
+  assert.equal(settings.resolve({}).theme, null);
+
+  const themed = theme.css(theme.DEFAULT_THEME);
+  assert.match(themed, /^:root \{/);
+  assert.match(themed, /--marigold: #e9a03b;/);
+});
+
+test('a stored theme resolves and survives a round trip', () => {
+  const palette = { ground: '#0b1b33', paper: '#fbf7f0', accent: '#3fa7a0', highlight: '#ff6f5e' };
+
+  const resolved = settings.resolve({ theme: palette });
+  assert.deepEqual(resolved.theme, palette);
+
+  const described = settings.describe({ theme: palette });
+  assert.equal(described.theme.source, 'subscriber');
+  assert.deepEqual(described.theme.value, palette);
+  // The dashboard draws its preview from these, so they have to be there.
+  assert.ok(described.theme.derived['--ink']);
+  assert.ok(described.theme.derived['--card-ink']);
+
+  // And an unusable stored value falls back rather than throwing.
+  assert.equal(settings.resolve({ theme: { ground: 'nonsense' } }).theme, null);
+  assert.equal(settings.describe({}).theme.source, 'default');
+});
+
+test('a drafted theme is read from either shape the model returns', () => {
+  const asObjects = seed.parseTheme(`{
+    "ground": { "hex": "#0b1b33", "source": "the site header" },
+    "paper": { "hex": "#fbf7f0", "source": "the page background" },
+    "accent": { "hex": "#3fa7a0", "source": "the link colour" },
+    "highlight": { "hex": "#ff6f5e", "source": "the Book Now button" }
+  }`);
+
+  assert.equal(asObjects.theme.ground, '#0b1b33');
+  assert.equal(asObjects.sources.highlight, 'the Book Now button');
+
+  // A model told to return objects still sometimes returns bare strings, and
+  // refusing that would cost the customer another page read for nothing.
+  const asStrings = seed.parseTheme(
+    '{"ground":"#0b1b33","paper":"#fbf7f0","accent":"#3fa7a0","highlight":"#ff6f5e"}'
+  );
+  assert.equal(asStrings.theme.paper, '#fbf7f0');
+
+  assert.equal(seed.parseTheme('no json at all'), null);
+  assert.equal(seed.parseTheme('{"ground":"#0b1b33"}'), null);
 });

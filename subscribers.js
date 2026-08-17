@@ -109,6 +109,12 @@ const LISTS = {
   safeDetails: 'safe_details',
 };
 
+// JSON too, but an object rather than a list, so it needs its own parse: an
+// empty object is meaningful where an empty list is not.
+const OBJECTS = {
+  theme: 'theme',
+};
+
 /** A row's own stored settings, in the shape settings.js works with. */
 function own(row) {
   const out = {};
@@ -119,8 +125,26 @@ function own(row) {
     const list = parseList(row?.[column], field);
     if (list) out[field] = list;
   }
+  for (const [field, column] of Object.entries(OBJECTS)) {
+    const object = parseObject(row?.[column], field);
+    if (object) out[field] = object;
+  }
 
   return out;
+}
+
+/** @returns {object|null} null for unset or unparseable — both mean "not set". */
+function parseObject(json, what) {
+  if (!json) return null;
+  try {
+    const value = JSON.parse(json);
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value
+      : null;
+  } catch {
+    console.error(`Ignoring unreadable ${what} JSON in the store.`);
+    return null;
+  }
 }
 
 /**
@@ -329,6 +353,13 @@ async function update(slug, patch = {}) {
   for (const [field, column] of Object.entries(LISTS)) {
     if (patch[field] === undefined) continue;
     sets.push(`${column} = ${next(packList(check[field]))}`);
+  }
+
+  // Same contract for the theme: sending null clears it, and clearing it puts
+  // the business back on the shipped palette.
+  for (const [field, column] of Object.entries(OBJECTS)) {
+    if (patch[field] === undefined) continue;
+    sets.push(`${column} = ${next(check[field] ? JSON.stringify(check[field]) : null)}`);
   }
 
   if (typeof patch.name === 'string') {

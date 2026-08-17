@@ -19,6 +19,7 @@ const {
   parseTopics,
 } = require('./seed');
 const settingsRules = require('./settings');
+const theme = require('./theme');
 const { ready } = require('./db');
 const subscribers = require('./subscribers');
 const events = require('./events');
@@ -63,6 +64,31 @@ app.use('/api/admin', adminRouter);
 // Customers sign in on the marketing site's hostname, not on a venue's, so
 // this sits outside tenant resolution too.
 app.use('/api/customer', customerRouter);
+
+/**
+ * The venue's palette, as a stylesheet.
+ *
+ * Served rather than applied from JavaScript after /api/config lands: the guest
+ * would otherwise watch the shipped colours for as long as that request takes,
+ * outdoors, on a phone. A <link> blocks the first paint instead, which is the
+ * one thing that should block it.
+ *
+ * Outside the /api tenant middleware because it is not an API route, so it
+ * resolves the tenant itself. A venue with no theme gets an empty file — the
+ * stylesheet's own defaults then stand, untouched and byte-identical to what
+ * shipped, rather than being reconstructed by arithmetic that would land close
+ * but not exact.
+ */
+app.get('/theme.css', resolveTenant, (req, res) => {
+  res.type('css');
+  // Private: this is per-hostname, and a shared cache keyed on the path alone
+  // would hand one venue's colours to another. Short, so a save shows up on a
+  // refresh rather than at some unpredictable later point.
+  res.set('Cache-Control', 'private, max-age=60');
+
+  if (!req.subscriber) return res.send('');
+  res.send(theme.css(subscribers.settingsFor(req.subscriber).theme));
+});
 
 // Everything below knows which venue it is serving.
 app.use('/api', resolveTenant);

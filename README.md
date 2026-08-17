@@ -323,6 +323,72 @@ not be detailed. The choices are sent to the page by `/api/config` rather than
 hardcoded in it, so the selector cannot drift from the prompt — the same reason
 the language list is.
 
+## Themes
+
+A business picks four colours — or has them read off its own website — and they
+dress its review page and its printed table card:
+
+| Slot | What it is |
+| --- | --- |
+| `ground` | the deep background behind the page |
+| `paper` | the card the review is written on |
+| `accent` | labels, borders, topic buttons |
+| `highlight` | spent once, on the button that opens the listing |
+
+Four rather than a full palette because four is what a model can genuinely read
+off a page — a header, a body, a button — while the tints, shades, the softened
+text and the colour of the label *inside* the button are arithmetic.
+[theme.js](theme.js) does that better than a prompt can, and it makes the result
+checkable: four hex values either parse or they do not.
+
+### Readability is enforced, not requested
+
+A brand palette is not an interface palette. A pale gold that works in a logo is
+unreadable as body text on a phone outdoors, and asking a model to do WCAG
+arithmetic gets confident wrong numbers. So every colour that ends up as text is
+nudged until it clears a ratio, and what moved is reported back in words:
+
+| Pair | Ratio | Why |
+| --- | --- | --- |
+| review text on paper | 7:1 | the one thing a guest reads word by word, outdoors |
+| soft text on paper | 4.5:1 | |
+| labels on ground | 4.5:1 | |
+| the post button's colour on ground | 4.5:1 | a second listing renders it as text, not a fill |
+| the label inside the button | 4.5:1 | |
+| paper against ground | 3:1 | not text — it only has to read as a separate surface |
+
+The nudge tries white *and* black at each step and takes whichever clears the
+target with the least movement. Picking the direction from the background's
+luminance is the obvious implementation and it is wrong for any mid-tone colour:
+a coral button reads as "dark, go toward white", but white on coral is 2.7:1 and
+no amount of further whitening helps, while black clears 8:1 at once.
+
+Only one thing is refused outright — a ground and paper too close to tell apart,
+because every fix above needs a direction to push in and that leaves none.
+
+### How it reaches the two surfaces
+
+The guest page loads `/theme.css` after `styles.css`, redefining the same custom
+properties. A stylesheet rather than properties set from JavaScript once
+`/api/config` lands: the guest would otherwise watch the shipped colours for the
+length of a request. **A business with no theme is served an empty file**, so the
+original design stands untouched rather than being reconstructed by arithmetic
+that would land close but not exact.
+
+Nothing in `styles.css` may hardcode a colour a theme would need to change —
+there is a note at the top of the file saying so, because a rule with a literal
+hex in it is the one that stays jade on a themed page.
+
+The printed card is measured against **white**, separately, and keeps its white
+stock and its pure black QR. A full-bleed coloured A5 costs a cartridge and
+leaves a margin on any printer that cannot go borderless, and tinting a QR is the
+most common way to make one a phone will not read in a dim room. The theme
+reaches the card's ink, its frame and its rule.
+
+The four chosen colours are what is stored; everything else is derived per
+request. So an improvement to the derivation reaches every business without a
+migration.
+
 ## Where a review gets posted
 
 A venue can list on Google, on Tripadvisor, on both, or on neither. Each button
@@ -355,6 +421,7 @@ realism sample feeds back into the next one.
 | File | What it holds |
 | --- | --- |
 | `context.js` | The generic context document: the craft, the same for every business. |
+| `theme.js` | Four colours to a palette, with every text pair held to a contrast ratio. |
 | `config.js` | The writing prompt — how the generic document, the business, the topics, the length and the prior reviews are assembled into two messages. |
 | `db.js` | The Postgres pool and the schema migrations. |
 | `subscribers.js` | The subscriber store: rows, tokens, the legacy import. |

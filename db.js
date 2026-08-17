@@ -282,6 +282,17 @@ const MIGRATIONS = [
     // the prompt simply leaves the section out.
     await c.query('ALTER TABLE subscribers ADD COLUMN context_doc text');
   },
+
+  async (c) => {
+    // Four colours as JSON — ground, paper, accent, highlight — drafted from the
+    // business's own website and then edited. Everything else in the palette is
+    // derived from these at request time by theme.js, so a change to the
+    // derivation reaches every business without a migration.
+    //
+    // NULL is a business using the shipped palette, which is most of them, and
+    // makes /theme.css an empty file rather than a reconstruction of it.
+    await c.query('ALTER TABLE subscribers ADD COLUMN theme text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

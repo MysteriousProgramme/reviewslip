@@ -16,7 +16,10 @@ const {
   parseTopics,
   buildContextMessages,
   parseContextDoc,
+  buildThemeMessages,
+  parseTheme,
 } = require('./seed');
+const theme = require('./theme');
 const settingsRules = require('./settings');
 const { PLATFORMS } = require('./platforms');
 
@@ -349,6 +352,7 @@ router.patch(
         place: patch.place,
         safeDetails: patch.safeDetails,
         contextDoc: patch.contextDoc,
+        theme: patch.theme,
       });
 
       res.json({ business: record, warning: verdict.warning });
@@ -592,6 +596,95 @@ router.post(
     } catch (err) {
       next(err);
     }
+  }
+);
+
+/**
+ * The theme, drafted from the business's own website.
+ *
+ * A draft like the rest: it fills the swatches and Save stores it. What comes
+ * back is the four colours the model read, what they derive to once the contrast
+ * checks have run, and which of them the checks had to move — so the customer is
+ * looking at the palette the guest will actually see rather than the one their
+ * brand guide specifies.
+ */
+router.post(
+  '/businesses/:slug/theme/draft',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const resolved = readable(req.venue, res);
+      if (!resolved) return;
+
+      const answer = await readWebsite(req.venue, resolved, {
+        messages: buildThemeMessages({ url: resolved.websiteUrl }),
+        maxTokens: 800,
+      });
+      if (!answer.ok) {
+        return res.status(answer.status).json({ error: answer.error });
+      }
+
+      const parsed = parseTheme(answer.content);
+      if (!parsed) {
+        console.error(
+          'Theme drafting produced nothing usable:',
+          String(answer.content).slice(0, 500)
+        );
+        return res.status(502).json({
+          error:
+            'No usable colours came back from that page. Try the site\'s front page.',
+        });
+      }
+
+      // Checked here rather than left to Save. A palette that cannot be stored
+      // should not be put in front of someone as though it can.
+      const verdict = theme.validate(parsed.theme);
+      if (!verdict.ok) {
+        return res.status(502).json({
+          error: `The colours that came back are not usable: ${verdict.error}`,
+        });
+      }
+
+      const derived = theme.derive(verdict.theme);
+
+      res.json({
+        theme: verdict.theme,
+        sources: parsed.sources,
+        derived: derived.vars,
+        adjusted: derived.adjusted,
+        url: resolved.websiteUrl,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * What a set of colours would actually look like, without storing them.
+ *
+ * The dashboard needs this because the four colours a customer types are not the
+ * palette they get — the contrast checks may move some of them. Deriving in the
+ * browser to draw the preview would mean a second copy of theme.js in TypeScript,
+ * and two implementations of a rule about readability is how a page ends up
+ * promising one thing and serving another. No model call, so it is cheap enough
+ * to ask on every change.
+ */
+router.post(
+  '/businesses/:slug/theme/preview',
+  requireAccount,
+  requireOwnVenue,
+  (req, res) => {
+    const verdict = theme.validate(req.body?.theme);
+    if (!verdict.ok) return res.status(400).json({ error: verdict.error });
+
+    // A cleared theme previews as the shipped palette, which is what clearing it
+    // gets you.
+    const palette = verdict.theme || theme.DEFAULT_THEME;
+    const derived = theme.derive(palette);
+
+    res.json({ theme: palette, derived: derived.vars, adjusted: derived.adjusted });
   }
 );
 

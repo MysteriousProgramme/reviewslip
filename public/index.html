@@ -18,6 +18,12 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/styles.css" />
+    <!-- This venue's own palette, if it set one, redefining the custom
+         properties the file above declares. Second, so it wins; a <link> rather
+         than something applied after /api/config, so the guest never watches the
+         default colours for the length of a request. Empty for a venue with no
+         theme. -->
+    <link rel="stylesheet" href="/theme.css" />
   </head>
   <body>
     <main class="page">

@@ -17,6 +17,7 @@
  */
 
 const { bannedWord } = require('./seed');
+const themes = require('./theme');
 
 /**
  * The model every venue writes with, fixed.
@@ -107,7 +108,17 @@ function resolve(own) {
   // list. Details are the same, for the same reason.
   merged.categories = ownCategories(own) || [];
   merged.safeDetails = ownSafeDetails(own) || [];
+  // null rather than the shipped palette: "this business has no theme" and
+  // "this business chose the shipped colours" want to behave differently.
+  // The first serves an empty /theme.css and leaves the stylesheet alone.
+  merged.theme = ownTheme(own);
   return merged;
+}
+
+/** @returns {object|null} the business's own four colours, if it set them */
+function ownTheme(own) {
+  const verdict = themes.validate(own?.theme ?? null);
+  return verdict.ok ? verdict.theme : null;
 }
 
 /** @returns {object[]|null} the venue's own list, if it set one */
@@ -134,6 +145,7 @@ function sources(own) {
   out.model = 'default';
   out.categories = ownCategories(own) ? 'subscriber' : 'default';
   out.safeDetails = ownSafeDetails(own) ? 'subscriber' : 'default';
+  out.theme = ownTheme(own) ? 'subscriber' : 'default';
   return out;
 }
 
@@ -141,6 +153,8 @@ function sources(own) {
 function describe(own) {
   const values = resolve(own);
   const source = sources(own);
+  const palette = values.theme || themes.DEFAULT_THEME;
+  const derived = themes.derive(palette);
   return {
     apiKey: {
       set: Boolean(values.apiKey),
@@ -163,6 +177,16 @@ function describe(own) {
     place: { value: values.place, source: source.place },
     safeDetails: { value: values.safeDetails, source: source.safeDetails },
     contextDoc: { value: values.contextDoc, source: source.contextDoc },
+    // The four chosen colours, plus what they derive to and anything the
+    // contrast check had to move. The dashboard needs the derived set to draw a
+    // truthful preview — showing the four raw colours would promise a page the
+    // guest is not going to get.
+    theme: {
+      value: palette,
+      source: source.theme,
+      derived: derived.vars,
+      adjusted: derived.adjusted,
+    },
     // Sent rather than hardcoded in the page, so the editor and the validator
     // cannot drift apart. `categories` keeps its name here because that is the
     // column and the API field; the dashboard and the guest page both call them
@@ -251,6 +275,12 @@ function validate(patch) {
     const verdict = validateSafeDetails(patch.safeDetails);
     if (!verdict.ok) return verdict;
     out.safeDetails = verdict.safeDetails;
+  }
+
+  if (patch.theme !== undefined) {
+    const verdict = themes.validate(patch.theme);
+    if (!verdict.ok) return verdict;
+    out.theme = verdict.theme;
   }
 
   return out;
