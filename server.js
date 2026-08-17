@@ -90,6 +90,61 @@ app.get('/theme.css', resolveTenant, (req, res) => {
   res.send(theme.css(subscribers.settingsFor(req.subscriber).theme));
 });
 
+/**
+ * The venue's typefaces.
+ *
+ * A redirect rather than a stylesheet of our own. The page needs one <link> in
+ * static HTML that resolves to a different Google Fonts URL per venue, and a
+ * 302 with no body is the cheapest way to do that — a CSS file containing an
+ * @import would serialise an extra download in front of the font files
+ * themselves. The preconnects in index.html mean the connection to Google is
+ * already warm by the time this answers.
+ *
+ * The URL is built only from the `spec` strings in theme.js. Nothing that
+ * arrived over the wire reaches it — a font is chosen by id from a fixed list,
+ * precisely so that this cannot become a redirect to somewhere else.
+ */
+app.get('/fonts.css', resolveTenant, (req, res) => {
+  const chosen = req.subscriber
+    ? subscribers.settingsFor(req.subscriber).theme
+    : null;
+
+  res.set('Cache-Control', 'private, max-age=300');
+  res.redirect(302, theme.fontsUrl(chosen));
+});
+
+/**
+ * The venue's logo.
+ *
+ * Its own route rather than a field on /api/config: a logo is up to 120kB, and
+ * as base64 inside a JSON body it would be re-sent on every generation and
+ * cached by nothing. Here it is bytes with an ETag, fetched once by the phone
+ * and then not again.
+ */
+app.get('/logo', resolveTenant, (req, res) => {
+  const stored = req.subscriber
+    ? subscribers.settingsFor(req.subscriber).theme?.logo
+    : null;
+
+  if (!stored) return res.status(404).end();
+
+  const [, type, base64] = /^data:([^;]+);base64,(.+)$/.exec(stored) || [];
+  if (!type || !base64) return res.status(404).end();
+
+  const body = Buffer.from(base64, 'base64');
+
+  res.type(type);
+  // Immutable it is not — a venue can change its logo — but a minute is enough
+  // to stop a reload re-fetching it, and short enough that a change shows up
+  // while someone is still looking at the page they changed it on.
+  res.set('Cache-Control', 'private, max-age=60');
+  // Belt and braces around the SVG case: served as an image, never as a
+  // document, and with nothing else allowed to load from inside it.
+  res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.send(body);
+});
+
 // Everything below knows which venue it is serving.
 app.use('/api', resolveTenant);
 
@@ -170,6 +225,9 @@ app.get('/api/config', requireTenant, (req, res) => {
   res.json({
     venue: req.subscriber.name,
     place,
+    // Whether to draw the mark, not the mark itself — it is served from /logo,
+    // where it can be cached instead of riding along with every config load.
+    hasLogo: Boolean(resolved.theme?.logo),
     // Every topic, not the ten the guest first sees. The page samples ten and
     // keeps the rest behind its browse button, so sampling server-side would
     // cost a second request to show what is already in hand — and the sample

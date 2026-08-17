@@ -22,6 +22,7 @@ const config = require('../config');
 const seed = require('../seed');
 const settings = require('../settings');
 const theme = require('../theme');
+const assets = require('../assets');
 
 /** A business that has described itself. */
 const CLINIC = {
@@ -465,11 +466,18 @@ test('a stored theme resolves and survives a round trip', () => {
   const palette = { ground: '#0b1b33', paper: '#fbf7f0', accent: '#3fa7a0', highlight: '#ff6f5e' };
 
   const resolved = settings.resolve({ theme: palette });
-  assert.deepEqual(resolved.theme, palette);
+  // Colours as given, plus the normalised font ids and an empty logo — a theme
+  // is always stored complete, so nothing downstream has to guess.
+  assert.deepEqual(resolved.theme, {
+    ...palette,
+    display: theme.DEFAULT_DISPLAY,
+    ui: theme.DEFAULT_UI,
+    logo: '',
+  });
 
   const described = settings.describe({ theme: palette });
   assert.equal(described.theme.source, 'subscriber');
-  assert.deepEqual(described.theme.value, palette);
+  assert.deepEqual(described.theme.value, resolved.theme);
   // The dashboard draws its preview from these, so they have to be there.
   assert.ok(described.theme.derived['--ink']);
   assert.ok(described.theme.derived['--card-ink']);
@@ -477,6 +485,97 @@ test('a stored theme resolves and survives a round trip', () => {
   // And an unusable stored value falls back rather than throwing.
   assert.equal(settings.resolve({ theme: { ground: 'nonsense' } }).theme, null);
   assert.equal(settings.describe({}).theme.source, 'default');
+});
+
+test('a font is an id from the list, or it is the shipped one', () => {
+  // The load-bearing property: a font name never becomes part of a URL. If a
+  // model returns something that is not on the list, it resolves rather than
+  // reaching fontsUrl.
+  const chosen = theme.validate({
+    ...theme.DEFAULT_THEME,
+    display: 'playfair',
+    ui: 'inter',
+  });
+  assert.ok(chosen.ok);
+  assert.equal(chosen.theme.display, 'playfair');
+  assert.equal(chosen.theme.ui, 'inter');
+
+  const injected = theme.validate({
+    ...theme.DEFAULT_THEME,
+    display: 'evil&family=Whatever:wght@400',
+    ui: 'https://example.com/x.css',
+  });
+  assert.ok(injected.ok);
+  assert.equal(injected.theme.display, theme.DEFAULT_DISPLAY);
+  assert.equal(injected.theme.ui, theme.DEFAULT_UI);
+
+  // And nothing unexpected can reach the stylesheet address either way.
+  const url = theme.fontsUrl(injected.theme);
+  assert.ok(url.startsWith('https://fonts.googleapis.com/css2?'));
+  assert.doesNotMatch(url, /evil|example\.com/);
+
+  // The stack always ends in a generic family, so a Thai or Japanese review
+  // falls through to the device font instead of rendering as boxes.
+  const { vars } = theme.derive({ ...theme.DEFAULT_THEME, display: 'playfair' });
+  assert.match(vars['--display'], /^'Playfair Display'.*serif$/);
+  assert.match(vars['--ui'], /sans-serif$/);
+});
+
+test('a logo must be a stored image, never a link to somebody else', () => {
+  const tiny =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+  assert.ok(theme.validate({ ...theme.DEFAULT_THEME, logo: tiny }).ok);
+  assert.equal(theme.validate({ ...theme.DEFAULT_THEME, logo: '' }).theme.logo, '');
+
+  // A URL would mean the guest's phone fetching from a third party on every
+  // page load, so it is refused rather than quietly fetched during validation.
+  for (const bad of [
+    'https://example.com/logo.svg',
+    'data:text/html;base64,PHNjcmlwdD4=',
+    'javascript:alert(1)',
+    `data:image/png;base64,${'A'.repeat(400_000)}`,
+  ]) {
+    assert.equal(
+      theme.validate({ ...theme.DEFAULT_THEME, logo: bad }).ok,
+      false,
+      `${String(bad).slice(0, 40)} should be refused`
+    );
+  }
+});
+
+test('the private network is not reachable from a logo address', () => {
+  // The URL comes off a page a third party controls, so this is the check that
+  // stops "fetch this image" becoming a request to the instance metadata
+  // service. 169.254.169.254 is the one that matters on EC2.
+  const blocked = [
+    '169.254.169.254', '127.0.0.1', '10.0.0.1', '192.168.1.1', '172.16.0.1',
+    '0.0.0.0', '100.64.0.1', '::1', 'fd00::1', 'fe80::1', '::ffff:127.0.0.1',
+  ];
+  for (const ip of blocked) {
+    assert.equal(assets.isPrivateAddress(ip), true, `${ip} must be blocked`);
+  }
+
+  for (const ip of ['8.8.8.8', '1.1.1.1', '203.0.113.7', '2606:4700::1111']) {
+    assert.equal(assets.isPrivateAddress(ip), false, `${ip} should be allowed`);
+  }
+
+  // http is refused outright: a logo fetched in the clear can be swapped in
+  // transit and would then be served from our own domain.
+  assert.equal(assets.parseUrl('http://example.com/logo.png').ok, false);
+  assert.equal(assets.parseUrl('ftp://example.com/logo.png').ok, false);
+  assert.equal(assets.parseUrl('not a url').ok, false);
+  assert.ok(assets.parseUrl('https://example.com/logo.png').ok);
+});
+
+test('a literal private address is blocked without a DNS lookup', async () => {
+  // The check has to cover addresses as well as names, or passing an IP
+  // straight in would skip it entirely.
+  const direct = await assets.checkHost('169.254.169.254');
+  assert.equal(direct.ok, false);
+
+  const loopback = await assets.checkHost('127.0.0.1');
+  assert.equal(loopback.ok, false);
 });
 
 test('a drafted theme is read from either shape the model returns', () => {

@@ -13,10 +13,11 @@
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400;500;600&family=Trirong:ital,wght@0,300;0,400;1,300&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Redirects to this venue's pair on Google Fonts, or to the shipped pair.
+         A redirect rather than a stylesheet here so one static tag can resolve
+         differently per venue; the preconnects above keep the connection warm
+         across it. -->
+    <link href="/fonts.css" rel="stylesheet" />
     <link rel="stylesheet" href="/styles.css" />
     <!-- This venue's own palette, if it set one, redefining the custom
          properties the file above declares. Second, so it wins; a <link> rather
@@ -29,6 +30,10 @@
     <main class="page">
       <header class="masthead">
         <div class="masthead-top">
+          <!-- The venue's own mark, when it has uploaded one. Hidden until the
+               config says there is one, so a venue without a logo never shows a
+               broken image. -->
+          <img class="logo" id="logo" alt="" hidden />
           <p class="eyebrow" id="eyebrow"></p>
           <!-- Which language the review is written in. Options come from the
                server so the list cannot drift from what the prompt accepts. -->

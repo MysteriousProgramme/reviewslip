@@ -131,6 +131,30 @@ body {
   stroke-linecap: round;
 }
 
+/* The venue's mark, above its name.
+   Height-capped rather than width-capped: logos arrive at wildly different
+   aspect ratios, and a wide wordmark constrained by width becomes a hairline
+   while a square one constrained by height stays the size you expect. */
+.logo {
+  display: block;
+  max-height: 2.75rem;
+  max-width: min(60%, 12rem);
+  width: auto;
+  object-fit: contain;
+  object-position: left center;
+  margin-bottom: 0.6rem;
+}
+
+/* The mark sits on its own line above the name, so the language selector keeps
+   the top row to itself. */
+.masthead-top {
+  flex-wrap: wrap;
+}
+
+.masthead-top .logo {
+  flex-basis: 100%;
+}
+
 .eyebrow {
   margin: 0;
   font-size: 0.688rem;

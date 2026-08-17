@@ -1,6 +1,7 @@
 'use strict';
 
 const el = {
+  logo: document.getElementById('logo'),
   eyebrow: document.getElementById('eyebrow'),
   chips: document.getElementById('chips'),
   browse: document.getElementById('browse'),
@@ -70,6 +71,19 @@ async function init() {
     if (config.venue) {
       el.eyebrow.textContent = config.venue;
       document.title = `Leave a review — ${config.venue}`;
+    }
+
+    // The mark, once we know there is one. Its alt is empty on purpose: the
+    // venue's name is already the line underneath it, and a screen reader
+    // announcing the name twice is noise, not access.
+    if (config.hasLogo) {
+      el.logo.src = '/logo';
+      el.logo.hidden = false;
+      // A logo that 404s or is corrupt takes itself back off the page rather
+      // than leaving a broken-image icon above the venue's name.
+      el.logo.addEventListener('error', () => {
+        el.logo.hidden = true;
+      });
     }
     renderTopics(config.categories || []);
     renderLengths(config.lengths || []);

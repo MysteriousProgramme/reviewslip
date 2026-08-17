@@ -325,8 +325,10 @@ the language list is.
 
 ## Themes
 
-A business picks four colours — or has them read off its own website — and they
-dress its review page and its printed table card:
+A business picks four colours, two typefaces and its logo — or has all of it read
+off its own website — and they dress its review page and its printed table card.
+
+### Colours
 
 | Slot | What it is |
 | --- | --- |
@@ -366,7 +368,54 @@ no amount of further whitening helps, while black clears 8:1 at once.
 Only one thing is refused outright — a ground and paper too close to tell apart,
 because every fix above needs a direction to push in and that leaves none.
 
-### How it reaches the two surfaces
+### Typefaces
+
+Chosen from **a fixed list**, never taken off the site, for three reasons that
+each stand on their own. A font file on someone's server is licensed for *their*
+domain, and serving it to a guest's phone from ours makes their licence problem
+ours. A family name returned by a model would have to be turned into a Google
+Fonts URL, and a URL built out of model output is not something to put in a page.
+And a webfont that fails to load leaves a page of invisible text.
+
+So the model's job is **matching, not fetching**: it reports what the site
+actually uses and picks the nearest id from the list. An id is the only thing
+that ever leaves the prompt, and an unrecognised one resolves to the shipped face
+rather than failing a save.
+
+Every stack ends in a generic family. A themed face covers Latin; a review
+written in Thai, Chinese, Japanese or Korean falls through to whatever the device
+has. That is the right outcome — none of these faces carry those scripts, and the
+alternative is a page of boxes. It is also why the two shipped faces are Trirong
+and Bai Jamjuree, which do carry Thai.
+
+### The logo
+
+Fetched **once, server-side, and stored** as a data URI — never hotlinked.
+Hotlinking would put a request to the customer's server on every guest's phone,
+leaking the guest's address to a third party and breaking the page the day the
+customer reorganises their media folder. A logo is a few kilobytes; our own copy
+is cheaper than either problem.
+
+The URL comes from a model reading a page, which means it ultimately comes from
+whatever is *on* that page. So [assets.js](assets.js) treats it as hostile:
+
+- **https only.** A logo fetched in the clear can be swapped in transit and would
+  then be served from our own domain.
+- **The address is resolved and checked before the request**, and again on every
+  redirect. `169.254.169.254` is the one that matters on EC2 — the instance
+  metadata service, and a well-known way to turn "fetch this image" into "hand me
+  your credentials". Loopback, the private ranges, carrier NAT, link-local and
+  IPv4-mapped IPv6 are all closed behind it. Every DNS record is checked, not the
+  first, because a name resolving to one public and one private address is a way
+  past a check that only looks once.
+- **Type and size are checked** — 120kB, and only formats an `<img>` can render.
+
+SVG is allowed, because logos usually are one and it is by far the smallest
+option. That is safe *here* specifically because the result is only ever rendered
+through an `<img>` tag, which runs no script and loads no subresources. It must
+never be inlined into the DOM as markup — different context, different rules.
+
+### How it reaches the three surfaces
 
 The guest page loads `/theme.css` after `styles.css`, redefining the same custom
 properties. A stylesheet rather than properties set from JavaScript once
@@ -385,8 +434,19 @@ leaves a margin on any printer that cannot go borderless, and tinting a QR is th
 most common way to make one a phone will not read in a dim room. The theme
 reaches the card's ink, its frame and its rule.
 
-The four chosen colours are what is stored; everything else is derived per
-request. So an improvement to the derivation reaches every business without a
+Typefaces arrive through `/fonts.css`, which **redirects** to the right Google
+Fonts URL for that venue. A redirect rather than a stylesheet of our own: one
+static `<link>` has to resolve differently per venue, and a 302 with no body
+beats a CSS file that would then serialise another download in front of the font
+files. The preconnects in `index.html` keep the connection to Google warm across
+it.
+
+The logo is served from `/logo` as bytes with a cache header, rather than riding
+along in `/api/config` — as base64 in a JSON body it would be re-sent on every
+generation and cached by nothing.
+
+The four colours and two font ids are what is stored; everything else is derived
+per request. So an improvement to the derivation reaches every business without a
 migration.
 
 ## Where a review gets posted
@@ -421,7 +481,8 @@ realism sample feeds back into the next one.
 | File | What it holds |
 | --- | --- |
 | `context.js` | The generic context document: the craft, the same for every business. |
-| `theme.js` | Four colours to a palette, with every text pair held to a contrast ratio. |
+| `theme.js` | Four colours to a palette, with every text pair held to a contrast ratio, plus the typeface allowlist. |
+| `assets.js` | Downloading a logo from an address a third party controls, safely. |
 | `config.js` | The writing prompt — how the generic document, the business, the topics, the length and the prior reviews are assembled into two messages. |
 | `db.js` | The Postgres pool and the schema migrations. |
 | `subscribers.js` | The subscriber store: rows, tokens, the legacy import. |

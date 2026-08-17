@@ -408,14 +408,21 @@ function parseContextDoc(raw, { maxChars = 2000 } = {}) {
  * that cannot carry text until it can, and reports what moved. Asking a model to
  * do WCAG arithmetic produces confident wrong numbers.
  */
-const THEME_SYSTEM = `You read a business's own website and pick the four colours its review page should use.
+function themeSystem({ displayFonts, uiFonts }) {
+  const list = (fonts) =>
+    fonts.map((f) => `  "${f.id}" — ${f.name}: ${f.note}`).join('\n');
+
+  return `You read a business's own website and choose how its review page should look: four colours, two typefaces, and its logo.
 
 Return a single JSON object of this shape:
 {
   "ground": { "hex": "#0c1f19", "source": "the site header background" },
   "paper":  { "hex": "#f3ecdc", "source": "the page background behind body text" },
   "accent": { "hex": "#82b49b", "source": "the link colour" },
-  "highlight": { "hex": "#e9a03b", "source": "the Book Now button" }
+  "highlight": { "hex": "#e9a03b", "source": "the Book Now button" },
+  "display": { "id": "lora", "source": "headings are set in Canela" },
+  "ui": { "id": "inter", "source": "body text is set in Helvetica Neue" },
+  "logo": { "url": "https://example.com/logo.svg", "source": "the mark in the header, linking home" }
 }
 
 What each one is for:
@@ -431,25 +438,46 @@ Rules:
 - If the site gives you nothing for a slot, choose one that sits with the others rather than leaving it out. All four are required.
 - Do not return four near-identical colours. This is a palette, not a monochrome study.
 
+Typefaces. You are matching, not copying: say what the site actually uses in "source", then pick the closest id from these lists. The id must be one of them exactly.
+
+"display" sets the review text itself. Choose from:
+${list(displayFonts)}
+
+"ui" sets everything else — labels, buttons, the topic names. Choose from:
+${list(uiFonts)}
+
+- Match the character of what the site uses, not the name. A site set in Canela or Tiempos wants a warm contemporary serif; one set in Helvetica or Circular wants a neutral or geometric sans.
+- If the site's own type is unremarkable or you cannot tell, say so in "source" and pick the closest neutral rather than guessing at something distinctive.
+
+Logo. Give the absolute https URL of the business's own mark:
+- The one in the site header or footer, the one that links to the home page. Not a photograph, not a partner or payment badge, not a social icon, not an award seal.
+- Prefer an SVG, then a PNG. Prefer the version on a transparent or light background.
+- Resolve it to a full URL including the scheme and host. A path like /img/logo.svg is not usable.
+- If you cannot find a real logo, set "logo" to null. Do not offer a photo of the building instead.
+
 Output only the JSON object. Nothing before it, nothing after it.`;
+}
 
 /**
  * @param {object} args
  * @param {string} args.url - the business's website
+ * @param {object[]} args.displayFonts - the allowlist, from theme.js
+ * @param {object[]} args.uiFonts - likewise
  */
-function buildThemeMessages({ url }) {
+function buildThemeMessages({ url, displayFonts, uiFonts }) {
   return [
-    { role: 'system', content: THEME_SYSTEM },
+    { role: 'system', content: themeSystem({ displayFonts, uiFonts }) },
     {
       role: 'user',
-      content: `Read ${url} and pick the four colours. Fetch the page before answering — do not guess a palette from the business name or the domain. Look at the stylesheet and the inline styles as well as the visible text, and prefer a colour you can point at over one that merely feels right.`,
+      content: `Read ${url} and choose the look. Fetch the page before answering — do not guess from the business name or the domain. Read the stylesheet and the inline styles as well as the visible text: that is where the colours, the font-family stacks and the logo's real address are. Prefer something you can point at over something that merely feels right.`,
     },
   ];
 }
 
 /**
- * @returns {{theme: object, sources: object}|null} null when nothing usable
- *   came back. Colour validation lives in theme.js — this only reshapes.
+ * @returns {{theme: object, sources: object, logoUrl: string}|null} null when
+ *   nothing usable came back. The colours are validated in theme.js and the
+ *   logo is downloaded and checked in assets.js — this only reshapes.
  */
 function parseTheme(raw) {
   const data = extractJson(raw);
@@ -458,19 +486,33 @@ function parseTheme(raw) {
   const theme = {};
   const sources = {};
 
+  // Accept the bare value too, throughout. A model told to return objects still
+  // occasionally returns `"ground": "#0c1f19"`, and refusing that would cost the
+  // customer another minute of page reading for nothing.
+  const unwrap = (entry, key) =>
+    typeof entry === 'string' ? entry : entry?.[key];
+
   for (const slot of ['ground', 'paper', 'accent', 'highlight']) {
-    const entry = data[slot];
-    // Accept the bare string too. A model told to return objects still
-    // occasionally returns `"ground": "#0c1f19"`, and refusing that would cost
-    // the customer another minute of page reading for nothing.
-    const value = typeof entry === 'string' ? entry : entry?.hex;
+    const value = unwrap(data[slot], 'hex');
     if (typeof value !== 'string') return null;
 
     theme[slot] = value.trim();
-    sources[slot] = text(typeof entry === 'string' ? '' : entry?.source, 120);
+    sources[slot] = text(typeof data[slot] === 'string' ? '' : data[slot]?.source, 120);
   }
 
-  return { theme, sources };
+  // Fonts are optional in the answer and resolved rather than refused: an id
+  // outside the list lands on the shipped face, which is a working page. Losing
+  // a whole website read because a model invented a font name would not be.
+  for (const slot of ['display', 'ui']) {
+    const value = unwrap(data[slot], 'id');
+    if (typeof value === 'string') theme[slot] = value.trim().toLowerCase();
+    sources[slot] = text(typeof data[slot] === 'string' ? '' : data[slot]?.source, 120);
+  }
+
+  const logoUrl = text(unwrap(data.logo, 'url'), 2000);
+  sources.logo = text(typeof data.logo === 'string' ? '' : data.logo?.source, 120);
+
+  return { theme, sources, logoUrl };
 }
 
 module.exports = {
@@ -478,7 +520,7 @@ module.exports = {
   buildSeedMessages,
   buildThemeMessages,
   parseTheme,
-  THEME_SYSTEM,
+  themeSystem,
   parseProposal,
   buildTopicMessages,
   parseTopics,

@@ -20,6 +20,7 @@ const {
   parseTheme,
 } = require('./seed');
 const theme = require('./theme');
+const assets = require('./assets');
 const settingsRules = require('./settings');
 const { PLATFORMS } = require('./platforms');
 
@@ -618,8 +619,12 @@ router.post(
       if (!resolved) return;
 
       const answer = await readWebsite(req.venue, resolved, {
-        messages: buildThemeMessages({ url: resolved.websiteUrl }),
-        maxTokens: 800,
+        messages: buildThemeMessages({
+          url: resolved.websiteUrl,
+          displayFonts: theme.DISPLAY_FONTS,
+          uiFonts: theme.UI_FONTS,
+        }),
+        maxTokens: 1200,
       });
       if (!answer.ok) {
         return res.status(answer.status).json({ error: answer.error });
@@ -633,8 +638,25 @@ router.post(
         );
         return res.status(502).json({
           error:
-            'No usable colours came back from that page. Try the site\'s front page.',
+            "No usable colours came back from that page. Try the site's front page.",
         });
+      }
+
+      // The logo is downloaded here rather than at Save, so that what is put in
+      // front of the customer is the image itself and not a promise of one. A
+      // failure is reported and the rest of the draft still stands: a palette
+      // and a pair of typefaces are worth having without a mark.
+      let logoNote = '';
+      if (parsed.logoUrl) {
+        const image = await assets.fetchImage(parsed.logoUrl);
+        if (image.ok) {
+          parsed.theme.logo = image.dataUri;
+          logoNote = `Found a logo (${Math.round(image.bytes / 1024)}kB ${image.type.replace('image/', '')}).`;
+        } else {
+          logoNote = `No logo: ${image.error}`;
+        }
+      } else {
+        logoNote = 'No logo found on that page.';
       }
 
       // Checked here rather than left to Save. A palette that cannot be stored
@@ -653,6 +675,7 @@ router.post(
         sources: parsed.sources,
         derived: derived.vars,
         adjusted: derived.adjusted,
+        logoNote,
         url: resolved.websiteUrl,
       });
     } catch (err) {

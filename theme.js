@@ -28,6 +28,8 @@
 
 /* -------------------------------------------------------------- colour maths */
 
+const assets = require('./assets');
+
 const HEX_RE = /^#[0-9a-f]{6}$/i;
 
 /** @returns {string|null} the normalised `#rrggbb`, or null if it is not one */
@@ -141,18 +143,93 @@ const RATIOS = {
 
 /* ---------------------------------------------------------------- derivation */
 
+/* ------------------------------------------------------------------- fonts */
+
+/**
+ * The typefaces a business may use, and nothing else.
+ *
+ * A fixed list rather than whatever the site happens to use, for three reasons.
+ * A font file on someone's server is licensed for *their* domain, and serving it
+ * from a guest's phone on ours is their licence problem becoming ours. A name a
+ * model returned would have to be turned into a URL, and a URL built out of
+ * model output is not something to put in a page. And a webfont that fails to
+ * load leaves a page of invisible text.
+ *
+ * So the model's job is matching, not fetching: it says what the site uses and
+ * picks the nearest of these, and `id` is the only thing that ever leaves the
+ * prompt. Everything below is open-licensed and served from Google Fonts, which
+ * the page already loads from.
+ *
+ * `stack` always ends in a generic family. A themed face covers Latin; a review
+ * written in Thai, Chinese, Japanese or Korean falls through to whatever the
+ * device has, which is the right outcome — the alternative is a page of boxes.
+ */
+const DISPLAY_FONTS = [
+  { id: 'trirong', name: 'Trirong', spec: 'Trirong:ital,wght@0,300;0,400;1,300', note: 'the shipped face — a light serif that also carries Thai' },
+  { id: 'lora', name: 'Lora', spec: 'Lora:ital,wght@0,400;0,500;1,400', note: 'a warm contemporary serif' },
+  { id: 'playfair', name: 'Playfair Display', spec: 'Playfair+Display:ital,wght@0,400;0,500;1,400', note: 'high contrast, editorial, formal' },
+  { id: 'baskerville', name: 'Libre Baskerville', spec: 'Libre+Baskerville:ital,wght@0,400;1,400', note: 'a classic book serif, steady and traditional' },
+  { id: 'source-serif', name: 'Source Serif 4', spec: 'Source+Serif+4:ital,opsz,wght@0,8..60,400;1,8..60,400', note: 'a clean modern serif, neutral' },
+  { id: 'garamond', name: 'EB Garamond', spec: 'EB+Garamond:ital,wght@0,400;1,400', note: 'old style, soft, understated' },
+  { id: 'fraunces', name: 'Fraunces', spec: 'Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,400', note: 'characterful and slightly quirky' },
+  { id: 'bitter', name: 'Bitter', spec: 'Bitter:ital,wght@0,400;1,400', note: 'a sturdy slab serif' },
+  { id: 'dm-serif', name: 'DM Serif Display', spec: 'DM+Serif+Display:ital@0;1', note: 'a confident display serif' },
+];
+
+const UI_FONTS = [
+  { id: 'bai-jamjuree', name: 'Bai Jamjuree', spec: 'Bai+Jamjuree:wght@400;500;600', note: 'the shipped face — a squarish sans that also carries Thai' },
+  { id: 'inter', name: 'Inter', spec: 'Inter:wght@400;500;600', note: 'a neutral interface sans' },
+  { id: 'work-sans', name: 'Work Sans', spec: 'Work+Sans:wght@400;500;600', note: 'friendly and open' },
+  { id: 'manrope', name: 'Manrope', spec: 'Manrope:wght@400;500;600', note: 'geometric, modern, a little technical' },
+  { id: 'dm-sans', name: 'DM Sans', spec: 'DM+Sans:wght@400;500;700', note: 'geometric and soft' },
+  { id: 'poppins', name: 'Poppins', spec: 'Poppins:wght@400;500;600', note: 'circular geometric, informal' },
+  { id: 'source-sans', name: 'Source Sans 3', spec: 'Source+Sans+3:wght@400;500;600', note: 'humanist, plain, very legible' },
+  { id: 'karla', name: 'Karla', spec: 'Karla:wght@400;500;700', note: 'grotesque with a bit of character' },
+  { id: 'nunito-sans', name: 'Nunito Sans', spec: 'Nunito+Sans:wght@400;500;600', note: 'rounded and approachable' },
+];
+
+const DEFAULT_DISPLAY = 'trirong';
+const DEFAULT_UI = 'bai-jamjuree';
+
+function displayFont(id) {
+  return DISPLAY_FONTS.find((f) => f.id === id) || DISPLAY_FONTS[0];
+}
+
+function uiFont(id) {
+  return UI_FONTS.find((f) => f.id === id) || UI_FONTS[0];
+}
+
+/**
+ * The Google Fonts URL for a pair.
+ *
+ * Built only from `spec` strings in the lists above — never from anything that
+ * arrived over the wire. `fontsUrl` is handed to a browser as a stylesheet
+ * address, so the difference matters.
+ */
+function fontsUrl(theme) {
+  const display = displayFont(theme?.display);
+  const ui = uiFont(theme?.ui);
+  const families = [display.spec, ui.spec]
+    .map((spec) => `family=${spec}`)
+    .join('&');
+  return `https://fonts.googleapis.com/css2?${families}&display=swap`;
+}
+
 /** The four a business actually chooses. */
 const SLOTS = ['ground', 'paper', 'accent', 'highlight'];
 
 /** The printed card's stock. Not themeable — see the card notes in `derive`. */
 const CARD = '#ffffff';
 
-/** The palette the app shipped with, and what an unthemed business still gets. */
+/** What the app shipped with, and what an unthemed business still gets. */
 const DEFAULT_THEME = {
   ground: '#0c1f19',
   paper: '#f3ecdc',
   accent: '#82b49b',
   highlight: '#e9a03b',
+  display: DEFAULT_DISPLAY,
+  ui: DEFAULT_UI,
+  logo: '',
 };
 
 function rgbaOf(colour, alpha) {
@@ -264,6 +341,11 @@ function derive(theme) {
         CARD,
         RATIOS.surface
       ).colour,
+
+      // Quoted family first, then a generic. The generic is what renders a Thai
+      // or Japanese review, since none of these faces carry those scripts.
+      '--display': `'${displayFont(theme?.display).name}', Georgia, 'Times New Roman', serif`,
+      '--ui': `'${uiFont(theme?.ui).name}', system-ui, -apple-system, 'Segoe UI', sans-serif`,
     },
   };
 }
@@ -328,6 +410,28 @@ function validate(value) {
     };
   }
 
+  // Fonts resolve rather than fail. An id we do not recognise is a stale page or
+  // a list that has changed under a saved theme, and neither is worth refusing a
+  // save over — it lands on the shipped face, which is a working page.
+  theme.display = displayFont(value.display).id;
+  theme.ui = uiFont(value.ui).id;
+
+  // The logo is stored as a data URI, never as a link to someone's server. It
+  // arrives that way from the draft endpoint, which is where the download and
+  // its checks happen; anything else is refused rather than fetched here,
+  // because validation must not make network requests.
+  if (value.logo === undefined || value.logo === null || value.logo === '') {
+    theme.logo = '';
+  } else if (assets.isStoredImage(value.logo)) {
+    theme.logo = value.logo;
+  } else {
+    return {
+      ok: false,
+      error:
+        'That logo is not a stored image. Use Generate from website, or clear it.',
+    };
+  }
+
   return { ok: true, theme };
 }
 
@@ -335,6 +439,13 @@ module.exports = {
   SLOTS,
   DEFAULT_THEME,
   RATIOS,
+  DISPLAY_FONTS,
+  UI_FONTS,
+  DEFAULT_DISPLAY,
+  DEFAULT_UI,
+  displayFont,
+  uiFont,
+  fontsUrl,
   hex,
   luminance,
   contrast,
