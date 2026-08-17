@@ -420,8 +420,8 @@ Return a single JSON object of this shape:
   "paper":  { "hex": "#f3ecdc", "source": "the page background behind body text" },
   "accent": { "hex": "#82b49b", "source": "the link colour" },
   "highlight": { "hex": "#e9a03b", "source": "the Book Now button" },
-  "display": { "id": "lora", "source": "headings are set in Canela" },
-  "ui": { "id": "inter", "source": "body text is set in Helvetica Neue" },
+  "display": { "id": "lora", "family": "Canela", "url": "https://example.com/fonts/canela.woff2", "source": "headings are set in Canela" },
+  "ui": { "id": "inter", "family": "Founders Grotesk", "url": "https://example.com/fonts/founders.woff2", "source": "body text is set in Founders Grotesk" },
   "logo": { "url": "https://example.com/logo.svg", "source": "the mark in the header, linking home" }
 }
 
@@ -438,12 +438,24 @@ Rules:
 - If the site gives you nothing for a slot, choose one that sits with the others rather than leaving it out. All four are required.
 - Do not return four near-identical colours. This is a palette, not a monochrome study.
 
-Typefaces. You are matching, not copying: say what the site actually uses in "source", then pick the closest id from these lists. The id must be one of them exactly.
+Typefaces. Two things for each of the two slots: the site's real font file if you can find it, and a fallback id from the list below in case it cannot be used.
 
-"display" sets the review text itself. Choose from:
+"display" sets the review text itself. "ui" sets everything else — labels, buttons, the topic names.
+
+The real font, in "family" and "url":
+- Read the @font-face rules in the site's own stylesheets. "family" is the font-family name as declared there; "url" is the absolute address of the file in its src, preferring woff2, then woff, then ttf or otf.
+- Follow the stylesheet links to find them. The @font-face rules are almost never in the HTML.
+- Give a full absolute URL including scheme and host. A path like /fonts/x.woff2 is not usable.
+- If the site loads its fonts from Google Fonts, give the fonts.gstatic.com file URL from the stylesheet it imports.
+- If there are several weights, give the regular upright one — not bold, not italic.
+- If you cannot find a real file, set "family" and "url" to null. Do not guess a URL, and do not construct one from a font's name.
+
+The fallback, in "id" — always required, whether or not you found a file. It must be one of these exactly:
+
+"display" choose from:
 ${list(displayFonts)}
 
-"ui" sets everything else — labels, buttons, the topic names. Choose from:
+"ui" choose from:
 ${list(uiFonts)}
 
 - Match the character of what the site uses, not the name. A site set in Canela or Tiempos wants a warm contemporary serif; one set in Helvetica or Circular wants a neutral or geometric sans.
@@ -503,16 +515,26 @@ function parseTheme(raw) {
   // Fonts are optional in the answer and resolved rather than refused: an id
   // outside the list lands on the shipped face, which is a working page. Losing
   // a whole website read because a model invented a font name would not be.
+  const files = {};
+
   for (const slot of ['display', 'ui']) {
-    const value = unwrap(data[slot], 'id');
-    if (typeof value === 'string') theme[slot] = value.trim().toLowerCase();
-    sources[slot] = text(typeof data[slot] === 'string' ? '' : data[slot]?.source, 120);
+    const entry = data[slot];
+    const id = unwrap(entry, 'id');
+    if (typeof id === 'string') theme[slot] = id.trim().toLowerCase();
+    sources[slot] = text(typeof entry === 'string' ? '' : entry?.source, 120);
+
+    // The real file, when one was found. Downloaded and checked by the caller —
+    // nothing here touches the network, and the family name is still untrusted
+    // text at this point.
+    const family = text(typeof entry === 'string' ? '' : entry?.family, 80);
+    const url = text(typeof entry === 'string' ? '' : entry?.url, 2000);
+    if (family && url) files[slot] = { family, url };
   }
 
   const logoUrl = text(unwrap(data.logo, 'url'), 2000);
   sources.logo = text(typeof data.logo === 'string' ? '' : data.logo?.source, 120);
 
-  return { theme, sources, logoUrl };
+  return { theme, sources, logoUrl, files };
 }
 
 module.exports = {

@@ -370,21 +370,41 @@ because every fix above needs a direction to push in and that leaves none.
 
 ### Typefaces
 
-Chosen from **a fixed list**, never taken off the site, for three reasons that
-each stand on their own. A font file on someone's server is licensed for *their*
-domain, and serving it to a guest's phone from ours makes their licence problem
-ours. A family name returned by a model would have to be turned into a Google
-Fonts URL, and a URL built out of model output is not something to put in a page.
-And a webfont that fails to load leaves a page of invisible text.
+The business's **real font files**, read out of its own `@font-face` rules and
+downloaded, with a curated shortlist as the fallback. Two slots — the review text
+and everything else — and they are independent, so a site whose headings are
+self-hosted and whose body text comes from a foundry CDN keeps the one it may
+keep.
 
-So the model's job is **matching, not fetching**: it reports what the site
-actually uses and picks the nearest id from the list. An id is the only thing
-that ever leaves the prompt, and an unrecognised one resolves to the shipped face
-rather than failing a save.
+**The licence is the hard part, and it is not ours to judge.** A review page is
+on our domain, so a grabbed font is served from ours. Most paid typefaces are
+licensed per website and do not allow that. Three things follow:
+
+- **Per-domain foundries are refused before any request is made** —
+  `use.typekit.net`, `fast.fonts.net`, `cloud.typography.com` and the rest of the
+  list in [assets.js](assets.js). Serving one of their files from here would be a
+  breach by us, not by the customer whose site it came from. Most of them block
+  the request anyway; refusing first turns a download error into a sentence
+  explaining why.
+- **Self-hosted files are allowed**, because the business may well hold a licence
+  that covers this and is the only party that can know.
+- **The dashboard asks it to confirm that**, per draft, and the file is only
+  stored once it has. Unticking falls back to the shortlist.
+
+Everything else is treated as untrusted, because it is. The family name is read
+off a third party's stylesheet and written straight back into a rule we serve, so
+it is stripped of anything that could end a declaration. The file goes through
+the same address checks as the logo. And nothing but a downloaded, checked file
+can be stored — this must never become a way to put arbitrary bytes behind a font
+URL on our own domain.
+
+The fallback shortlist is open-licensed and served from Google Fonts. A font is
+chosen by **id** from it, never by name, precisely so that a model's output
+cannot become part of a URL.
 
 Every stack ends in a generic family. A themed face covers Latin; a review
 written in Thai, Chinese, Japanese or Korean falls through to whatever the device
-has. That is the right outcome — none of these faces carry those scripts, and the
+has. That is the right outcome — few of these faces carry those scripts, and the
 alternative is a page of boxes. It is also why the two shipped faces are Trirong
 and Bai Jamjuree, which do carry Thai.
 
@@ -434,12 +454,23 @@ leaves a margin on any printer that cannot go borderless, and tinting a QR is th
 most common way to make one a phone will not read in a dim room. The theme
 reaches the card's ink, its frame and its rule.
 
-Typefaces arrive through `/fonts.css`, which **redirects** to the right Google
-Fonts URL for that venue. A redirect rather than a stylesheet of our own: one
-static `<link>` has to resolve differently per venue, and a 302 with no body
-beats a CSS file that would then serialise another download in front of the font
-files. The preconnects in `index.html` keep the connection to Google warm across
-it.
+Typefaces arrive through `/fonts.css`, which takes one of three shapes because
+the two slots are independent:
+
+| Grabbed | What is served |
+| --- | --- |
+| neither | a 302 to Google Fonts — the cheapest case, and what every unthemed venue gets |
+| both | a small stylesheet of `@font-face` rules pointing at `/font/display` and `/font/ui` |
+| one | both: the `@import` first, then the `@font-face` |
+
+A redirect rather than a stylesheet in the first case because one static `<link>`
+has to resolve differently per venue, and a 302 with no body beats a CSS file
+that would serialise another download in front of the font files. The preconnects
+in `index.html` keep the connection to Google warm across it.
+
+The font files themselves are served from `/font/:slot` rather than inlined into
+that stylesheet as data URIs — a woff2 is a couple of hundred kilobytes, and
+inlined it would be re-downloaded on every change to a colour.
 
 The logo is served from `/logo` as bytes with a cache header, rather than riding
 along in `/api/config` — as base64 in a JSON body it would be re-sent on every
@@ -482,7 +513,7 @@ realism sample feeds back into the next one.
 | --- | --- |
 | `context.js` | The generic context document: the craft, the same for every business. |
 | `theme.js` | Four colours to a palette, with every text pair held to a contrast ratio, plus the typeface allowlist. |
-| `assets.js` | Downloading a logo from an address a third party controls, safely. |
+| `assets.js` | Downloading a logo or a font from an address a third party controls, safely. |
 | `config.js` | The writing prompt — how the generic document, the business, the topics, the length and the prior reviews are assembled into two messages. |
 | `db.js` | The Postgres pool and the schema migrations. |
 | `subscribers.js` | The subscriber store: rows, tokens, the legacy import. |

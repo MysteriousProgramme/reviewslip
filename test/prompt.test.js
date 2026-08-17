@@ -521,6 +521,98 @@ test('a font is an id from the list, or it is the shipped one', () => {
   assert.match(vars['--ui'], /sans-serif$/);
 });
 
+test('a grabbed font is served from us, and the shortlist is the fallback', () => {
+  const font = (family) => ({ family, format: 'woff2', data: 'AAAA', source: 'https://x.example/f.woff2' });
+
+  // Nothing grabbed: a redirect to Google, which is what every unthemed venue
+  // gets and the cheapest thing that can happen.
+  const none = theme.fontsCss(theme.DEFAULT_THEME, {});
+  assert.ok(none.redirect.startsWith('https://fonts.googleapis.com/'));
+
+  // Both grabbed: our own rules, our own font routes, no Google at all.
+  const both = theme.fontsCss(theme.DEFAULT_THEME, {
+    display: font('Canela'),
+    ui: font('Founders Grotesk'),
+  });
+  assert.equal(both.redirect, undefined);
+  assert.match(both.css, /font-family: 'Canela'/);
+  assert.match(both.css, /url\('\/font\/display'\) format\('woff2'\)/);
+  assert.match(both.css, /url\('\/font\/ui'\)/);
+  assert.doesNotMatch(both.css, /googleapis/);
+
+  // One of each: the shortlist covers the slot that could not be grabbed, and
+  // the @import has to come first for the stylesheet to be valid.
+  const mixed = theme.fontsCss(theme.DEFAULT_THEME, { display: font('Canela') });
+  assert.ok(mixed.css.startsWith('@import url("https://fonts.googleapis.com/'));
+  assert.match(mixed.css, /family=Bai\+Jamjuree/);
+  assert.doesNotMatch(mixed.css, /family=Trirong/);
+
+  // And the stack names the grabbed family rather than the fallback.
+  const { vars } = theme.derive(theme.DEFAULT_THEME, { display: font('Canela') });
+  assert.match(vars['--display'], /^'Canela',/);
+  assert.match(vars['--ui'], /^'Bai Jamjuree',/);
+});
+
+test('a family name off someone else\'s stylesheet cannot break out of the rule', () => {
+  // The name is read from a third party's CSS and written straight back into a
+  // rule we serve, so a quote or a brace in it would end the declaration and
+  // begin whatever came after.
+  const nasty = "Evil'; } body { display: none; } @font-face { font-family: 'x";
+
+  // Asserted as a property rather than an exact string: what matters is that
+  // nothing which can end a declaration survives, not the precise spacing left
+  // behind.
+  assert.doesNotMatch(theme.cssName(nasty), /['"{};@\\<>()]/);
+  assert.ok(theme.cssName(nasty).length <= 80);
+  assert.equal(theme.cssName('Founders Grotesk'), 'Founders Grotesk');
+  assert.equal(theme.cssName('Neue Haas Grotesk Display Pro'), 'Neue Haas Grotesk Display Pro');
+
+  const { css } = theme.fontsCss(theme.DEFAULT_THEME, {
+    display: { family: nasty, format: 'woff2', data: 'AAAA' },
+    ui: { family: 'Fine', format: 'woff2', data: 'AAAA' },
+  });
+  assert.doesNotMatch(css, /body \{/);
+  assert.equal((css.match(/@font-face/g) || []).length, 2);
+});
+
+test('per-domain foundries are refused rather than downloaded', () => {
+  // These license by website and forbid redistribution, so serving their file
+  // from our domain would be our breach, not the customer's.
+  for (const host of [
+    'use.typekit.net', 'p.typekit.net', 'fast.fonts.net',
+    'cloud.typography.com', 'sub.use.typekit.net',
+  ]) {
+    assert.match(assets.licensedHost(host), /licenses fonts per website/);
+  }
+
+  // A business's own domain and Google's open-licensed files are fine.
+  for (const host of ['riverside.example', 'fonts.gstatic.com', 'cdn.shopify.com']) {
+    assert.equal(assets.licensedHost(host), '');
+  }
+});
+
+test('only a checked font file can be stored', () => {
+  const good = { family: 'Canela', format: 'woff2', data: 'QUJD' };
+  assert.ok(assets.isStoredFont(good));
+
+  for (const bad of [
+    null,
+    { family: '', format: 'woff2', data: 'QUJD' },
+    { family: 'Canela', format: 'exe', data: 'QUJD' },
+    { family: 'Canela', format: 'woff2', data: 'not base64!' },
+    { family: 'Canela', format: 'woff2', data: 'A'.repeat(900_000) },
+    { family: 'Canela', format: 'woff2' },
+  ]) {
+    assert.equal(assets.isStoredFont(bad), false, `${JSON.stringify(bad)?.slice(0, 50)} should be refused`);
+  }
+
+  // And the settings layer drops anything that fails, rather than storing it —
+  // this must not become a way to put arbitrary bytes behind a font URL on our
+  // own domain.
+  assert.equal(settings.validate({ fontDisplay: { family: 'x', format: 'exe', data: 'QQ' } }).fontDisplay, null);
+  assert.deepEqual(settings.validate({ fontUi: good }).fontUi, good);
+});
+
 test('a logo must be a stored image, never a link to somebody else', () => {
   const tiny =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';

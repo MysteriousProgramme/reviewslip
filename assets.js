@@ -212,6 +212,158 @@ async function fetchImage(raw) {
   return { ok: false, error: 'That image address redirects too many times.' };
 }
 
+/* -------------------------------------------------------------------- fonts */
+
+const MAX_FONT_BYTES = 300 * 1024;
+
+/**
+ * Formats a browser can use, by content type and by extension.
+ *
+ * Servers are careless about font content types — plenty send
+ * application/octet-stream — so the extension is accepted as evidence when the
+ * header is unhelpful. The format string matters because it goes into the
+ * @font-face rule.
+ */
+const FONT_FORMATS = {
+  'font/woff2': 'woff2',
+  'font/woff': 'woff',
+  'font/ttf': 'truetype',
+  'font/otf': 'opentype',
+  'application/font-woff2': 'woff2',
+  'application/font-woff': 'woff',
+  'application/x-font-woff': 'woff',
+  'application/x-font-ttf': 'truetype',
+  'application/x-font-opentype': 'opentype',
+  'application/vnd.ms-fontobject': 'embedded-opentype',
+};
+
+const FONT_EXTENSIONS = {
+  '.woff2': 'woff2',
+  '.woff': 'woff',
+  '.ttf': 'truetype',
+  '.otf': 'opentype',
+};
+
+/**
+ * Font services that license per domain and forbid redistribution outright.
+ *
+ * Refused rather than downloaded. These are not edge cases — they are how most
+ * paid type reaches a website — and serving one of their files from our domain
+ * is a licence breach by us, not by the customer whose site it came from. Most
+ * of them block the request anyway; refusing first means the customer gets a
+ * sentence explaining why instead of a download error.
+ *
+ * Self-hosted files on the business's own domain are a different matter and are
+ * allowed: the business may well hold a licence that covers this, and it is the
+ * only party that can know. The dashboard asks it to confirm.
+ */
+const LICENSED_HOSTS = [
+  'use.typekit.net',
+  'p.typekit.net',
+  'fonts.adobe.com',
+  'fast.fonts.net',
+  'fast.fonts.com',
+  'cloud.typography.com',
+  'hello.myfonts.net',
+  'webfonts.fontslive.com',
+  'f.fontdeck.com',
+  'fonts.typotheque.com',
+];
+
+/** @returns {string} '' when the host is fine, or why it is not */
+function licensedHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  const hit = LICENSED_HOSTS.find((h) => host === h || host.endsWith(`.${h}`));
+  return hit
+    ? `${hit} licenses fonts per website, so that file cannot be served from here.`
+    : '';
+}
+
+/**
+ * Downloads a webfont from the business's own site.
+ *
+ * Same address checks as an image — the URL comes from the same place and is
+ * exactly as untrusted — plus the licence check above and a larger ceiling,
+ * because a woff2 with a full Latin range is bigger than a logo.
+ *
+ * @returns {Promise<{ok: true, data: string, format: string, bytes: number}
+ *   |{ok: false, error: string}>}
+ */
+async function fetchFont(raw) {
+  const target = parseUrl(raw);
+  if (!target.ok) return target;
+
+  const licensed = licensedHost(target.url.hostname);
+  if (licensed) return { ok: false, error: licensed };
+
+  const allowed = await checkHost(target.url.hostname);
+  if (!allowed.ok) return allowed;
+
+  let response;
+  try {
+    response = await fetch(target.url, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+      // Google's font CSS varies by user agent, and so do some self-hosted
+      // setups. Asking as a current browser gets woff2 rather than eot.
+      headers: {
+        Accept: 'font/woff2,font/woff,*/*',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+      },
+    });
+  } catch (err) {
+    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+    return {
+      ok: false,
+      error: timedOut
+        ? 'That font took too long to download.'
+        : 'Could not download that font.',
+    };
+  }
+
+  // `follow` was used rather than the manual walk the image fetch does, so the
+  // final address is re-checked here instead — a redirect chain that ends
+  // somewhere private is the thing being guarded against either way.
+  const landed = parseUrl(response.url || target.url.toString());
+  if (!landed.ok) return landed;
+  const stillAllowed = await checkHost(landed.url.hostname);
+  if (!stillAllowed.ok) return stillAllowed;
+  const landedLicensed = licensedHost(landed.url.hostname);
+  if (landedLicensed) return { ok: false, error: landedLicensed };
+
+  if (!response.ok) {
+    return { ok: false, error: `That font address returned ${response.status}.` };
+  }
+
+  const type = (response.headers.get('content-type') || '')
+    .split(';')[0]
+    .trim()
+    .toLowerCase();
+  const extension = (landed.url.pathname.match(/\.[a-z0-9]+$/i) || [''])[0].toLowerCase();
+  const format = FONT_FORMATS[type] || FONT_EXTENSIONS[extension];
+
+  if (!format) {
+    return {
+      ok: false,
+      error: `That is a ${type || extension || 'unknown'} file, not a font we can use.`,
+    };
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length) return { ok: false, error: 'That font address returned nothing.' };
+  if (buffer.length > MAX_FONT_BYTES) {
+    return { ok: false, error: `That font is over ${MAX_FONT_BYTES / 1024}kB.` };
+  }
+
+  return {
+    ok: true,
+    format,
+    bytes: buffer.length,
+    data: buffer.toString('base64'),
+  };
+}
+
 /** A stored logo, for validation on the way back in. */
 const DATA_URI_RE = /^data:(image\/(?:png|jpeg|webp|gif|svg\+xml));base64,[A-Za-z0-9+/]+=*$/;
 
@@ -224,12 +376,41 @@ function isStoredImage(value) {
   );
 }
 
+/**
+ * A stored font, for validation on the way back in.
+ *
+ * The bytes are kept base64 without a data: wrapper, unlike the logo: they are
+ * served as a font file from their own route, never inlined into CSS, so there
+ * is no mime type to carry around — the `format` says everything @font-face
+ * needs.
+ */
+function isStoredFont(value) {
+  if (!value || typeof value !== 'object') return false;
+
+  const formats = new Set(Object.values(FONT_FORMATS));
+  return (
+    typeof value.family === 'string' &&
+    value.family.length > 0 &&
+    value.family.length <= 80 &&
+    formats.has(value.format) &&
+    typeof value.data === 'string' &&
+    /^[A-Za-z0-9+/]+=*$/.test(value.data) &&
+    value.data.length <= Math.ceil((MAX_FONT_BYTES * 4) / 3) + 64
+  );
+}
+
 module.exports = {
   MAX_BYTES,
+  MAX_FONT_BYTES,
   TYPES,
+  FONT_FORMATS,
+  LICENSED_HOSTS,
+  licensedHost,
   isPrivateAddress,
   checkHost,
   parseUrl,
   fetchImage,
+  fetchFont,
   isStoredImage,
+  isStoredFont,
 };

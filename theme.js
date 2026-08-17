@@ -206,13 +206,63 @@ function uiFont(id) {
  * arrived over the wire. `fontsUrl` is handed to a browser as a stylesheet
  * address, so the difference matters.
  */
-function fontsUrl(theme) {
-  const display = displayFont(theme?.display);
-  const ui = uiFont(theme?.ui);
-  const families = [display.spec, ui.spec]
-    .map((spec) => `family=${spec}`)
-    .join('&');
+function fontsUrl(theme, slots = ['display', 'ui']) {
+  const specs = [];
+  if (slots.includes('display')) specs.push(displayFont(theme?.display).spec);
+  if (slots.includes('ui')) specs.push(uiFont(theme?.ui).spec);
+
+  const families = specs.map((spec) => `family=${spec}`).join('&');
   return `https://fonts.googleapis.com/css2?${families}&display=swap`;
+}
+
+/**
+ * A family name, safe to put inside a CSS string literal.
+ *
+ * The name comes off a stylesheet on someone else's site, so it reaches this
+ * file as untrusted text and is about to be written into a rule we serve. A
+ * quote or a brace in it would end the declaration and begin whatever came next.
+ */
+function cssName(family) {
+  return String(family || '')
+    .replace(/[^\w \-.]/g, '')
+    .trim()
+    .slice(0, 80);
+}
+
+/**
+ * What to serve at /fonts.css for one business.
+ *
+ * Three shapes, because the two slots are independent. With nothing grabbed it
+ * is a redirect to Google, which is the cheapest thing that can happen and what
+ * every unthemed venue gets. With both grabbed it is a small stylesheet of
+ * @font-face rules pointing at our own font routes. With one of each it is both:
+ * the @import has to come first, which is where CSS puts it anyway.
+ *
+ * @returns {{redirect: string}|{css: string}}
+ */
+function fontsCss(theme, fonts = {}) {
+  const grabbed = ['display', 'ui'].filter((slot) => fonts[slot]?.family);
+
+  if (!grabbed.length) return { redirect: fontsUrl(theme) };
+
+  const missing = ['display', 'ui'].filter((slot) => !fonts[slot]?.family);
+  const lines = [];
+
+  if (missing.length) {
+    lines.push(`@import url("${fontsUrl(theme, missing)}");`);
+  }
+
+  for (const slot of grabbed) {
+    lines.push(
+      `@font-face {
+  font-family: '${cssName(fonts[slot].family)}';
+  src: url('/font/${slot}') format('${fonts[slot].format}');
+  font-display: swap;
+}`
+    );
+  }
+
+  return { css: `${lines.join('\n')}\n` };
 }
 
 /** The four a business actually chooses. */
@@ -245,7 +295,7 @@ function rgbaOf(colour, alpha) {
  * @returns {{vars: object, adjusted: string[]}} `adjusted` names the slots that
  *   had to move, in words a customer can read.
  */
-function derive(theme) {
+function derive(theme, fonts = {}) {
   const ground = hex(theme?.ground) || DEFAULT_THEME.ground;
   const adjusted = [];
 
@@ -342,10 +392,11 @@ function derive(theme) {
         RATIOS.surface
       ).colour,
 
-      // Quoted family first, then a generic. The generic is what renders a Thai
-      // or Japanese review, since none of these faces carry those scripts.
-      '--display': `'${displayFont(theme?.display).name}', Georgia, 'Times New Roman', serif`,
-      '--ui': `'${uiFont(theme?.ui).name}', system-ui, -apple-system, 'Segoe UI', sans-serif`,
+      // The business's own face when one was taken off its site, otherwise the
+      // nearest from the shortlist. The generic at the end is what renders a
+      // Thai or Japanese review, since neither is likely to carry those scripts.
+      '--display': `'${fonts.display?.family || displayFont(theme?.display).name}', Georgia, 'Times New Roman', serif`,
+      '--ui': `'${fonts.ui?.family || uiFont(theme?.ui).name}', system-ui, -apple-system, 'Segoe UI', sans-serif`,
     },
   };
 }
@@ -359,10 +410,10 @@ function derive(theme) {
  * file, so the shipped design stands untouched rather than being reconstructed
  * from arithmetic that would not quite reproduce it.
  */
-function css(theme) {
+function css(theme, fonts = {}) {
   if (!theme) return '';
 
-  const { vars } = derive(theme);
+  const { vars } = derive(theme, fonts);
   const body = Object.entries(vars)
     .map(([name, value]) => `  ${name}: ${value};`)
     .join('\n');
@@ -446,6 +497,8 @@ module.exports = {
   displayFont,
   uiFont,
   fontsUrl,
+  fontsCss,
+  cssName,
   hex,
   luminance,
   contrast,

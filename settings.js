@@ -18,6 +18,7 @@
 
 const { bannedWord } = require('./seed');
 const themes = require('./theme');
+const assets = require('./assets');
 
 /**
  * The model every venue writes with, fixed.
@@ -112,7 +113,27 @@ function resolve(own) {
   // "this business chose the shipped colours" want to behave differently.
   // The first serves an empty /theme.css and leaves the stylesheet alone.
   merged.theme = ownTheme(own);
+  // The grabbed typefaces, whole — file included. Only the route that serves
+  // them reads this; `describe` strips the bytes before anything is sent out.
+  merged.fontDisplay = ownFont(own?.fontDisplay);
+  merged.fontUi = ownFont(own?.fontUi);
   return merged;
+}
+
+/** @returns {object|null} a stored font file, if this business grabbed one */
+function ownFont(value) {
+  return assets.isStoredFont(value) ? value : null;
+}
+
+/** The same, minus the file — safe to put in an API response. */
+function describeFont(font) {
+  if (!font) return null;
+  return {
+    family: font.family,
+    format: font.format,
+    source: typeof font.source === 'string' ? font.source : '',
+    kb: Math.round((font.data.length * 3) / 4 / 1024),
+  };
 }
 
 /** @returns {object|null} the business's own four colours, if it set them */
@@ -186,6 +207,13 @@ function describe(own) {
       source: source.theme,
       derived: derived.vars,
       adjusted: derived.adjusted,
+      // What was actually taken off the business's own site, described rather
+      // than included: the dashboard needs to say "Canela, 84kB, from your
+      // stylesheet", not carry the file.
+      fonts: {
+        display: describeFont(values.fontDisplay),
+        ui: describeFont(values.fontUi),
+      },
     },
     // Sent rather than hardcoded in the page, so the editor and the validator
     // cannot drift apart. `categories` keeps its name here because that is the
@@ -281,6 +309,15 @@ function validate(patch) {
     const verdict = themes.validate(patch.theme);
     if (!verdict.ok) return verdict;
     out.theme = verdict.theme;
+  }
+
+  // Fonts arrive whole from the drafting endpoint, which is where the download
+  // and its checks happen. Anything else is dropped rather than stored: this
+  // must never become a way to put arbitrary bytes behind a font URL on our own
+  // domain. `null` clears, falling back to the shortlist.
+  for (const field of ['fontDisplay', 'fontUi']) {
+    if (patch[field] === undefined) continue;
+    out[field] = assets.isStoredFont(patch[field]) ? patch[field] : null;
   }
 
   return out;

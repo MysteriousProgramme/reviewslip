@@ -293,6 +293,21 @@ const MIGRATIONS = [
     // makes /theme.css an empty file rather than a reconstruction of it.
     await c.query('ALTER TABLE subscribers ADD COLUMN theme text');
   },
+
+  async (c) => {
+    // The business's actual typefaces, taken off its own site: JSON holding the
+    // family name, the format, where it came from and the file itself in base64.
+    //
+    // Their own columns rather than fields inside `theme`, because the theme is
+    // read whole and handed to the dashboard on every settings load, and a pair
+    // of woff2 files is most of a megabyte of base64. These are only ever read
+    // by the route that serves them.
+    //
+    // NULL is a business using a face from the shortlist, which is the fallback
+    // whenever a grab was not possible or not permitted.
+    await c.query('ALTER TABLE subscribers ADD COLUMN font_display text');
+    await c.query('ALTER TABLE subscribers ADD COLUMN font_ui text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

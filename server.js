@@ -87,7 +87,14 @@ app.get('/theme.css', resolveTenant, (req, res) => {
   res.set('Cache-Control', 'private, max-age=60');
 
   if (!req.subscriber) return res.send('');
-  res.send(theme.css(subscribers.settingsFor(req.subscriber).theme));
+
+  const resolved = subscribers.settingsFor(req.subscriber);
+  res.send(
+    theme.css(resolved.theme, {
+      display: resolved.fontDisplay,
+      ui: resolved.fontUi,
+    })
+  );
 });
 
 /**
@@ -105,12 +112,49 @@ app.get('/theme.css', resolveTenant, (req, res) => {
  * precisely so that this cannot become a redirect to somewhere else.
  */
 app.get('/fonts.css', resolveTenant, (req, res) => {
-  const chosen = req.subscriber
-    ? subscribers.settingsFor(req.subscriber).theme
-    : null;
+  const resolved = req.subscriber
+    ? subscribers.settingsFor(req.subscriber)
+    : {};
+
+  const answer = theme.fontsCss(resolved.theme, {
+    display: resolved.fontDisplay,
+    ui: resolved.fontUi,
+  });
 
   res.set('Cache-Control', 'private, max-age=300');
-  res.redirect(302, theme.fontsUrl(chosen));
+  if (answer.redirect) return res.redirect(302, answer.redirect);
+
+  res.type('css');
+  res.send(answer.css);
+});
+
+/**
+ * One of the two typefaces taken off the business's own site.
+ *
+ * Served from here rather than inlined into /fonts.css as a data URI: a woff2 is
+ * a couple of hundred kilobytes, and as base64 inside a stylesheet it would be
+ * re-downloaded with every change to a colour. As its own URL the browser caches
+ * the file and re-fetches only the rules.
+ */
+app.get('/font/:slot', resolveTenant, (req, res) => {
+  const slot = req.params.slot === 'display' ? 'fontDisplay' : req.params.slot === 'ui' ? 'fontUi' : null;
+  if (!slot || !req.subscriber) return res.status(404).end();
+
+  const font = subscribers.settingsFor(req.subscriber)[slot];
+  if (!font) return res.status(404).end();
+
+  const TYPES = {
+    woff2: 'font/woff2',
+    woff: 'font/woff',
+    truetype: 'font/ttf',
+    opentype: 'font/otf',
+    'embedded-opentype': 'application/vnd.ms-fontobject',
+  };
+
+  res.type(TYPES[font.format] || 'application/octet-stream');
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.send(Buffer.from(font.data, 'base64'));
 });
 
 /**

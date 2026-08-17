@@ -354,6 +354,8 @@ router.patch(
         safeDetails: patch.safeDetails,
         contextDoc: patch.contextDoc,
         theme: patch.theme,
+        fontDisplay: patch.fontDisplay,
+        fontUi: patch.fontUi,
       });
 
       res.json({ business: record, warning: verdict.warning });
@@ -668,7 +670,34 @@ router.post(
         });
       }
 
-      const derived = theme.derive(verdict.theme);
+      // The real typefaces, downloaded the same way and reported the same way.
+      // Each slot stands alone: a site whose headings are self-hosted and whose
+      // body text comes from a foundry CDN should keep the one it may keep.
+      const fonts = {};
+      const fontNotes = [];
+
+      for (const slot of ['display', 'ui']) {
+        const found = parsed.files?.[slot];
+        if (!found) {
+          fontNotes.push(`No ${slot} font file found — using the closest match.`);
+          continue;
+        }
+
+        const file = await assets.fetchFont(found.url);
+        if (file.ok) {
+          fonts[slot] = {
+            family: theme.cssName(found.family),
+            format: file.format,
+            source: found.url.slice(0, 300),
+            data: file.data,
+          };
+          fontNotes.push(`Took ${found.family} (${Math.round(file.bytes / 1024)}kB) for the ${slot}.`);
+        } else {
+          fontNotes.push(`${found.family} could not be used: ${file.error}`);
+        }
+      }
+
+      const derived = theme.derive(verdict.theme, fonts);
 
       res.json({
         theme: verdict.theme,
@@ -676,6 +705,13 @@ router.post(
         derived: derived.vars,
         adjusted: derived.adjusted,
         logoNote,
+        // Sent whole, because Save has to send them back — they are stored
+        // fields, not something the dashboard can re-derive.
+        fonts: {
+          display: fonts.display ?? null,
+          ui: fonts.ui ?? null,
+        },
+        fontNotes,
         url: resolved.websiteUrl,
       });
     } catch (err) {

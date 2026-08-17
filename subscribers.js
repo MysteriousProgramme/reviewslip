@@ -113,6 +113,8 @@ const LISTS = {
 // empty object is meaningful where an empty list is not.
 const OBJECTS = {
   theme: 'theme',
+  fontDisplay: 'font_display',
+  fontUi: 'font_ui',
 };
 
 /** A row's own stored settings, in the shape settings.js works with. */
