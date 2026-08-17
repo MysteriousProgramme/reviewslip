@@ -136,7 +136,9 @@ settings routes for fifteen minutes. Guests are unaffected — only the panel.
 Two layers, on purpose, because they have different lifetimes.
 
 **The generic context document**, [context.js](context.js), is the same for every
-business on the platform. It is craft, not content: what a real review reads like
+business on the platform. It opens with the rules that get a customer or a
+business into trouble if broken — see [Compliance](#compliance) — and then turns
+to craft: what a real review reads like
 (short, uneven, one or two specific things, slightly imperfect, no marketing
 vocabulary), and what a *page* of manufactured ones reads like — the repeated
 opening formula, the uniform length, the recurring adjectives, the closing
@@ -167,6 +169,43 @@ writer it is background for tone and subject matter and not to repeat claims fro
 it, which is why a figure is allowed there and refused in a detail. Superlatives
 are refused in both, because "award-winning" comes back out in the reviews
 whatever the framing says.
+
+### Compliance
+
+The first section of [context.js](context.js) mirrors the guide we publish at
+<https://reviewslip.com/faq>, which is generated from
+`lib/i18n/dictionaries/*.ts` in the website repo. **That guide is the source of
+truth — when it changes, `COMPLIANCE` changes with it.** A test asserts every
+rule survives into the assembled prompt, including for a business with nothing
+filled in, so the check is mechanical rather than something someone has to
+remember.
+
+Most of the published guide is deliberately *not* in the prompt. It is largely
+advice to the owner — where the QR code goes, not asking only the happy ones,
+not letting everyone post from the venue WiFi, not emailing the whole list at
+once. None of that is something the writer can obey or disobey, and pouring it
+into every generation would dilute the part that is. What is carried across is
+the subset that constrains the review *text*: the ways a sentence can itself be
+the violation.
+
+| Rule | The question it comes from |
+| --- | --- |
+| Nothing the customer did not experience | "What do these rules actually ban?" |
+| No mention of a discount, gift or reward | "Can I offer a discount or a free item for a review?" |
+| Written as a customer, never an insider | "Can staff, friends or family leave reviews?" |
+| No reference to being asked, prompted or reminded | undisclosed solicitation |
+| No award, ranking or named-competitor comparison | unverifiable claims |
+| Understate rather than overstate | it stays the customer's to edit and post |
+
+The sameness rules in the section below carry the last one — "Will AI-drafted
+reviews all read the same?" — which the guide answers with *yes, and it is a real
+risk*.
+
+This is a mirror rather than a live fetch on purpose. Reading the page per
+generation would add a network call and a failure mode to every review, feed the
+model a page that is mostly irrelevant to it, and let an edit to a marketing page
+silently change every prompt on the platform with nobody reviewing it. Encoded
+here, the rules are versioned, diffable and tested.
 
 ### Learning from the reviews already written
 

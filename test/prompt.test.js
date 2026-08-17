@@ -40,6 +40,41 @@ const first = () => 0;
 
 /* --------------------------------------------------------- generic context */
 
+test('every compliance rule reaches every prompt', () => {
+  // The point of this one: the published guide at reviewslip.com/faq is what
+  // keeps a customer and a business out of trouble, and "the writer is told
+  // about it" has to be a checked fact rather than something someone remembers.
+  // A business with nothing filled in is the case that matters most, because it
+  // is the one where every other section of the prompt is empty.
+  assert.ok(context.COMPLIANCE_RULES.length >= 6);
+
+  for (const venue of [CLINIC, { name: 'Somewhere', safeDetails: [] }]) {
+    const [system] = config.buildMessages({ venue });
+    for (const rule of context.COMPLIANCE_RULES) {
+      assert.ok(
+        system.content.includes(rule),
+        `missing from the prompt: ${rule.slice(0, 60)}…`
+      );
+    }
+  }
+});
+
+test('the compliance rules name the things that are actually banned', () => {
+  const all = context.COMPLIANCE.toLowerCase();
+
+  // Each of these maps to a question on the published guide. A rule quietly
+  // reworded out of existence should fail here, not in front of a regulator.
+  for (const banned of [
+    'incentivised', // "Can I offer a discount or a free item for a review?"
+    'insider', // "Can staff, friends or family leave reviews?"
+    'solicited', // undisclosed solicitation
+    'fabricated', // "What do these rules actually ban?"
+    'awards',
+  ]) {
+    assert.match(all, new RegExp(banned));
+  }
+});
+
 test('the generic context carries both halves of the craft', () => {
   assert.match(context.GENERIC_CONTEXT, /What a real review is like/);
   assert.match(context.GENERIC_CONTEXT, /look manufactured/);

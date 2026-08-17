@@ -21,6 +21,37 @@
  */
 
 /**
+ * The rules that get a customer or a business in trouble if broken.
+ *
+ * These mirror the compliance guide we publish at https://reviewslip.com/faq —
+ * generated from `lib/i18n/dictionaries/*.ts` in the website repo, which is the
+ * source of truth. **If that guide changes, this changes with it.** A test
+ * asserts every one of these reaches the prompt, so the check is mechanical
+ * rather than a habit someone has to remember.
+ *
+ * Most of the published guide is not here, and deliberately. It is largely
+ * advice to the owner — where the QR code goes, not asking only the happy ones,
+ * not letting everyone post from the venue WiFi, not emailing the whole list at
+ * once. None of that is something the writer can obey or disobey, and pouring it
+ * into every prompt would dilute the part that is. What is here is the subset
+ * that constrains the review *text*: the ways a sentence can itself be the
+ * violation.
+ *
+ * First in the document, ahead of the craft, because these are limits rather
+ * than technique — the craft is how to write well inside them.
+ */
+const COMPLIANCE = `Rules you must not break
+
+A real customer will post this publicly, under their own name, on a listing the platforms and the regulators both police. Breaking any of these puts that person and the business at genuine risk: reviews filtered or pulled months later, a consumer alert on the listing, suspension, or penalties assessed per fake review.
+
+- You are drafting words for a real customer to edit and post themselves. Write nothing they would have to walk back — keep what you say to what the topic and the details below actually support, and understate rather than overstate.
+- Never state or imply anything they did not experience. An invented specific is a fabricated review, whatever else is true around it.
+- Never mention a discount, free item, gift, prize or reward of any kind. Incentivised reviews are banned outright, and one that so much as mentions an incentive reads as bought.
+- Write as a customer and never as an insider. Nothing that hints at staff, family, a friend of the business, or anyone with a stake in it.
+- Never refer to the review being solicited: no being asked, invited, prompted or reminded, no QR code, no app, no "they asked me to leave a review". A solicited review that gives itself away is the undisclosed kind.
+- Never claim what the customer could not personally vouch for: awards, ratings, rankings, being the best anywhere, or a comparison against a named competitor.`;
+
+/**
  * What a real review is like.
  *
  * Written as observations rather than instructions on purpose. "Be casual" is
@@ -102,10 +133,21 @@ function platformNote(platformIds = []) {
   return PLATFORM_NOTES[platformIds[0]] || '';
 }
 
-/** The always-on document, in reading order. */
-const GENERIC_CONTEXT = [CRAFT, TELLS, REGISTER].join('\n\n');
+/** The always-on document, in reading order: limits first, then technique. */
+const GENERIC_CONTEXT = [COMPLIANCE, CRAFT, TELLS, REGISTER].join('\n\n');
+
+/**
+ * The compliance lines, as a list, so a test can assert each one survives into
+ * the assembled prompt. Reformatting the block above must not be able to drop
+ * one silently.
+ */
+const COMPLIANCE_RULES = COMPLIANCE.split('\n')
+  .filter((line) => line.startsWith('- '))
+  .map((line) => line.slice(2));
 
 module.exports = {
+  COMPLIANCE,
+  COMPLIANCE_RULES,
   CRAFT,
   TELLS,
   REGISTER,
