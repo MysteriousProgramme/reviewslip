@@ -6,18 +6,19 @@ const path = require('path');
 const express = require('express');
 
 const {
-  VENUE,
   LANGUAGES,
-  DEFAULT_LANGUAGE,
+  LENGTH_CHOICES,
   languageFor,
+  lengthFor,
   buildMessages,
 } = require('./config');
 const {
   buildSeedMessages,
   parseProposal,
-  buildCategoryMessages,
-  parseCategorySuggestions,
+  buildTopicMessages,
+  parseTopics,
 } = require('./seed');
+const settingsRules = require('./settings');
 const { ready } = require('./db');
 const subscribers = require('./subscribers');
 const events = require('./events');
@@ -36,6 +37,9 @@ const {
 } = require('./tenant');
 
 const PORT = Number(process.env.PORT) || 3000;
+
+/** What a single-tenant install's imported settings.json becomes, once. */
+const LEGACY_NAME = 'Imported venue';
 
 const app = express();
 
@@ -140,14 +144,20 @@ app.get('/api/config', requireTenant, (req, res) => {
   res.json({
     venue: req.subscriber.name,
     place,
+    // Every topic, not the ten the guest first sees. The page samples ten and
+    // keeps the rest behind its browse button, so sampling server-side would
+    // cost a second request to show what is already in hand — and the sample
+    // has to be redrawn on the page anyway when the guest browses.
+    //
     // `focus` is prompt input, not guest-facing — the buttons only need a label.
     categories: categories.map(({ id, label }) => ({ id, label })),
     googleUrl,
     tripadvisorUrl,
     destinations,
-    // Sent rather than hardcoded in the page, so the list cannot drift from the
+    // Sent rather than hardcoded in the page, so neither list can drift from the
     // one the prompt knows about.
     languages: LANGUAGES.map(({ code, label }) => ({ code, label })),
+    lengths: LENGTH_CHOICES,
     // Which account is being served. The panel shows it so staff can tell at a
     // glance that they are editing the right venue.
     subscriber: { slug: req.subscriber.slug, name: req.subscriber.name },
@@ -155,7 +165,8 @@ app.get('/api/config', requireTenant, (req, res) => {
 });
 
 app.post('/api/review', requireTenant, async (req, res) => {
-  const { apiKey, model, categories } = subscribers.settingsFor(req.subscriber);
+  const resolved = subscribers.settingsFor(req.subscriber);
+  const { apiKey, model, categories } = resolved;
 
   if (!apiKey) {
     return res.status(500).json({
@@ -206,10 +217,12 @@ app.post('/api/review', requireTenant, async (req, res) => {
   // from the same six details and the same prompt, and a wall of near-duplicates
   // is exactly the pattern review platforms filter.
   //
-  // Sampled across the last hundred rather than taking the newest eight: the
-  // newest eight are the ones already most alike, and steering around only those
-  // leaves the model free to drift back onto last week's review.
-  const published = await events.spread(req.subscriber.id, 8, 100).catch(() => []);
+  // Sampled across the last hundred rather than taking the newest twelve: the
+  // newest twelve are the ones already most alike, and steering around only
+  // those leaves the model free to drift back onto last week's review.
+  const published = await events
+    .spread(req.subscriber.id, 12, 100)
+    .catch(() => []);
 
   // Both thumbs. The likes say what this business wants; the dislikes say what it
   // does not, which the likes cannot express. Caught rather than awaited into the
@@ -219,20 +232,40 @@ app.post('/api/review', requireTenant, async (req, res) => {
     events.disliked(req.subscriber.id, 3).catch(() => []),
   ]);
 
+  // The one sample is split rather than drawn twice, because the two halves are
+  // asked contradictory-looking things — match how these read, and be clearly
+  // different from these — and the same review appearing in both would be an
+  // instruction to differ from itself. A slice of one random sample is disjoint
+  // by construction; two random samples would overlap.
+  //
+  // The realism half exists because a listing's own reviews are the only honest
+  // answer to "what does a real review of this place look like". It is skipped
+  // once the owner has approved anything: an approved review is a better example
+  // than an unrated one, and `examples` below already carries those.
+  const realism = examples.length ? [] : published.slice(0, 4);
+  const avoid = examples.length ? published : published.slice(4);
+
   // An unknown code falls back to English rather than refusing: a guest with a
   // stale page should still get a review.
   const language = languageFor(body.language).code;
+  const length = lengthFor(body.length);
 
   const messages = buildMessages({
     categoryIds,
     // This tab's last, then the business's recent ones. Ordered so the guest's
     // own are nearest the instruction that matters most.
-    recent: [...published, ...recent],
+    recent: [...avoid, ...recent],
     categories,
     language,
+    length,
     venue: subscribers.venueFor(req.subscriber),
     examples,
+    realism,
     rejected,
+    // Which listing the review is bound for, when the business has only one and
+    // so there is no doubt. A Google review and a Xiaohongshu post are different
+    // genres; see context.js.
+    platformIds: PLATFORMS.map((p) => p.id).filter((id) => resolved[`${id}Url`]),
   });
 
   try {
@@ -366,6 +399,7 @@ app.post('/api/settings', requireTenant, requireSubscriber, async (req, res) => 
       kind: patch.kind,
       place: patch.place,
       safeDetails: patch.safeDetails,
+      contextDoc: patch.contextDoc,
     });
   } catch (err) {
     if (err?.expose && err.status) {
@@ -415,9 +449,13 @@ app.post('/api/seed', requireTenant, requireSubscriber, async (req, res) => {
 });
 
 /**
- * The category picker, drafted from the venue's website. Same contract as
- * seeding: this proposes, the panel fills the editor with it, and a human
- * decides. Nothing is saved here.
+ * The topic set, drafted from the venue's website. Same contract as seeding:
+ * this proposes, the caller fills its editor with it, and a human decides.
+ * Nothing is saved here.
+ *
+ * The path still says `categories` because that is what the field and the column
+ * are called; the dashboard and the guest page say topics, which is the word a
+ * customer uses for them.
  */
 app.post(
   '/api/categories/suggest',
@@ -428,23 +466,28 @@ app.post(
     if (!resolved) return;
 
     const answer = await readWebsite(req.subscriber, resolved, {
-      messages: buildCategoryMessages({ url: resolved.websiteUrl }),
-      maxTokens: 800,
+      messages: buildTopicMessages({
+        url: resolved.websiteUrl,
+        max: settingsRules.MAX_TOPICS,
+      }),
+      maxTokens: 3000,
     });
     if (!answer.ok) {
       return res.status(answer.status).json({ error: answer.error });
     }
 
-    const categories = parseCategorySuggestions(answer.content);
+    const categories = parseTopics(answer.content, {
+      max: settingsRules.MAX_TOPICS,
+    });
 
     if (!categories) {
       console.error(
-        'Category suggestion produced nothing usable:',
+        'Topic drafting produced nothing usable:',
         String(answer.content).slice(0, 500)
       );
       return res.status(502).json({
         error:
-          'No usable categories came back from that page. Try a different page on the site — one that lists rooms, dining or facilities works best.',
+          'No usable topics came back from that page. Try a different page on the site — one that says what the business offers works best.',
       });
     }
 
@@ -555,7 +598,12 @@ app.use((err, req, res, _next) => {
  */
 async function importLegacy() {
   try {
-    return await subscribers.importLegacyFile(slugify(VENUE.name), VENUE.name);
+    // The name used to come from the built-in venue in config.js, which was the
+    // first customer. That is now a blank shape rather than a place, so there is
+    // nothing there to name a subscriber after — and settings.json never carried
+    // a name either. An operator renames it in the dashboard; the slug is what
+    // has to be stable, and this only ever runs once.
+    return await subscribers.importLegacyFile(slugify(LEGACY_NAME), LEGACY_NAME);
   } catch (err) {
     console.error('  ! Could not import settings.json:', err.message);
     return null;

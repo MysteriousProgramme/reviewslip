@@ -2,11 +2,12 @@
   "name": "baanpong-review-app",
   "version": "1.0.0",
   "private": true,
-  "description": "Guest review helper for Baanpong Lodge — generates a short 5-star review, copies it, and sends the guest to Google.",
+  "description": "Multi-tenant review helper — drafts a short five-star review for a departing customer, who edits it, copies it, and posts it themselves.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
+    "test": "node --test test/*.test.js",
     "import:sqlite": "node scripts/import-sqlite.js"
   },
   "engines": {

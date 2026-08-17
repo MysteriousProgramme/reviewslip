@@ -271,6 +271,17 @@ const MIGRATIONS = [
     await c.query('ALTER TABLE subscribers ADD COLUMN xiaohongshu_url text');
     await c.query('ALTER TABLE subscribers ADD COLUMN wongnai_url text');
   },
+
+  async (c) => {
+    // The business's own AI context document: free prose about who comes here
+    // and what they tend to mention, drafted from the website and then edited by
+    // the owner. Distinct from safe_details, which is a list of facts a review
+    // may assert; this steers tone and subject matter and asserts nothing.
+    //
+    // NULL means the business has not written one, which is most of them, and
+    // the prompt simply leaves the section out.
+    await c.query('ALTER TABLE subscribers ADD COLUMN context_doc text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

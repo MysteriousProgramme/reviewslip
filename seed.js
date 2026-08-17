@@ -33,39 +33,43 @@ const BANNED_WORDS = [
   'star',
 ];
 
-const CATEGORY_IDS = ['restaurant', 'bar', 'rooms', 'common'];
-
-const SEED_SYSTEM = `You read a hospitality business's own website and extract only facts a guest could verify with their own eyes.
+/**
+ * Not "a hospitality business" any more, and no category list.
+ *
+ * The prompt used to say hospitality and to close with a fixed set of ids —
+ * restaurant, bar, rooms, common — which is a lodge's floor plan. Asked to
+ * describe a dental practice it either forced the practice into those four or
+ * had every id dropped by the filter. Topics are drafted by their own prompt
+ * now, from evidence, with no fixed vocabulary; this one extracts facts and
+ * nothing else.
+ */
+const SEED_SYSTEM = `You read a business's own website and extract only facts a customer could verify with their own eyes.
 
 Return a single JSON object of this shape:
 {
   "name": "the business name",
-  "kind": "a short description, e.g. a small lodge",
+  "kind": "a short description, e.g. a small lodge, a dental clinic, a bike shop",
   "place": "town, region, country",
   "safeDetails": [
-    { "detail": "phrased plainly, as a guest would say it", "source": "the sentence on the page this came from" }
-  ],
-  "categories": ["restaurant", "bar", "rooms", "common"]
+    { "detail": "phrased plainly, as a customer would say it", "source": "the sentence on the page this came from" }
+  ]
 }
 
 Rules for safeDetails. Every detail you list may be repeated in a public review of this business, so a detail that is not true becomes a fabricated review:
-- Physical, checkable, sensory facts only: the setting, the grounds, the rooms, what food is served, what is nearby.
+- Physical, checkable, sensory facts only: the setting, the premises, what is offered, what it is like to be there, what is nearby.
 - No awards, ratings, rankings, or prizes of any kind.
 - No superlatives the business uses about itself.
-- No numbers: no prices, no room counts, no star ratings, no years, no distances.
-- No staff names, no dish names, no brand names.
-- Phrase each one the way a guest would say it, not the way the website says it.
+- No numbers: no prices, no counts, no star ratings, no years, no distances.
+- No staff names, no product or dish names, no brand names.
+- Phrase each one the way a customer would say it, not the way the website says it.
 - Between 6 and 10 items. Fewer is fine if the page is thin. Do not pad.
 - Every item must quote the page text it came from in "source". If you cannot quote it, leave the item out.
-
-Rules for categories. Include an id only if the page gives real evidence the venue has it:
-- "restaurant" food served on site, "bar" drinks or a bar, "rooms" guest rooms, "common" garden, terrace, lounge, or other shared space.
 
 Output only the JSON object. Nothing before it, nothing after it.`;
 
 /**
  * @param {object} args
- * @param {string} args.url - the venue's website
+ * @param {string} args.url - the business's website
  */
 function buildSeedMessages({ url }) {
   return [
@@ -162,79 +166,102 @@ function parseProposal(raw) {
 
   const { kept, dropped } = screen(data.safeDetails);
 
-  const categories = (
-    Array.isArray(data.categories) ? data.categories : []
-  ).filter((c) => CATEGORY_IDS.includes(c));
-
   return {
     proposal: {
       name: str(data.name, 120),
       kind: str(data.kind, 120),
       place: str(data.place, 160),
       safeDetails: kept,
-      categories,
     },
     dropped,
   };
 }
 
-/* ------------------------------------------------------ category suggestions */
+/* ---------------------------------------------------------- the topic set */
 
 /**
- * The other half of seeding: which buttons this venue's picker should have.
+ * Topics, drafted from the website — the deep version of the category
+ * suggestion above.
  *
- * Categories are lighter than safeDetails — a wrong button is a button nobody
- * taps, not a fabricated claim — so this does not demand a source quote. The
- * `focus` text does reach the writing prompt though, so it gets screened for
- * the same unverifiable claims below.
+ * The old suggestion proposed five buttons, all of which the guest saw. The page
+ * now samples ten from a set of up to thirty, so the job changed: the model is
+ * being asked for *breadth*, and breadth is exactly where a model pads. Two
+ * things hold it back. It is told plainly that a short honest list is a correct
+ * answer, and the subjects are split in two — things this business demonstrably
+ * has, which need evidence on the page, and things every customer of any
+ * business experiences, which do not.
+ *
+ * That split is what makes thirty reachable without inventing a bar. "The
+ * welcome" is safe for a clinic and a campsite alike; "The rooftop terrace" has
+ * to be on the page.
+ *
+ * There is no "Any" catch-all any more. It was pinned first out of five, which
+ * does not survive sampling — it would show up in two guests out of three — and
+ * it was never needed: a guest who taps nothing already gets a review about the
+ * visit overall, which is what "Any" meant.
  */
-const MAX_SUGGESTED = 5;
-
-const CATEGORY_SYSTEM = `You read a hospitality business's own website and propose the buttons a departing guest picks from before writing a review.
+function topicSystem(max) {
+  return `You read a business's own website and propose the topics a departing customer picks from before writing a review.
 
 Return a single JSON object of this shape:
 {
-  "categories": [
+  "topics": [
     { "label": "Rooms", "focus": "the room itself — comfort, bed, bathroom, the view or outlook" }
   ]
 }
 
+There are two kinds of topic, and a good set mixes them:
+
+1. Specific to this business — a room type, a service, a space, something on the menu category level, somewhere nearby. Propose one of these ONLY where the page gives real evidence for it. A business with no bar does not get a bar topic.
+2. Common to any visit — how you were treated, the welcome, booking or arriving, how the place felt, whether you would come back, recommending it to someone. These need no evidence and are safe for any business.
+
 Rules:
-- At most ${MAX_SUGGESTED} categories, and the first must always be the catch-all: label "Any", focus "the stay overall — pick whichever single aspect feels most natural to lead with".
-- That leaves ${MAX_SUGGESTED - 1} for the venue itself. Fewer is fine if the page is thin. Do not pad.
-- Propose a category only where the page gives real evidence for it. A place with no bar does not get a bar button.
-- "label" is what a guest taps: one to three words, title case, no punctuation, no emoji.
+- At most ${max} topics. A short honest list is a correct answer. Do not pad, do not split one thing into three, and do not invent a second kind of room to make up the number.
+- Order them the way a customer would scan them: the most obvious and most specific first, the general ones last.
+- "label" is what a customer taps: one to three words, title case, no punctuation, no emoji.
 - "focus" tells the review writer what that review should be about, as a sentence fragment it can follow. No superlatives, no awards, no ratings, no numbers, no staff or dish names.
-- Order them the way a guest would scan them, most obvious first.
+- No two topics may be the same thing worded differently.
 
 Output only the JSON object. Nothing before it, nothing after it.`;
+}
 
 /**
  * @param {object} args
- * @param {string} args.url - the venue's website
+ * @param {string} args.url - the business's website
+ * @param {number} args.max - how many topics may be stored, from settings.js
  */
-function buildCategoryMessages({ url }) {
+function buildTopicMessages({ url, max = 30 }) {
   return [
-    { role: 'system', content: CATEGORY_SYSTEM },
+    { role: 'system', content: topicSystem(max) },
     {
       role: 'user',
-      content: `Read ${url} and propose the review categories. Fetch the page before answering — do not guess from the domain name. If the page shows no evidence for a category, leave it out rather than assuming a place of this kind usually has one.`,
+      content: `Read ${url} and propose the review topics. Fetch the page before answering — do not guess from the domain name. Follow the site's own links to what it offers if the front page is thin. If the page shows no evidence for something, leave it out rather than assuming a business of this kind usually has one.`,
     },
   ];
 }
 
 /**
- * @returns {object[]|null} up to five {label, focus}, or null when nothing
- *   usable came back
+ * @param {object} args
+ * @param {number} args.max - the stored cap, so the draft cannot exceed it
+ * @returns {object[]|null} up to `max` {label, focus}, or null when nothing usable
  */
-function parseCategorySuggestions(raw) {
+function parseTopics(raw, { max = 30 } = {}) {
   const data = extractJson(raw);
   if (!data) return null;
+
+  // `topics` is what the prompt asks for; `categories` is what the older prompt
+  // asked for, and a model that has seen both keys sometimes reaches for the
+  // wrong one. Accepting either costs one line and saves a wasted page read.
+  const items = Array.isArray(data.topics)
+    ? data.topics
+    : Array.isArray(data.categories)
+      ? data.categories
+      : [];
 
   const out = [];
   const seen = new Set();
 
-  for (const item of Array.isArray(data.categories) ? data.categories : []) {
+  for (const item of items) {
     const label = text(item?.label, 40);
     if (!label) continue;
 
@@ -249,19 +276,125 @@ function parseCategorySuggestions(raw) {
     if (focus && (/\d/.test(focus) || bannedWord(focus))) focus = '';
 
     out.push({ label, focus });
-    if (out.length === MAX_SUGGESTED) break;
+    if (out.length === max) break;
   }
 
   return out.length ? out : null;
+}
+
+/* -------------------------------------------------- the context document */
+
+/**
+ * A business's own AI context document, drafted from what it publishes.
+ *
+ * Different in kind from everything else in this file. safeDetails and topics are
+ * structured and load-bearing — a wrong entry becomes a false claim in every
+ * review — so both are screened hard and quote their source. This is background
+ * prose: who comes here, what they notice, how their reviews would sound. It
+ * asserts nothing, and the prompt tells the writer it asserts nothing.
+ *
+ * It reads the review listings as well as the website when there are any, because
+ * the most useful thing on this subject is how that business's real customers
+ * already write. Often the listing will not be readable — Google renders its
+ * reviews in the browser, so a fetch gets a shell — and the prompt is explicit
+ * that saying nothing is correct when there is nothing to see. An invented
+ * description of reviews nobody read is worse than no description.
+ */
+const CONTEXT_SYSTEM = `You read what a business publishes about itself and write a short background note for a review-writing assistant.
+
+The note is not shown to customers and is not a fact sheet. It exists so the assistant writes in the right register about the right things. Someone who has never heard of this business should be able to read it and know how its customers talk.
+
+Return a single JSON object of this shape:
+{ "contextDoc": "two or three short paragraphs" }
+
+Cover, in plain prose and in this order:
+- What kind of business it is and who its customers are — who actually walks in, and what they came for.
+- What those customers are most likely to notice and mention afterwards. Be concrete about subjects, not about claims.
+- How a real review of a place like this reads: how long, how warm, how much detail, what a customer would say and what they would never bother saying.
+- If, and only if, you can actually see real customer reviews on one of the pages: one sentence on how they read. If you cannot see any, say nothing about them at all. Do not describe reviews you have not read.
+
+Rules:
+- Under 250 words. It is sent to the model on every single review, so every sentence has to earn its place.
+- No superlatives, no awards, no ratings, no rankings, no marketing language of any kind. Describe the business the way a researcher would, not the way it describes itself.
+- No staff names, no dish names, no prices, no figures.
+- Do not list facilities. A separate list already records what a review may claim; this is about register and subject matter.
+- Write about this business specifically. A paragraph that would fit any business of the kind is worth nothing here.
+
+Output only the JSON object. Nothing before it, nothing after it.`;
+
+/**
+ * @param {object} args
+ * @param {string} args.url - the business's website
+ * @param {string[]} [args.listings] - its review-platform links, if it set any
+ */
+function buildContextMessages({ url, listings = [] }) {
+  const also = listings.length
+    ? ` Then look at ${listings.join(' and ')} — if you can see real customer reviews there, note how they read; if the page comes back without any, ignore it and say nothing about reviews.`
+    : '';
+
+  return [
+    { role: 'system', content: CONTEXT_SYSTEM },
+    {
+      role: 'user',
+      content: `Read ${url} and write the background note.${also} Fetch the pages before answering — do not infer anything from a domain name.`,
+    },
+  ];
+}
+
+/**
+ * Independent screen, as everywhere else here: the prompt forbids superlatives
+ * and this drops them anyway.
+ *
+ * Dropped by the sentence rather than by the whole draft. One "award-winning" in
+ * the second paragraph should not cost the customer another page read and
+ * another minute of waiting — and if it dropped nothing the customer would only
+ * meet the same refusal from the validator on Save, with no idea which word did
+ * it.
+ *
+ * @param {object} [options]
+ * @param {number} [options.maxChars] - the stored cap, from settings.js
+ * @returns {{contextDoc: string, dropped: string[]}|null} null when unparseable
+ */
+function parseContextDoc(raw, { maxChars = 2000 } = {}) {
+  const data = extractJson(raw);
+  if (!data) return null;
+
+  const doc = typeof data.contextDoc === 'string' ? data.contextDoc.trim() : '';
+  if (!doc) return null;
+
+  const dropped = [];
+  const kept = [];
+
+  // Blank lines are paragraph breaks and worth keeping, so each paragraph is
+  // screened on its own and rejoined.
+  for (const paragraph of doc.split(/\n\s*\n/)) {
+    // Split after a full stop, question or exclamation mark followed by a space.
+    // Crude, and fine here: a misplaced break costs a sentence fragment on its
+    // own line in a draft a human is about to edit.
+    const sentences = paragraph.split(/(?<=[.!?])\s+/);
+    const good = [];
+
+    for (const sentence of sentences) {
+      const hit = bannedWord(sentence);
+      if (hit) dropped.push(sentence.trim());
+      else if (sentence.trim()) good.push(sentence.trim());
+    }
+
+    if (good.length) kept.push(good.join(' '));
+  }
+
+  const contextDoc = kept.join('\n\n').slice(0, maxChars).trim();
+  return contextDoc ? { contextDoc, dropped } : null;
 }
 
 module.exports = {
   bannedWord,
   buildSeedMessages,
   parseProposal,
-  buildCategoryMessages,
-  parseCategorySuggestions,
+  buildTopicMessages,
+  parseTopics,
+  buildContextMessages,
+  parseContextDoc,
   SEED_SYSTEM,
-  CATEGORY_SYSTEM,
-  MAX_SUGGESTED,
+  CONTEXT_SYSTEM,
 };

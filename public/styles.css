@@ -177,15 +177,51 @@ body {
     color 0.18s var(--ease);
 }
 
-.chip:hover:not([aria-pressed='true']) {
+.chip:hover:not([aria-pressed='true']):not([aria-checked='true']) {
   border-color: var(--jade-dim);
   color: var(--paper);
 }
 
-.chip[aria-pressed='true'] {
+/* Topics are toggles and lengths are a radiogroup, so the selected state arrives
+   under two different attributes. It looks the same either way — a guest is not
+   being told which ARIA role they are tapping. */
+.chip[aria-pressed='true'],
+.chip[aria-checked='true'] {
   background: var(--paper);
   border-color: var(--paper);
   color: var(--ink);
+}
+
+/* Opens the rest of the topic set. Deliberately not a chip: it is not a topic,
+   and something that looks tappable-but-different is how a guest can tell. */
+.browse {
+  appearance: none;
+  display: block;
+  margin: 0.5rem 0 -0.35rem;
+  /* Vertical padding, not margin: the text is one line of 0.813rem and a 17px
+     tap target on a phone is a miss waiting to happen. The rule is drawn with
+     text-decoration rather than a border so growing the target does not push
+     the underline away from the words. */
+  padding: 0.5rem 0.1rem;
+  border: 0;
+  background: transparent;
+  color: var(--jade-dim);
+  font-family: inherit;
+  font-size: 0.813rem;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--jade-line);
+  text-underline-offset: 0.28em;
+  cursor: pointer;
+  transition:
+    color 0.18s var(--ease),
+    text-decoration-color 0.18s var(--ease);
+}
+
+.browse:hover,
+.browse:focus-visible {
+  color: var(--paper);
+  text-decoration-color: var(--jade-dim);
 }
 
 /* ----------------------------------------------------------------- slip -- */

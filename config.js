@@ -1,66 +1,27 @@
 'use strict';
 
 /**
- * The built-in venue, underneath every subscriber.
+ * The built-in fallback venue.
  *
- * A subscriber that has filled in its own kind, place and details overrides
- * these; one that has not falls back here, the same way an unset API key falls
- * back to .env. On a single-venue install, editing this file is still the
- * quickest way to point the app at a different property.
+ * Deliberately not a real place any more. It used to be Baanpong Lodge, the
+ * first customer, and every business that had not yet described itself
+ * inherited it — so a dental clinic's guests were handed reviews about a garden
+ * in San Kamphaeng. Categories had already been cut loose from their built-in
+ * for exactly that reason; these are the rest of it.
+ *
+ * What is left is a shape, not a place: enough for `buildMessages` to be called
+ * with nothing and still produce something coherent, which is what the tests and
+ * the demo need. A real business overrides all of it, and one that has not is
+ * told to keep to the guest's own impression rather than inventing a garden.
  */
-
 const VENUE = {
-  name: 'Baanpong Lodge',
-  kind: 'a small lodge',
-  place: 'San Kamphaeng, Chiang Mai, Thailand',
-
-  // Details the writer is allowed to draw on. Keep these true — anything not
-  // listed here, the model is told not to invent. Add or remove freely.
-  safeDetails: [
-    'a quiet setting outside the centre of Chiang Mai, in San Kamphaeng',
-    'a green, garden-like property with outdoor seating',
-    'friendly, attentive staff',
-    'clean, comfortable rooms',
-    'a relaxed pace compared with staying in the city',
-    'close to the San Kamphaeng hot springs and the Bo Sang handicraft villages',
-  ],
+  name: 'the business',
+  kind: '',
+  place: '',
+  safeDetails: [],
 };
 
-/**
- * The category buttons, in display order. `id` is what the client sends.
- * `focus` is folded into the prompt.
- */
-const CATEGORIES = [
-  {
-    id: 'any',
-    label: 'Any',
-    focus:
-      'the stay overall — pick whichever single aspect feels most natural to lead with',
-  },
-  {
-    id: 'restaurant',
-    label: 'Restaurant',
-    focus: 'the food — breakfast, a meal, or the dining experience',
-  },
-  {
-    id: 'common',
-    label: 'Common Area',
-    focus:
-      'the shared spaces — garden, grounds, terrace, lounge, seating areas, the general atmosphere of the property',
-  },
-  {
-    id: 'bar',
-    label: 'Bar',
-    focus: 'the bar — drinks and the evening atmosphere',
-  },
-  {
-    id: 'rooms',
-    label: 'Rooms',
-    focus:
-      'the room itself — comfort, bed, bathroom, cleanliness, the view or outlook',
-  },
-];
-
+const { GENERIC_CONTEXT, platformNote } = require('./context');
 
 /**
  * The languages a guest may write in.
@@ -89,19 +50,69 @@ function languageFor(code) {
   return LANGUAGES.find((l) => l.code === code) || LANGUAGES[0];
 }
 
+/* ------------------------------------------------------------------ length */
+
 /**
- * Real listings are not uniform. Every review being the same length in the same
- * register is itself a pattern, and a visible one — so both are drawn per
- * request rather than fixed.
+ * How long the review should be.
+ *
+ * Real listings are not uniform, and every review being the same length is
+ * itself one of the tells in the generic context document — so a length is drawn
+ * per request rather than fixed. What the guest picks is which pool it is drawn
+ * from, not an exact length: "Short" twice must still give two different shapes.
+ *
+ * `Any` draws from both pools, which is what the page did before this selector
+ * existed.
  */
-const LENGTHS = [
+const SHORT_LENGTHS = [
+  'a single line, under fifteen words',
   'one sentence, and stop there',
+  'one short sentence, with nothing after it',
+  'two very short sentences',
+];
+
+const DETAILED_LENGTHS = [
   'one short sentence and one longer one',
-  'two sentences',
+  'two sentences, the second longer than the first',
   'two sentences, the second much shorter',
   'three short sentences',
-  'a single line, under fifteen words',
+  'three sentences, the middle one the longest',
+  'four short sentences',
 ];
+
+/**
+ * The ceiling that goes in the system prompt, per choice.
+ *
+ * It has to move with the pool. "Detailed" while still capped at 45 words is not
+ * detailed, and "Short" left at 45 lets the model spend all of them.
+ */
+const LENGTH_RULES = {
+  any: 'One to three sentences. Under 45 words.',
+  short: 'One or two sentences. Under 30 words.',
+  detailed: 'Two to four sentences. Under 80 words.',
+};
+
+/** What the guest's selector offers. Sent to the page so the two cannot drift. */
+const LENGTH_CHOICES = [
+  { id: 'any', label: 'Any' },
+  { id: 'short', label: 'Short' },
+  { id: 'detailed', label: 'Detailed' },
+];
+
+const DEFAULT_LENGTH = 'any';
+
+/** An unknown id falls back to `any` rather than refusing — a stale page still works. */
+function lengthFor(id) {
+  return LENGTH_CHOICES.some((c) => c.id === id) ? id : DEFAULT_LENGTH;
+}
+
+/** @returns {string[]} the phrasings a given choice may draw from */
+function lengthPool(choice) {
+  if (choice === 'short') return SHORT_LENGTHS;
+  if (choice === 'detailed') return DETAILED_LENGTHS;
+  return [...SHORT_LENGTHS, ...DETAILED_LENGTHS];
+}
+
+/* ------------------------------------------------------------------ voice */
 
 const VOICES = [
   'plain and unfussy, the way most people write',
@@ -114,50 +125,92 @@ const VOICES = [
 /**
  * Rotating angles keep regenerations from converging on the same sentence
  * shape. One is picked at random per request.
+ *
+ * Kept free of anything only a hotel guest could do: this list is used for a
+ * clinic and a garage too, so "compare it favourably to staying in the middle of
+ * the city" had to go.
  */
 const ANGLES = [
   'open with a specific small moment rather than a general verdict',
-  'write it as a short recommendation to another traveller',
+  'write it as a short recommendation to someone else looking',
   'lead with how the place made you feel, then say why',
   'mention one concrete detail and let the rest be brief',
-  'compare it favourably to staying in the middle of the city',
   'write it plainly, almost understated — no adjectives stacked up',
-  'start mid-thought, the way people actually type reviews on their phone',
+  'start mid-thought, the way people actually type on their phone',
   'note something you would do again or tell a friend about',
+  'say what you expected and then that it was better than that',
 ];
 
+/* ------------------------------------------------------------------ prompt */
+
 /**
- * The writing prompt, for one venue.
+ * The system prompt: the generic context document, then this business.
  *
- * @param {object} venue - name, kind, place, safeDetails; the resolved values
- *   for whichever subscriber is being served, not necessarily the built-in.
+ * Generic first. It is the same on every call, for every business, so it sits at
+ * the front where a prompt cache can keep it — and the business-specific half
+ * reads as the exception to a rule already stated, which is the order it is
+ * meant to be read in.
+ *
+ * @param {object} venue - name, kind, place, safeDetails, and optionally
+ *   contextDoc: whichever business is being served, not a built-in.
+ * @param {object} [options]
+ * @param {string} [options.length] - which length choice is in force
+ * @param {string[]} [options.platformIds] - the platforms this business links to
  */
-function buildSystemPrompt(venue) {
-  return `You write short Google reviews in the voice of a real guest who has just checked out of ${venue.name}, ${venue.kind} in ${venue.place}.
+function buildSystemPrompt(venue, { length = DEFAULT_LENGTH, platformIds = [] } = {}) {
+  const who = [venue.kind, venue.place].filter(Boolean).join(' in ');
+  const note = platformNote(platformIds);
 
-Rules:
-- 1 to 3 sentences. Under 45 words. Casual, first person, past tense.
-- Always positive — this is a 5-star review.
-- Sound like a person typing on their phone, not like marketing copy. Contractions are good. A sentence fragment is fine.
-- Vary how you open. Never begin with "I recently stayed" or "My stay at".
-- Do not invent facts: no staff names, no prices, no dish names, no room numbers, no dates, no claims about awards, amenities, or facilities that are not in the list below.
-- No emoji, no hashtags, no star ratings, no headings, no quotation marks around the review.
-- Do not address the reader or the business directly. Do not sign off.
-- Output only the review text. Nothing before it, nothing after it.
+  const parts = [
+    `You write short, positive reviews in the voice of a real customer who has just finished at ${venue.name}${who ? `, ${who}` : ''}.`,
+    GENERIC_CONTEXT,
+  ];
 
-Details you may draw on:
-${venue.safeDetails.map((d) => `- ${d}`).join('\n')}`;
+  // The business's own context document, if its owner wrote or drafted one.
+  // Framed as background rather than as facts: it is free text an owner typed,
+  // so it steers what a review is about and how it sounds, while the only things
+  // a review may actually assert are the details below.
+  if (venue.contextDoc) {
+    parts.push(
+      `About this business, from its owner\n\nBackground, for tone and subject matter. Do not quote figures or claims from it, and do not treat anything here as a fact you may state — the list of things you may state is below.\n\n${venue.contextDoc}`
+    );
+  }
+
+  // The load-bearing part of the no-fabrication guarantee. An empty list is a
+  // real state — a business that has not analysed its website yet — and it has
+  // to degrade into "say nothing specific" rather than into an empty bullet list
+  // the model fills in for itself.
+  parts.push(
+    venue.safeDetails?.length
+      ? `Details you may draw on\n\n${venue.safeDetails.map((d) => `- ${d}`).join('\n')}`
+      : `Details you may draw on\n\nNone have been recorded for this business. Write only about the customer's own impression — how it felt, how they were treated — and state no specific fact about the place at all.`
+  );
+
+  parts.push(`Rules
+
+- ${LENGTH_RULES[length] || LENGTH_RULES[DEFAULT_LENGTH]} Casual, first person, past tense.
+- Always positive — this is a five-star review.
+- Do not invent facts: no staff names, no prices, no dish names, no room numbers, no dates, no claims about awards, amenities or facilities that are not in the list above.
+- No numbers of any kind. No emoji, no hashtags, no star ratings, no headings, no quotation marks around the review.
+- Do not address the reader or the business. Do not sign off.
+- Output only the review text. Nothing before it, nothing after it.${note ? `\n- ${note}` : ''}`);
+
+  return parts.join('\n\n');
 }
 
 /**
  * @param {object} args
  * @param {string[]} args.categoryIds - the topics the guest picked, if any
- * @param {string[]} args.recent - recent reviews to avoid echoing
- * @param {object[]} [args.categories] - the venue's own buttons, if it set any
- * @param {object} [args.venue] - the venue being written about
+ * @param {string[]} args.recent - reviews to write away from
+ * @param {object[]} [args.categories] - the business's own topics, if it set any
+ * @param {object} [args.venue] - the business being written about
  * @param {string[]} [args.examples] - reviews this business approved
+ * @param {string[]} [args.realism] - reviews already written for this business,
+ *   as a reference for how real ones read. Must not overlap `recent`.
  * @param {string[]} [args.rejected] - reviews this business turned down
  * @param {string} [args.language] - which language to write in
+ * @param {string} [args.length] - 'any' | 'short' | 'detailed'
+ * @param {string[]} [args.platformIds] - the platforms this business links to
  * @param {() => number} [args.rand] - injectable for tests
  */
 function buildMessages({
@@ -166,17 +219,24 @@ function buildMessages({
   categories,
   venue = VENUE,
   examples = [],
+  realism = [],
   rejected = [],
   language = DEFAULT_LANGUAGE,
+  length = DEFAULT_LENGTH,
+  platformIds = [],
   rand = Math.random,
 }) {
-  // No fallback to the built-in set. A business with no categories has none,
-  // and CATEGORIES describes a lodge — handing it to a dentist was worse than
-  // having no buttons.
+  // No fallback to a built-in set. A business with no topics has none, and the
+  // old built-in five described a lodge — handing them to a dentist was worse
+  // than having no buttons.
   const list = Array.isArray(categories) ? categories : [];
   const picked = list.filter((c) => categoryIds.includes(c.id));
+
+  const choice = lengthFor(length);
+  const pool = lengthPool(choice);
+
   const angle = ANGLES[Math.floor(rand() * ANGLES.length)];
-  const length = LENGTHS[Math.floor(rand() * LENGTHS.length)];
+  const shape = pool[Math.floor(rand() * pool.length)];
   const voice = VOICES[Math.floor(rand() * VOICES.length)];
 
   // Nothing picked, or nothing to pick: write about the visit rather than
@@ -187,46 +247,63 @@ function buildMessages({
   if (picked.length === 1) {
     about = picked[0].focus;
   } else if (picked.length > 1) {
-    // Woven, not listed. Several topics in 45 words becomes an inventory unless
-    // the prompt says otherwise, and an inventory does not read like a guest.
+    // Woven, not listed. Several topics in one short review becomes an inventory
+    // unless the prompt says otherwise, and an inventory does not read like a
+    // customer — it is one of the tells in the generic document.
     about =
       picked.map((c) => c.focus).join('; and ') +
       `.\n\nThat is ${picked.length} things at once — do not list them. Lead with whichever felt most worth saying and let the rest show up in passing, or leave one out if it will not fit naturally`;
   }
 
-  let user = `Write one review about ${about}.\n\nThis time: ${angle}. Make it ${length}, and write it ${voice}.`;
+  let user = `Write one review about ${about}.\n\nThis time: ${angle}. Make it ${shape}, and write it ${voice}.`;
 
-  // Approved samples pull towards a house voice; the recent list below pushes
-  // away from repetition. They would fight if both asked about wording, so this
-  // one asks only for tone and length — and it goes first, so the "make this
-  // clearly different" instruction is the last thing read and wins on phrasing.
+  // What has actually been posted for this business, as a calibration sample.
+  // This is the closest thing to training the product does: the writer is shown
+  // real output from the same listing and asked to match how real it reads,
+  // rather than being asked in the abstract to sound authentic.
+  //
+  // On manner only, and explicitly not on subject — the "write away from these"
+  // block below is a different, disjoint sample, and the two would fight if both
+  // spoke about wording.
+  if (realism.length) {
+    const sample = realism
+      .slice(0, 4)
+      .map((r) => `- ${r}`)
+      .join('\n');
+    user += `\n\nReviews already written for this business, as a reference for how a real one reads here — their length, their level of detail, how much they say and how much they leave out. Match that. Do not reuse their wording, their openings or the things they talk about:\n${sample}`;
+  }
+
+  // Approved samples pull towards a house voice. Narrower than the realism
+  // block above and stronger, because a human chose each one.
   if (examples.length) {
-    const list = examples
+    const sample = examples
       .slice(0, 3)
       .map((r) => `- ${r}`)
       .join('\n');
-    user += `\n\nThis business approved these earlier reviews. Match their tone and length, not their wording:\n${list}`;
+    user += `\n\nThis business approved these earlier reviews. Match their tone and length, not their wording:\n${sample}`;
   }
 
   // A rejected review says what this business does not want said about it,
   // which the approved ones cannot express.
   if (rejected.length) {
-    const list = rejected
+    const sample = rejected
       .slice(0, 3)
       .map((r) => `- ${r}`)
       .join('\n');
-    user += `\n\nThis business rejected these. Do not write anything like them:\n${list}`;
+    user += `\n\nThis business rejected these. Do not write anything like them:\n${sample}`;
   }
 
+  // Last but for the language, so "make this clearly different" is the
+  // instruction nearest the model's own output and wins on phrasing.
   if (recent.length) {
-    const list = recent
+    const sample = recent
       // Eight, not three: three was one guest's own session, and this list now
       // carries what the business has published lately too. Each costs prompt
       // tokens, so this is a ceiling rather than everything on file.
       .slice(-8)
       .map((r) => `- ${r}`)
       .join('\n');
-    user += `\n\nThese reviews already exist for this business. Make this one clearly different in wording, structure and opening — someone reading the listing must not see the same review twice:\n${list}`;
+    user += `\n\nThese reviews already exist for this business. Make this one clearly different in wording, structure and opening — someone reading the listing must not see the same review twice:\n${sample}`;
   }
 
   // Last, and stated plainly: a language instruction buried above the examples
@@ -240,18 +317,28 @@ Write the review in ${chosen.name}. Only the review — do not translate or rest
   }
 
   return [
-    { role: 'system', content: buildSystemPrompt(venue) },
+    {
+      role: 'system',
+      content: buildSystemPrompt(venue, { length: choice, platformIds }),
+    },
     { role: 'user', content: user },
   ];
 }
 
 module.exports = {
   VENUE,
-  CATEGORIES,
   LANGUAGES,
   DEFAULT_LANGUAGE,
   languageFor,
   ANGLES,
+  VOICES,
+  SHORT_LENGTHS,
+  DETAILED_LENGTHS,
+  LENGTH_CHOICES,
+  LENGTH_RULES,
+  DEFAULT_LENGTH,
+  lengthFor,
+  lengthPool,
   buildSystemPrompt,
   buildMessages,
 };

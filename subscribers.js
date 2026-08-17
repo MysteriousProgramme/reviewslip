@@ -100,6 +100,7 @@ const COLUMNS = {
   wongnaiUrl: 'wongnai_url',
   kind: 'kind',
   place: 'place',
+  contextDoc: 'context_doc',
 };
 
 // The columns holding a JSON list rather than a scalar, by settings field.
@@ -163,6 +164,7 @@ function venueFor(row) {
     kind: resolved.kind,
     place: resolved.place,
     safeDetails: resolved.safeDetails,
+    contextDoc: resolved.contextDoc,
   };
 }
 
@@ -204,9 +206,9 @@ const Q = {
     INSERT INTO subscribers
       (slug, name, status, account_id, api_key, model, google_url,
        tripadvisor_url, website_url, categories, kind, place, safe_details,
-       token_hash, created_at, updated_at)
+       context_doc, token_hash, created_at, updated_at)
     VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
   `,
   remove: 'DELETE FROM subscribers WHERE slug = $1',
   setToken:
@@ -278,6 +280,7 @@ async function create(input = {}) {
       values.kind || null,
       values.place || null,
       packList(check.safeDetails),
+      values.contextDoc || null,
       hashToken(token),
       now(),
     ]);

@@ -16,7 +16,6 @@
  * for the merge, so this file stays testable with a plain object.
  */
 
-const { CATEGORIES, VENUE } = require('./config');
 const { bannedWord } = require('./seed');
 
 /**
@@ -40,16 +39,24 @@ const FIELDS = [
   'websiteUrl',
   'kind',
   'place',
+  'contextDoc',
 ];
 
 const BUILT_IN = {
   apiKey: '',
   model: MODEL,
-  // Who the venue is, in the writer's words. No .env layer: one venue's
-  // description is meaningless for another, so these are the venue's own or the
-  // built-in, and `fromEnv` simply does not read them.
-  kind: VENUE.kind,
-  place: VENUE.place,
+  // Who the business is, in the writer's words. No .env layer and no built-in
+  // value: one business's description is meaningless for another, and until this
+  // was emptied every business that had not described itself inherited the first
+  // customer's — so a dental clinic's reviews described a lodge in Chiang Mai.
+  // Blank is the honest default, and `buildSystemPrompt` handles it by writing
+  // about the customer's impression and nothing else.
+  kind: '',
+  place: '',
+  // The business's own AI context document: free text its owner wrote or had
+  // drafted from their website, steering what a review talks about and how it
+  // sounds. Same reasoning as kind and place — nobody else's is any use here.
+  contextDoc: '',
   // No built-in review links. One venue's listing is the wrong default for
   // every other venue — an unset link is reported as unset, and the guest page
   // drops that button rather than sending someone to a stranger's listing.
@@ -93,13 +100,13 @@ function resolve(own) {
   const merged = { ...BUILT_IN, ...fromEnv(), ...clean(own) };
   // Last, so nothing above can have replaced it.
   merged.model = MODEL;
-  // Categories skip the .env layer — a list of buttons is not something you
-  // usefully set installation-wide, so it is the venue's own or the built-in.
-  // No fallback. A business with no categories has none: the built-in five
-  // describe a lodge, and silently handing them to a dentist was worse than
-  // showing no buttons at all. Callers must cope with an empty list.
+  // Topics skip the .env layer — a list of buttons is not something you usefully
+  // set installation-wide, so it is the business's own or nothing. No fallback:
+  // a business with no topics has none, and silently handing a dentist a lodge's
+  // buttons was worse than showing none at all. Callers must cope with an empty
+  // list. Details are the same, for the same reason.
   merged.categories = ownCategories(own) || [];
-  merged.safeDetails = ownSafeDetails(own) || VENUE.safeDetails;
+  merged.safeDetails = ownSafeDetails(own) || [];
   return merged;
 }
 
@@ -155,9 +162,16 @@ function describe(own) {
     kind: { value: values.kind, source: source.kind },
     place: { value: values.place, source: source.place },
     safeDetails: { value: values.safeDetails, source: source.safeDetails },
+    contextDoc: { value: values.contextDoc, source: source.contextDoc },
     // Sent rather than hardcoded in the page, so the editor and the validator
-    // cannot drift apart.
-    limits: { categories: MAX_CATEGORIES, safeDetails: MAX_SAFE_DETAILS },
+    // cannot drift apart. `categories` keeps its name here because that is the
+    // column and the API field; the dashboard and the guest page both call them
+    // topics, which is the word a customer uses.
+    limits: {
+      categories: MAX_TOPICS,
+      safeDetails: MAX_SAFE_DETAILS,
+      contextDoc: MAX_CONTEXT_DOC,
+    },
   };
 }
 
@@ -220,6 +234,9 @@ function validate(patch) {
   const place = checkLength(patch.place, MAX_PLACE, 'location');
   if (place) return place;
 
+  const contextDoc = checkContextDoc(patch.contextDoc);
+  if (contextDoc) return contextDoc;
+
   // Handed back normalised, so the caller stores exactly what was checked
   // rather than re-deriving it.
   const out = { ok: true };
@@ -245,6 +262,51 @@ function checkLength(value, max, label) {
   return value.trim().length > max
     ? { ok: false, error: `That ${label} is too long.` }
     : null;
+}
+
+/* --------------------------------------------------------- the context doc */
+
+// Long enough for a couple of paragraphs about who comes here and what they
+// mention; short enough that it is not most of the prompt. It is sent on every
+// generation, and the business pays for it by the token.
+const MAX_CONTEXT_DOC = 2000;
+
+/**
+ * The business's own AI context document.
+ *
+ * Free text, unlike the details list — it steers tone and subject matter rather
+ * than supplying facts a review may assert, and the prompt says so explicitly.
+ * That is why numbers are allowed here and banned there: a number in a detail
+ * gets stated as fact in every review, while a number in the background material
+ * is something the writer is told not to repeat.
+ *
+ * Superlatives are still refused. "Our award-winning kitchen" in here comes back
+ * out in the reviews whatever the framing says, and a listing full of the word
+ * "award-winning" is one of the tells the generic context document is about.
+ *
+ * @returns {{ok: false, error: string}|null} null when the value is fine
+ */
+function checkContextDoc(value) {
+  if (typeof value !== 'string' || !value.trim()) return null;
+
+  const doc = value.trim();
+
+  if (doc.length > MAX_CONTEXT_DOC) {
+    return {
+      ok: false,
+      error: `That context is ${doc.length} characters, and ${MAX_CONTEXT_DOC} is the limit. It goes into every review, so keep it to the essentials.`,
+    };
+  }
+
+  const hit = bannedWord(doc);
+  if (hit) {
+    return {
+      ok: false,
+      error: `Take "${hit}" out of the context. Words like that end up in the reviews, and a listing full of them is exactly what looks manufactured.`,
+    };
+  }
+
+  return null;
 }
 
 /* ----------------------------------------------------------- safe details */
@@ -310,23 +372,37 @@ function validateSafeDetails(value) {
   return { ok: true, safeDetails: out };
 }
 
-/* ------------------------------------------------------------- categories */
+/* ------------------------------------------------- topics (aka categories) */
 
-// Five buttons is the whole picker. Past that a departing guest is reading a
-// menu instead of tapping the thing that stood out, and the built-in set is
-// exactly five, so this is the shape the page was designed around.
-const MAX_CATEGORIES = 5;
+/**
+ * How many topics a business may keep.
+ *
+ * This was five, on the argument that five is the whole picker and a departing
+ * guest past that is reading a menu instead of tapping what stood out. That
+ * argument was about the *picker*, not about the *set*, and it stopped applying
+ * the moment the guest page started sampling: it now shows ten drawn at random
+ * with the rest behind a browse button, so the guest sees a short list either
+ * way while the set behind it is deep enough that two guests an hour apart are
+ * unlikely to be offered the same ten.
+ *
+ * Thirty is where the depth stops being free. A business generating topics from
+ * its own website runs out of things there is real evidence for somewhere around
+ * there and starts padding, and padded topics produce vague reviews.
+ */
+const MAX_TOPICS = 30;
 const MAX_LABEL = 40;
 const MAX_FOCUS = 200;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /**
- * Categories are guest-facing buttons *and* prompt input, so they get the same
+ * Topics are guest-facing buttons *and* prompt input, so they get the same
  * treatment as any other stored setting: normalised once, here, and never
  * trusted in the shape they arrived.
  *
- * An empty list is a cleared list — it falls back to the built-in set, the way
- * clearing a text field falls back down the chain.
+ * An empty list is a business with no topics, not a business falling back to
+ * someone else's. The guest page then offers no buttons and writes about the
+ * visit overall, which is the honest thing to do before anyone has said what
+ * this business is.
  *
  * @returns {{ok: true, categories: object[]}|{ok: false, error: string}}
  */
@@ -334,10 +410,10 @@ function validateCategories(value) {
   if (!Array.isArray(value)) {
     return { ok: false, error: 'Categories must be a list.' };
   }
-  if (value.length > MAX_CATEGORIES) {
+  if (value.length > MAX_TOPICS) {
     return {
       ok: false,
-      error: `That is more than ${MAX_CATEGORIES} categories. Trim the list.`,
+      error: `That is more than ${MAX_TOPICS} topics. Trim the list.`,
     };
   }
 
@@ -411,8 +487,9 @@ module.exports = {
   FIELDS,
   BUILT_IN,
   MODEL,
-  MAX_CATEGORIES,
+  MAX_TOPICS,
   MAX_SAFE_DETAILS,
+  MAX_CONTEXT_DOC,
   validateSafeDetails,
   clean,
   fromEnv,

@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0C1F19" />
     <meta name="color-scheme" content="dark" />
-    <title>Leave a review — Baanpong Lodge</title>
+    <!-- No business name baked in: one install serves every customer, and the
+         real name arrives with /api/config a moment later. -->
+    <title>Leave a review</title>
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
 
@@ -21,7 +23,7 @@
     <main class="page">
       <header class="masthead">
         <div class="masthead-top">
-          <p class="eyebrow" id="eyebrow">Baanpong Lodge</p>
+          <p class="eyebrow" id="eyebrow"></p>
           <!-- Which language the review is written in. Options come from the
                server so the list cannot drift from what the prompt accepts. -->
           <select class="lang" id="lang" aria-label="Review language"></select>
@@ -35,6 +37,21 @@
       <section class="picker" aria-labelledby="picker-label">
         <p class="label" id="picker-label">What stood out?</p>
         <div class="chips" id="chips" role="group" aria-labelledby="picker-label"></div>
+        <!-- Ten topics are shown, drawn at random. This reveals the rest, and
+             stays hidden when there is no rest to reveal. -->
+        <button type="button" class="browse" id="browse" hidden></button>
+      </section>
+
+      <section class="picker" aria-labelledby="length-label">
+        <p class="label" id="length-label">How long?</p>
+        <!-- A radiogroup rather than toggles: these three are exclusive, and
+             aria-pressed would announce three independent switches. -->
+        <div
+          class="chips"
+          id="lengths"
+          role="radiogroup"
+          aria-labelledby="length-label"
+        ></div>
       </section>
 
       <section class="slip-wrap" aria-labelledby="slip-label">

@@ -12,9 +12,13 @@ const { readWebsite } = require('./reader');
 const {
   buildSeedMessages,
   parseProposal,
-  buildCategoryMessages,
-  parseCategorySuggestions,
+  buildTopicMessages,
+  parseTopics,
+  buildContextMessages,
+  parseContextDoc,
 } = require('./seed');
+const settingsRules = require('./settings');
+const { PLATFORMS } = require('./platforms');
 
 /**
  * The customer API: sign up, sign in, and manage your own businesses.
@@ -344,6 +348,7 @@ router.patch(
         kind: patch.kind,
         place: patch.place,
         safeDetails: patch.safeDetails,
+        contextDoc: patch.contextDoc,
       });
 
       res.json({ business: record, warning: verdict.warning });
@@ -483,8 +488,15 @@ router.post(
   }
 );
 
+/**
+ * The topic set, drafted from the website.
+ *
+ * A draft, like the others: it fills the editor and Save stores it. Thirty
+ * {label, focus} pairs need considerably more room than the five this replaced,
+ * hence the token ceiling.
+ */
 router.post(
-  '/businesses/:slug/categories/suggest',
+  '/businesses/:slug/topics/suggest',
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
@@ -493,22 +505,90 @@ router.post(
       if (!resolved) return;
 
       const answer = await readWebsite(req.venue, resolved, {
-        messages: buildCategoryMessages({ url: resolved.websiteUrl }),
-        maxTokens: 800,
+        messages: buildTopicMessages({
+          url: resolved.websiteUrl,
+          max: settingsRules.MAX_TOPICS,
+        }),
+        maxTokens: 3000,
       });
       if (!answer.ok) {
         return res.status(answer.status).json({ error: answer.error });
       }
 
-      const categories = parseCategorySuggestions(answer.content);
+      const categories = parseTopics(answer.content, {
+        max: settingsRules.MAX_TOPICS,
+      });
       if (!categories) {
+        console.error(
+          'Topic drafting produced nothing usable:',
+          String(answer.content).slice(0, 500)
+        );
         return res.status(502).json({
           error:
-            'No usable categories came back from that page. Try one that lists what the business offers.',
+            'No usable topics came back from that page. Try one that says what the business offers.',
         });
       }
 
       res.json({ categories, url: resolved.websiteUrl });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * The business's own AI context document, drafted from what it publishes.
+ *
+ * Reads the review listings alongside the website, because how this business's
+ * real customers already write is the single most useful thing on the subject —
+ * and it is the one input the website cannot give. Whether any of those pages
+ * actually yields reviews to a server-side fetch varies by platform; the prompt
+ * is told that seeing none is a normal outcome and to say nothing rather than
+ * describe reviews it has not read.
+ *
+ * A draft, again. The customer reads it in a textarea and Save stores it — which
+ * matters more here than anywhere else in this file, because this is free prose
+ * with no source quote behind any sentence.
+ */
+router.post(
+  '/businesses/:slug/context/draft',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const resolved = readable(req.venue, res);
+      if (!resolved) return;
+
+      const listings = PLATFORMS.map((p) => resolved[`${p.id}Url`]).filter(
+        Boolean
+      );
+
+      const answer = await readWebsite(req.venue, resolved, {
+        messages: buildContextMessages({
+          url: resolved.websiteUrl,
+          listings,
+        }),
+        maxTokens: 1500,
+      });
+      if (!answer.ok) {
+        return res.status(answer.status).json({ error: answer.error });
+      }
+
+      const parsed = parseContextDoc(answer.content, {
+        maxChars: settingsRules.MAX_CONTEXT_DOC,
+      });
+      if (!parsed) {
+        console.error(
+          'Context drafting produced nothing usable:',
+          String(answer.content).slice(0, 500)
+        );
+        return res.status(502).json({
+          error:
+            'Nothing usable came back from that page. An About page usually works best.',
+        });
+      }
+
+      res.json({ ...parsed, url: resolved.websiteUrl, read: listings.length + 1 });
     } catch (err) {
       next(err);
     }
