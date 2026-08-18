@@ -300,21 +300,24 @@ function parseTopics(raw, { max = 30 } = {}) {
  * that saying nothing is correct when there is nothing to see. An invented
  * description of reviews nobody read is worse than no description.
  */
-const CONTEXT_SYSTEM = `You read what a business publishes about itself and write a short background note for a review-writing assistant.
+const CONTEXT_SYSTEM = `You read what a business publishes about itself and write a detailed background note for a review-writing assistant.
 
-The note is not shown to customers and is not a fact sheet. It exists so the assistant writes in the right register about the right things. Someone who has never heard of this business should be able to read it and know how its customers talk.
+The note is not shown to customers and is not a fact sheet. It exists so the assistant writes in the right register about the right things. Someone who has never heard of this business should be able to read it and know exactly how its customers talk.
 
 Return a single JSON object of this shape:
-{ "contextDoc": "two or three short paragraphs" }
+{ "contextDoc": "four to six paragraphs" }
 
 Cover, in plain prose and in this order:
-- What kind of business it is and who its customers are — who actually walks in, and what they came for.
-- What those customers are most likely to notice and mention afterwards. Be concrete about subjects, not about claims.
-- How a real review of a place like this reads: how long, how warm, how much detail, what a customer would say and what they would never bother saying.
-- If, and only if, you can actually see real customer reviews on one of the pages: one sentence on how they read. If you cannot see any, say nothing about them at all. Do not describe reviews you have not read.
+- What kind of business it is and who its customers are — who actually walks in, on what sort of occasion, and what they came for. Distinguish the regulars from the one-off visitors if the page gives you anything to go on.
+- Where it sits, and what is around it. Name the neighbourhood or district, the nearest recognisable landmarks, what a customer would have walked or driven past to get there, and what else people are in the area to do. This is the part customers reach for when they explain why they went, so be specific: a street, a park, a station, a beach, a market, a well known building nearby.
+- What those customers are most likely to notice and mention afterwards. Be concrete about subjects, not about claims. Cover the ordinary things as well as the obvious ones — waiting, parking, being greeted, how long it took.
+- What they would never bother saying, and what would sound wrong coming from them.
+- How a real review of a place like this reads: how long, how warm, how much detail, what a customer opens with.
+- If, and only if, you can actually see real customer reviews on one of the pages: a sentence or two on how they read. If you cannot see any, say nothing about them at all. Do not describe reviews you have not read.
 
 Rules:
-- Under 250 words. It is sent to the model on every single review, so every sentence has to earn its place.
+- Aim for 1,700 to 1,900 characters. There is a hard ceiling of 2,000 and anything past it is cut off mid-sentence, so stay under it — but a short note wastes the room. Use what you have. Specific and long beats general and short.
+- Detail means detail about *this* business. Do not pad with generalities to reach the length: if you genuinely run out of things the pages support, stop rather than invent.
 - No superlatives, no awards, no ratings, no rankings, no marketing language of any kind. Describe the business the way a researcher would, not the way it describes itself.
 - No staff names, no dish names, no prices, no figures.
 - Do not list facilities. A separate list already records what a review may claim; this is about register and subject matter.
@@ -383,7 +386,25 @@ function parseContextDoc(raw, { maxChars = 2000 } = {}) {
     if (good.length) kept.push(good.join(' '));
   }
 
-  const contextDoc = kept.join('\n\n').slice(0, maxChars).trim();
+  // Cut at a sentence rather than mid-word. The prompt now asks for a note close
+  // to the ceiling, so a draft that overruns is the normal case rather than a
+  // strange one — and a note ending "the nearest station is abo" reads as a bug.
+  let contextDoc = kept.join('\n\n').trim();
+
+  if (contextDoc.length > maxChars) {
+    const clipped = contextDoc.slice(0, maxChars);
+    const lastStop = Math.max(
+      clipped.lastIndexOf('. '),
+      clipped.lastIndexOf('.\n'),
+      clipped.lastIndexOf('! '),
+      clipped.lastIndexOf('? ')
+    );
+    // Only when a sentence ends somewhere near the cut. A single enormous
+    // paragraph would otherwise lose most of itself to this.
+    contextDoc = (
+      lastStop > maxChars * 0.6 ? clipped.slice(0, lastStop + 1) : clipped.replace(/\s+\S*$/, '')
+    ).trim();
+  }
   return contextDoc ? { contextDoc, dropped } : null;
 }
 
