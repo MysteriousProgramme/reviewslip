@@ -145,6 +145,95 @@ const COMPLIANCE_RULES = COMPLIANCE.split('\n')
   .filter((line) => line.startsWith('- '))
   .map((line) => line.slice(2));
 
+/* ---------------------------------------------------------------- rulebook */
+
+/**
+ * Everything the writer is told about one business, as a markdown file.
+ *
+ * A debugging view, and marked temporary in its own text. It exists because
+ * "what is the AI actually working from" is otherwise answerable only by reading
+ * five files and a database row — and the person who most needs the answer, the
+ * owner deciding whether a bad review is the prompt's fault or their own
+ * settings', has access to neither.
+ *
+ * Built from the same `buildSystemPrompt` that serves the guest page rather than
+ * from a description of it. A document explaining the prompt in its own words
+ * would drift from the prompt within a release, and a drifted one is worse than
+ * none, because it would still be believed.
+ *
+ * `generatedAt` is passed in rather than read here so this stays a pure function
+ * of its arguments, like the rest of the file.
+ */
+function rulebook({
+  name,
+  systemPrompt,
+  topics = [],
+  examples = [],
+  rejected = [],
+  generatedAt,
+}) {
+  const bullets = (items, empty) =>
+    items.length ? items.map((item) => `- ${item}`).join('\n') : `_${empty}_`;
+
+  const fence = '```';
+
+  return [
+    `# What the writer is told about ${name}`,
+    '',
+    `Generated ${generatedAt}.`,
+    '',
+    '> **This is a temporary debugging view.** It is produced by the same code',
+    '> that builds the real prompt, so it cannot drift from it — but it is a',
+    '> snapshot, and anything you change in Settings changes what is below.',
+    '',
+    '## 1. The system prompt, exactly as sent',
+    '',
+    'Every review for this business is written with this in front of it. The',
+    'first half is the same for every business on the platform; the second half',
+    'is yours, from your Settings.',
+    '',
+    fence,
+    systemPrompt,
+    fence,
+    '',
+    '## 2. The topics a customer can pick',
+    '',
+    'The guest page shows ten of these at random with the rest behind a browse',
+    'button. Whichever they tap becomes the subject; the note beside it is what',
+    'actually reaches the prompt.',
+    '',
+    topics.length
+      ? topics
+          .map((t) => `- **${t.label}** — ${t.focus || t.label}`)
+          .join('\n')
+      : '_None set. Until there are some, every review is about the visit overall._',
+    '',
+    '## 3. What your ratings are feeding back',
+    '',
+    'Five stars means "write more like this", and those reviews are shown to the',
+    'writer on every generation from then on. One and two stars are shown as',
+    'things to avoid. Three and four are recorded and fed back neither way.',
+    '',
+    '### Five-star examples currently in the prompt',
+    '',
+    bullets(examples, 'None yet. Rate a review five stars and it appears here.'),
+    '',
+    '### One and two star reviews currently in the prompt',
+    '',
+    bullets(rejected, 'None.'),
+    '',
+    '## 4. What is deliberately not in here',
+    '',
+    '- The **realism sample** and the **write-away-from list**, drawn fresh and',
+    '  at random from your recent reviews on every generation. They differ every',
+    '  time, so there is no fixed value to print.',
+    '- The **length** and the **language**, which the customer picks on the page.',
+    '- The **angle** and the **voice**, drawn at random per review so that two',
+    '  customers an hour apart do not get the same sentence shape.',
+    '',
+  ].join('\n');
+}
+
 module.exports = {
   COMPLIANCE,
   COMPLIANCE_RULES,
@@ -154,4 +243,5 @@ module.exports = {
   PLATFORM_NOTES,
   GENERIC_CONTEXT,
   platformNote,
+  rulebook,
 };

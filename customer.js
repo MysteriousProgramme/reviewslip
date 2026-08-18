@@ -20,6 +20,8 @@ const {
   parseTheme,
 } = require('./seed');
 const theme = require('./theme');
+const context = require('./context');
+const { buildSystemPrompt } = require('./config');
 const assets = require('./assets');
 const settingsRules = require('./settings');
 const { PLATFORMS } = require('./platforms');
@@ -451,6 +453,50 @@ router.post(
  * exists. Both return a draft and write nothing: the whole no-fabrication
  * guarantee rests on a human reading the details before they reach a prompt.
  */
+/**
+ * Where the drafting reads from, in order of how much it will get.
+ *
+ * A great many small businesses have no website at all — they have a Facebook
+ * page, and that is their entire public presence. Requiring a website meant the
+ * whole dashboard did nothing for them: no description, no topics, no details,
+ * no colours, no logo. Falling back to whichever listing they *have* set costs
+ * one line and is the difference between the product working for them and not.
+ *
+ * A real website first, because it is far and away the richest source and the
+ * only one guaranteed to be readable. Then Facebook, which is the usual answer
+ * to "no website". Then anything else set, in platform order.
+ *
+ * A social page will often read poorly or not at all — see `sourceHint` — so
+ * this returns which one it picked, and the callers say so when nothing usable
+ * comes back.
+ */
+const SOURCE_ORDER = ['websiteUrl', 'facebookUrl', ...PLATFORMS.map((p) => `${p.id}Url`)];
+
+const SOURCE_LABELS = {
+  websiteUrl: 'website',
+  facebookUrl: 'Facebook page',
+  googleUrl: 'Google listing',
+  tripadvisorUrl: 'Tripadvisor listing',
+  lineUrl: 'LINE page',
+  xiaohongshuUrl: 'Xiaohongshu page',
+  wongnaiUrl: 'Wongnai listing',
+};
+
+/**
+ * What to tell someone whose read came back empty.
+ *
+ * Only worth saying for a social page. Facebook serves a login wall to anything
+ * that is not a browser with a session, and a fetcher gets that wall rather than
+ * the page — so "nothing usable came back" is the expected outcome there, not a
+ * surprise, and the customer should hear which of the two it was.
+ */
+function sourceHint(field) {
+  if (field === 'websiteUrl') {
+    return 'Try a different page on the site — an About page usually works best.';
+  }
+  return `That is your ${SOURCE_LABELS[field] ?? 'listing'}, and those often refuse to be read by anything that is not a signed-in browser. You can fill these in by hand instead — or add a website address, which always reads.`;
+}
+
 function readable(venue, res) {
   const resolved = subscribers.settingsFor(venue);
 
@@ -458,13 +504,19 @@ function readable(venue, res) {
     res.status(500).json({ error: 'No OpenRouter key is configured.' });
     return null;
   }
-  if (!resolved.websiteUrl) {
-    res
-      .status(400)
-      .json({ error: 'Add the business website address first, then save.' });
+
+  const field = SOURCE_ORDER.find((name) => resolved[name]);
+  if (!field) {
+    res.status(400).json({
+      error:
+        'Add a website address first — or a Facebook page, if that is where the business lives. Save it, then read from it.',
+    });
     return null;
   }
-  return resolved;
+
+  // `sourceUrl` is what the readers actually fetch. `websiteUrl` stays what it
+  // always was, so nothing else in the app changes meaning.
+  return { ...resolved, sourceUrl: resolved[field], sourceField: field };
 }
 
 router.post(
@@ -477,7 +529,7 @@ router.post(
       if (!resolved) return;
 
       const answer = await readWebsite(req.venue, resolved, {
-        messages: buildSeedMessages({ url: resolved.websiteUrl }),
+        messages: buildSeedMessages({ url: resolved.sourceUrl }),
         maxTokens: 2000,
       });
       if (!answer.ok) {
@@ -491,12 +543,11 @@ router.post(
           String(answer.content).slice(0, 500)
         );
         return res.status(502).json({
-          error:
-            'Nothing checkable came back from that page. It may be image-only, or blocked. Try a different page on the site — an About page usually works best.',
+          error: `Nothing checkable came back from that page. ${sourceHint(resolved.sourceField)}`,
         });
       }
 
-      res.json({ ...parsed, url: resolved.websiteUrl });
+      res.json({ ...parsed, url: resolved.sourceUrl });
     } catch (err) {
       next(err);
     }
@@ -521,7 +572,7 @@ router.post(
 
       const answer = await readWebsite(req.venue, resolved, {
         messages: buildTopicMessages({
-          url: resolved.websiteUrl,
+          url: resolved.sourceUrl,
           max: settingsRules.MAX_TOPICS,
         }),
         maxTokens: 3000,
@@ -539,12 +590,11 @@ router.post(
           String(answer.content).slice(0, 500)
         );
         return res.status(502).json({
-          error:
-            'No usable topics came back from that page. Try one that says what the business offers.',
+          error: `No usable topics came back from that page. ${sourceHint(resolved.sourceField)}`,
         });
       }
 
-      res.json({ categories, url: resolved.websiteUrl });
+      res.json({ categories, url: resolved.sourceUrl });
     } catch (err) {
       next(err);
     }
@@ -580,7 +630,7 @@ router.post(
 
       const answer = await readWebsite(req.venue, resolved, {
         messages: buildContextMessages({
-          url: resolved.websiteUrl,
+          url: resolved.sourceUrl,
           listings,
         }),
         maxTokens: 1500,
@@ -598,12 +648,11 @@ router.post(
           String(answer.content).slice(0, 500)
         );
         return res.status(502).json({
-          error:
-            'Nothing usable came back from that page. An About page usually works best.',
+          error: `Nothing usable came back from that page. ${sourceHint(resolved.sourceField)}`,
         });
       }
 
-      res.json({ ...parsed, url: resolved.websiteUrl, read: listings.length + 1 });
+      res.json({ ...parsed, url: resolved.sourceUrl, read: listings.length + 1 });
     } catch (err) {
       next(err);
     }
@@ -630,7 +679,7 @@ router.post(
 
       const answer = await readWebsite(req.venue, resolved, {
         messages: buildThemeMessages({
-          url: resolved.websiteUrl,
+          url: resolved.sourceUrl,
           displayFonts: theme.DISPLAY_FONTS,
           uiFonts: theme.UI_FONTS,
         }),
@@ -647,8 +696,7 @@ router.post(
           String(answer.content).slice(0, 500)
         );
         return res.status(502).json({
-          error:
-            "No usable colours came back from that page. Try the site's front page.",
+          error: `No usable colours came back from that page. ${sourceHint(resolved.sourceField)}`,
         });
       }
 
@@ -749,7 +797,7 @@ router.post(
           ui: fonts.ui ?? null,
         },
         fontNotes,
-        url: resolved.websiteUrl,
+        url: resolved.sourceUrl,
       });
     } catch (err) {
       next(err);
@@ -787,6 +835,53 @@ router.post(
     });
 
     res.json({ theme: palette, derived: derived.vars, adjusted: derived.adjusted });
+  }
+);
+
+/**
+ * The rulebook: everything the writer is told about this business, as markdown.
+ *
+ * Temporary, and says so in its own first paragraph. It answers a question the
+ * dashboard otherwise cannot — is a bad review the prompt's fault or this
+ * business's settings? — and answers it with the real prompt rather than a
+ * description of one.
+ *
+ * The five-star and low-rated samples are read live, because those are what is
+ * genuinely in the prompt right now. The realism and avoid samples are not: they
+ * are drawn at random per generation, so there is no value to print.
+ */
+router.get(
+  '/businesses/:slug/rulebook',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const resolved = subscribers.settingsFor(req.venue);
+
+      // Caught, not awaited into the happy path: a rulebook without its examples
+      // is still worth reading, and this is a debugging view.
+      const [examples, rejected] = await Promise.all([
+        events.topRated(req.venue.id, 5).catch(() => []),
+        events.poorlyRated(req.venue.id, 3).catch(() => []),
+      ]);
+
+      const markdown = context.rulebook({
+        name: req.venue.name,
+        systemPrompt: buildSystemPrompt(subscribers.venueFor(req.venue), {
+          platformIds: PLATFORMS.map((p) => p.id).filter(
+            (id) => resolved[`${id}Url`]
+          ),
+        }),
+        topics: resolved.categories,
+        examples,
+        rejected,
+        generatedAt: new Date().toISOString().slice(0, 10),
+      });
+
+      res.type('text/markdown').send(markdown);
+    } catch (err) {
+      next(err);
+    }
   }
 );
 
