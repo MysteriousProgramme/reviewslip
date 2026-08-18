@@ -425,6 +425,53 @@ test('any palette that validates produces a readable page', () => {
   }
 });
 
+test('a photograph behind the page cannot break the contrast guarantees', () => {
+  // The whole reason a background image is allowed at all. Every ratio in this
+  // file is measured against the ground; a photo behind the text would make
+  // those numbers meaningless unless the wash over it is strong enough. The
+  // extremes bound every photo that could ever be uploaded.
+  const palettes = [
+    theme.DEFAULT_THEME,
+    { ground: '#0b1b33', paper: '#fbf7f0', accent: '#3fa7a0', highlight: '#ff6f5e' },
+    { ground: '#2b0a1e', paper: '#fff0f6', accent: '#ff4fa3', highlight: '#ffd166' },
+    { ground: '#f7f4ee', paper: '#1a1a1a', accent: '#7a5c2e', highlight: '#0057b8' },
+  ];
+
+  for (const palette of palettes) {
+    const { vars } = theme.derive(palette, {}, { background: true });
+
+    const alpha = Number(vars['--scrim'].match(/([\d.]+)\)$/)[1]);
+    assert.ok(alpha > 0 && alpha <= 1, 'a scrim must be emitted with a photo');
+
+    for (const photo of ['#ffffff', '#000000', '#7f7f7f']) {
+      const behind = theme.mix(photo, palette.ground, alpha);
+
+      for (const [name, need] of [
+        ['--jade', theme.RATIOS.bodyText],
+        ['--marigold', theme.RATIOS.actionText],
+        ['--warn', theme.RATIOS.bodyText],
+      ]) {
+        const got = theme.contrast(vars[name], behind);
+        assert.ok(
+          got >= need - 0.005,
+          `${palette.ground} over ${photo}: ${name} is ${got.toFixed(2)}, needs ${need}`
+        );
+      }
+    }
+  }
+});
+
+test('no photograph means no scrim and no backdrop', () => {
+  // Without an image the ground is already the background, and a second layer of
+  // it would cost a paint and change nothing.
+  const { vars } = theme.derive(theme.DEFAULT_THEME);
+  assert.equal(vars['--scrim'], undefined);
+  assert.equal(vars['--backdrop'], undefined);
+
+  assert.match(theme.css(theme.DEFAULT_THEME, {}, { background: true }), /--scrim/);
+  assert.doesNotMatch(theme.css(theme.DEFAULT_THEME), /--scrim/);
+});
+
 test('a ground and paper too close to tell apart is refused', () => {
   // The one case derivation cannot rescue: every text colour is pushed toward
   // white or black, and that needs a direction to push in.

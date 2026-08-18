@@ -295,7 +295,7 @@ function rgbaOf(colour, alpha) {
  * @returns {{vars: object, adjusted: string[]}} `adjusted` names the slots that
  *   had to move, in words a customer can read.
  */
-function derive(theme, fonts = {}) {
+function derive(theme, fonts = {}, { background = false } = {}) {
   const ground = hex(theme?.ground) || DEFAULT_THEME.ground;
   const adjusted = [];
 
@@ -397,8 +397,72 @@ function derive(theme, fonts = {}) {
       // Thai or Japanese review, since neither is likely to carry those scripts.
       '--display': `'${fonts.display?.family || displayFont(theme?.display).name}', Georgia, 'Times New Roman', serif`,
       '--ui': `'${fonts.ui?.family || uiFont(theme?.ui).name}', system-ui, -apple-system, 'Segoe UI', sans-serif`,
+
+      // The wash that goes over a background photograph, at the opacity that
+      // keeps every ratio above intact whatever the photo turns out to be. Only
+      // emitted when there is a photo — without one the ground is already the
+      // background and a second layer of it would do nothing but cost a paint.
+      ...(background
+        ? {
+            '--scrim': rgbaOf(
+              ground,
+              scrimFor(ground, [
+                { colour: accent, ratio: RATIOS.bodyText },
+                { colour: highlight, ratio: RATIOS.actionText },
+                { colour: paper, ratio: RATIOS.surface },
+              ])
+            ),
+            '--backdrop': "url('/background')",
+          }
+        : {}),
     },
   };
+}
+
+/* ------------------------------------------------------------------- scrim */
+
+/**
+ * How opaque the ground has to be over a background photograph.
+ *
+ * This is the whole reason a background image is safe here. Everything else in
+ * this file holds text to a contrast ratio against `ground`; drop a photograph
+ * behind it and none of those numbers mean anything, because the thing the text
+ * actually sits on is now the photo. A page that measured 7:1 in the dashboard
+ * can be unreadable outdoors over a bright sky.
+ *
+ * So the photo never becomes the background. It goes behind a wash of the
+ * ground colour, and the opacity of that wash is chosen here so that the
+ * *composited* result still clears every ratio — against a pure white image and
+ * a pure black one, which bound every photo that could ever be uploaded. The
+ * image ends up reading as texture rather than as a picture, which is the only
+ * way it can be there at all without the rest of the design becoming a lie.
+ *
+ * Returned rather than fixed at some tasteful-looking 0.85, because the right
+ * value depends on the palette: a near-black ground survives a bright photo at
+ * a much lower opacity than a mid-tone one does.
+ *
+ * @returns {number} the alpha to composite `ground` at, 0.6 to 0.98
+ */
+function scrimFor(ground, texts) {
+  for (let step = 60; step <= 98; step += 2) {
+    const alpha = step / 100;
+
+    // The two extremes any image lies between. If the text clears its ratio
+    // over both, it clears it over anything in between.
+    const worst = ['#ffffff', '#000000'].map((extreme) =>
+      mix(extreme, ground, alpha)
+    );
+
+    const holds = texts.every(({ colour, ratio }) =>
+      worst.every((background) => contrast(colour, background) >= ratio)
+    );
+
+    if (holds) return alpha;
+  }
+
+  // Nothing under full opacity worked, which means the palette is marginal even
+  // without an image. Hide the photo rather than serve unreadable text.
+  return 1;
 }
 
 /**
@@ -410,10 +474,10 @@ function derive(theme, fonts = {}) {
  * file, so the shipped design stands untouched rather than being reconstructed
  * from arithmetic that would not quite reproduce it.
  */
-function css(theme, fonts = {}) {
+function css(theme, fonts = {}, options = {}) {
   if (!theme) return '';
 
-  const { vars } = derive(theme, fonts);
+  const { vars } = derive(theme, fonts, options);
   const body = Object.entries(vars)
     .map(([name, value]) => `  ${name}: ${value};`)
     .join('\n');

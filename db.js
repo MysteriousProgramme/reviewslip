@@ -345,6 +345,16 @@ const MIGRATIONS = [
     await c.query('ALTER TABLE review_events ADD COLUMN language text');
     await c.query('ALTER TABLE review_events ADD COLUMN length text');
   },
+
+  async (c) => {
+    // The hero photograph off the business's own site, as JSON holding the mime
+    // type, the file in base64, and where it came from.
+    //
+    // Its own column rather than a field inside `theme` for the same reason the
+    // fonts have one: the theme is read whole and handed to the dashboard on
+    // every settings load, and half a megabyte of base64 does not belong in it.
+    await c.query('ALTER TABLE subscribers ADD COLUMN background text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

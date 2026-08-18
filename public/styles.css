@@ -56,6 +56,15 @@ body {
   min-height: 100%;
 }
 
+/* --backdrop and --scrim are only defined by /theme.css, and only when this
+   venue has a photograph. Without them the two layers collapse to nothing and
+   the gradients below are the whole background, exactly as they were.
+
+   The scrim is not decoration: every text colour on this page is held to a
+   contrast ratio against --shade, and a photograph behind them would make those
+   numbers meaningless. theme.js picks the scrim's opacity so the composite
+   still clears every ratio against a pure white photo and a pure black one —
+   see scrimFor. Weakening it here breaks that guarantee silently. */
 body {
   background: var(--shade-deep);
   background-image:
@@ -65,7 +74,12 @@ body {
       var(--glow-faint) 42%,
       transparent 72%
     ),
+    linear-gradient(var(--scrim, transparent), var(--scrim, transparent)),
+    var(--backdrop, none),
     linear-gradient(180deg, var(--shade) 0%, var(--shade-deep) 100%);
+  background-size: auto, auto, cover, auto;
+  background-position: center, center, center, center;
+  background-repeat: no-repeat;
   background-attachment: fixed;
   color: var(--jade);
   font-family: var(--ui);

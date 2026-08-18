@@ -90,10 +90,11 @@ app.get('/theme.css', resolveTenant, (req, res) => {
 
   const resolved = subscribers.settingsFor(req.subscriber);
   res.send(
-    theme.css(resolved.theme, {
-      display: resolved.fontDisplay,
-      ui: resolved.fontUi,
-    })
+    theme.css(
+      resolved.theme,
+      { display: resolved.fontDisplay, ui: resolved.fontUi },
+      { background: Boolean(resolved.background) }
+    )
   );
 });
 
@@ -187,6 +188,31 @@ app.get('/logo', resolveTenant, (req, res) => {
   res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
   res.set('X-Content-Type-Options', 'nosniff');
   res.send(body);
+});
+
+/**
+ * The venue's hero photograph, taken off its own site.
+ *
+ * Its own route for the same reason the logo and the fonts have one: half a
+ * megabyte inlined into a stylesheet would be re-downloaded every time a colour
+ * changed. Cached for an hour, since a photo changes far less often than a
+ * palette being adjusted in the dashboard.
+ */
+app.get('/background', resolveTenant, (req, res) => {
+  const stored = req.subscriber
+    ? subscribers.settingsFor(req.subscriber).background
+    : null;
+
+  if (!stored) return res.status(404).end();
+
+  const [, type, base64] = /^data:([^;]+);base64,(.+)$/.exec(stored.dataUri) || [];
+  if (!type || !base64) return res.status(404).end();
+
+  res.type(type);
+  res.set('Cache-Control', 'private, max-age=3600');
+  res.set('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'");
+  res.set('X-Content-Type-Options', 'nosniff');
+  res.send(Buffer.from(base64, 'base64'));
 });
 
 // Everything below knows which venue it is serving.

@@ -117,12 +117,22 @@ function resolve(own) {
   // them reads this; `describe` strips the bytes before anything is sent out.
   merged.fontDisplay = ownFont(own?.fontDisplay);
   merged.fontUi = ownFont(own?.fontUi);
+  merged.background = ownBackground(own?.background);
   return merged;
 }
 
 /** @returns {object|null} a stored font file, if this business grabbed one */
 function ownFont(value) {
   return assets.isStoredFont(value) ? value : null;
+}
+
+/** @returns {object|null} the stored hero photograph, if there is one */
+function ownBackground(value) {
+  return value &&
+    typeof value === 'object' &&
+    assets.isStoredImage(value.dataUri, assets.MAX_BACKGROUND_BYTES)
+    ? value
+    : null;
 }
 
 /** The same, minus the file — safe to put in an API response. */
@@ -214,6 +224,15 @@ function describe(own) {
         display: describeFont(values.fontDisplay),
         ui: describeFont(values.fontUi),
       },
+      // Described, not included: a hero photo is up to half a megabyte, and the
+      // dashboard only needs to say that there is one and how big it is.
+      background: values.background
+        ? {
+            type: values.background.type,
+            source: values.background.source ?? '',
+            kb: Math.round((values.background.dataUri.length * 3) / 4 / 1024),
+          }
+        : null,
     },
     // Sent rather than hardcoded in the page, so the editor and the validator
     // cannot drift apart. `categories` keeps its name here because that is the
@@ -318,6 +337,13 @@ function validate(patch) {
   for (const field of ['fontDisplay', 'fontUi']) {
     if (patch[field] === undefined) continue;
     out[field] = assets.isStoredFont(patch[field]) ? patch[field] : null;
+  }
+
+  // Same contract as the fonts: it arrives whole from the drafting endpoint,
+  // which is where the download and its checks happen, and anything else is
+  // dropped rather than stored.
+  if (patch.background !== undefined) {
+    out.background = ownBackground(patch.background);
   }
 
   return out;

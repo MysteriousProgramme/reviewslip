@@ -446,6 +446,28 @@ option. That is safe *here* specifically because the result is only ever rendere
 through an `<img>` tag, which runs no script and loads no subresources. It must
 never be inlined into the DOM as markup — different context, different rules.
 
+### The background photograph
+
+Grabbed the same way as the logo — the hero image off the front page, downloaded
+once and stored — and then **never used as a background**. It goes behind a wash
+of the ground colour, and the opacity of that wash is computed per palette in
+`scrimFor`.
+
+That is not a style choice. Every ratio in the table above is measured against
+`ground`; put a photograph behind the text and none of those numbers mean
+anything, because the thing the text sits on is now the photo. A page that
+measured 7:1 in the dashboard can be unreadable outdoors over a bright sky.
+
+So the scrim's opacity is chosen so the **composited** result still clears every
+ratio against a pure white image and a pure black one — the two extremes any
+photo lies between. The image ends up reading as texture rather than as a
+picture, which is the only way it can be there without the rest of the design
+becoming a lie. A palette too marginal to survive any photo gets an opaque scrim,
+which hides the image rather than serving unreadable text.
+
+Not on the printed card: a full-bleed photograph on A5 is the cartridge problem
+the card's own notes already explain.
+
 ### How it reaches the three surfaces
 
 The guest page loads `/theme.css` after `styles.css`, redefining the same custom

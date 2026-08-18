@@ -356,6 +356,7 @@ router.patch(
         theme: patch.theme,
         fontDisplay: patch.fontDisplay,
         fontUi: patch.fontUi,
+        background: patch.background,
       });
 
       res.json({ business: record, warning: verdict.warning });
@@ -668,6 +669,28 @@ router.post(
         logoNote = 'No logo found on that page.';
       }
 
+      // The hero photograph, same treatment: downloaded here so that what the
+      // customer approves is the image itself, with its own outcome so a failure
+      // costs the photo rather than the whole draft.
+      let background = null;
+      let backgroundNote = 'No background photo found on that page.';
+
+      if (parsed.backgroundUrl) {
+        const photo = await assets.fetchImage(parsed.backgroundUrl, {
+          maxBytes: assets.MAX_BACKGROUND_BYTES,
+        });
+        if (photo.ok) {
+          background = {
+            type: photo.type,
+            dataUri: photo.dataUri,
+            source: parsed.backgroundUrl.slice(0, 300),
+          };
+          backgroundNote = `Took a background photo (${Math.round(photo.bytes / 1024)}kB ${photo.type.replace('image/', '')}).`;
+        } else {
+          backgroundNote = `No background: ${photo.error}`;
+        }
+      }
+
       // Checked here rather than left to Save. A palette that cannot be stored
       // should not be put in front of someone as though it can.
       const verdict = theme.validate(parsed.theme);
@@ -704,7 +727,9 @@ router.post(
         }
       }
 
-      const derived = theme.derive(verdict.theme, fonts);
+      const derived = theme.derive(verdict.theme, fonts, {
+        background: Boolean(background),
+      });
 
       res.json({
         theme: verdict.theme,
@@ -712,6 +737,11 @@ router.post(
         derived: derived.vars,
         adjusted: derived.adjusted,
         logoNote,
+        background,
+        backgroundNote,
+        // The scrim only exists when there is a photo behind it, so the preview
+        // has to be derived with the same flag the served stylesheet will use.
+        // Otherwise the dashboard would show the page without its wash.
         // Sent whole, because Save has to send them back — they are stored
         // fields, not something the dashboard can re-derive.
         fonts: {
@@ -748,7 +778,13 @@ router.post(
     // A cleared theme previews as the shipped palette, which is what clearing it
     // gets you.
     const palette = verdict.theme || theme.DEFAULT_THEME;
-    const derived = theme.derive(palette);
+    // The dashboard says whether a photograph is in play, because the scrim only
+    // exists when one is — and a preview without it would be a preview of a page
+    // nobody gets. It sends the flag rather than the image: this route derives,
+    // it does not store, and the bytes are already on the other side.
+    const derived = theme.derive(palette, {}, {
+      background: Boolean(req.body?.background),
+    });
 
     res.json({ theme: palette, derived: derived.vars, adjusted: derived.adjusted });
   }

@@ -115,6 +115,7 @@ const OBJECTS = {
   theme: 'theme',
   fontDisplay: 'font_display',
   fontUi: 'font_ui',
+  background: 'background',
 };
 
 /** A row's own stored settings, in the shape settings.js works with. */

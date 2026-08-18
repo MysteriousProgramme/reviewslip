@@ -443,7 +443,8 @@ Return a single JSON object of this shape:
   "highlight": { "hex": "#e9a03b", "source": "the Book Now button" },
   "display": { "id": "lora", "family": "Canela", "url": "https://example.com/fonts/canela.woff2", "source": "headings are set in Canela" },
   "ui": { "id": "inter", "family": "Founders Grotesk", "url": "https://example.com/fonts/founders.woff2", "source": "body text is set in Founders Grotesk" },
-  "logo": { "url": "https://example.com/logo.svg", "source": "the mark in the header, linking home" }
+  "logo": { "url": "https://example.com/logo.svg", "source": "the mark in the header, linking home" },
+  "background": { "url": "https://example.com/hero.jpg", "source": "the full-width photo behind the front-page headline" }
 }
 
 What each one is for:
@@ -487,6 +488,13 @@ Logo. Give the absolute https URL of the business's own mark:
 - Prefer an SVG, then a PNG. Prefer the version on a transparent or light background.
 - Resolve it to a full URL including the scheme and host. A path like /img/logo.svg is not usable.
 - If you cannot find a real logo, set "logo" to null. Do not offer a photo of the building instead.
+
+Background. Give the absolute https URL of one photograph from the site, to sit behind the review page:
+- The hero or banner image — the big one at the top of the front page. Failing that, the most representative photograph of the place itself.
+- The place, not the people: a room, the frontage, the grounds, the counter. Not a portrait of staff or customers, not a stock photo of something generic, not a screenshot, not a diagram, not a logo again.
+- Prefer a wide one over a tall one, and a large one over a thumbnail — it is displayed full-bleed. It will be heavily dimmed and read as texture rather than as a picture, so a busy image is fine but a dark or simple one works best.
+- Resolve it to a full URL including scheme and host, and give the actual image file, not the page it appears on.
+- If the site has no real photograph of itself, set "background" to null. A page with no photo is better than a page behind a stock image of somebody else's building.
 
 Output only the JSON object. Nothing before it, nothing after it.`;
 }
@@ -555,7 +563,13 @@ function parseTheme(raw) {
   const logoUrl = text(unwrap(data.logo, 'url'), 2000);
   sources.logo = text(typeof data.logo === 'string' ? '' : data.logo?.source, 120);
 
-  return { theme, sources, logoUrl, files };
+  const backgroundUrl = text(unwrap(data.background, 'url'), 2000);
+  sources.background = text(
+    typeof data.background === 'string' ? '' : data.background?.source,
+    120
+  );
+
+  return { theme, sources, logoUrl, backgroundUrl, files };
 }
 
 module.exports = {

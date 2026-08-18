@@ -21,6 +21,13 @@ const net = require('net');
  */
 
 const MAX_BYTES = 120 * 1024;
+
+/**
+ * A background photograph is allowed to be bigger than a logo, because it is a
+ * photograph. Still capped hard: it is downloaded to a guest's phone, often on
+ * mobile data, before the page is any use to them.
+ */
+const MAX_BACKGROUND_BYTES = 500 * 1024;
 const TIMEOUT_MS = 8000;
 const MAX_REDIRECTS = 3;
 
@@ -131,7 +138,7 @@ function parseUrl(raw) {
  * @returns {Promise<{ok: true, dataUri: string, bytes: number, type: string}
  *   |{ok: false, error: string}>}
  */
-async function fetchImage(raw) {
+async function fetchImage(raw, { maxBytes = MAX_BYTES } = {}) {
   let target = parseUrl(raw);
   if (!target.ok) return target;
 
@@ -189,13 +196,13 @@ async function fetchImage(raw) {
     // Checked before reading where the server declares it, and again after, in
     // case it lied or did not say.
     const declared = Number(response.headers.get('content-length'));
-    if (Number.isFinite(declared) && declared > MAX_BYTES) {
-      return { ok: false, error: `That image is over ${MAX_BYTES / 1024}kB.` };
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      return { ok: false, error: `That image is over ${Math.round(maxBytes / 1024)}kB.` };
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.length > MAX_BYTES) {
-      return { ok: false, error: `That image is over ${MAX_BYTES / 1024}kB.` };
+    if (buffer.length > maxBytes) {
+      return { ok: false, error: `That image is over ${Math.round(maxBytes / 1024)}kB.` };
     }
     if (!buffer.length) {
       return { ok: false, error: 'That image address returned nothing.' };
@@ -367,12 +374,12 @@ async function fetchFont(raw) {
 /** A stored logo, for validation on the way back in. */
 const DATA_URI_RE = /^data:(image\/(?:png|jpeg|webp|gif|svg\+xml));base64,[A-Za-z0-9+/]+=*$/;
 
-function isStoredImage(value) {
+function isStoredImage(value, maxBytes = MAX_BYTES) {
   return (
     typeof value === 'string' &&
     DATA_URI_RE.test(value) &&
     // Base64 is about a third larger than the bytes it encodes.
-    value.length <= Math.ceil((MAX_BYTES * 4) / 3) + 64
+    value.length <= Math.ceil((maxBytes * 4) / 3) + 64
   );
 }
 
@@ -401,6 +408,7 @@ function isStoredFont(value) {
 
 module.exports = {
   MAX_BYTES,
+  MAX_BACKGROUND_BYTES,
   MAX_FONT_BYTES,
   TYPES,
   FONT_FORMATS,
