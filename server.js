@@ -356,8 +356,8 @@ app.post('/api/review', requireTenant, async (req, res) => {
   // does not, which the likes cannot express. Caught rather than awaited into the
   // happy path only: a review must still be written if either lookup fails.
   const [examples, rejected] = await Promise.all([
-    events.liked(req.subscriber.id, 3).catch(() => []),
-    events.disliked(req.subscriber.id, 3).catch(() => []),
+    events.topRated(req.subscriber.id, 5).catch(() => []),
+    events.poorlyRated(req.subscriber.id, 3).catch(() => []),
   ]);
 
   // The one sample is split rather than drawn twice, because the two halves are
@@ -440,6 +440,10 @@ app.post('/api/review', requireTenant, async (req, res) => {
       model,
       usage: data?.usage,
       reviewText: review,
+      // Kept so the dashboard can say what the writer was working from when it
+      // produced this one, which is most of what makes a rating actionable.
+      language,
+      length,
     });
 
     // `left` alone cannot be shown as a fraction, and "3 left" reads as a
@@ -471,9 +475,13 @@ app.post('/api/review', requireTenant, async (req, res) => {
  * throttle above covers volume.
  */
 app.post('/api/feedback', requireTenant, async (req, res) => {
-  const { reviewId, liked } = req.body || {};
+  const { reviewId, rating } = req.body || {};
+  const stars = rating === null ? null : Number(rating);
 
-  if (!Number.isInteger(reviewId) || typeof liked !== 'boolean') {
+  if (
+    !Number.isInteger(reviewId) ||
+    (stars !== null && !(Number.isInteger(stars) && stars >= 1 && stars <= 5))
+  ) {
     return res.status(400).json({ error: 'Bad request.' });
   }
 
@@ -487,7 +495,7 @@ app.post('/api/feedback', requireTenant, async (req, res) => {
     const saved = await events.setFeedback({
       subscriberId: req.subscriber.id,
       id: reviewId,
-      liked,
+      rating: stars,
     });
     if (!saved) return res.status(404).json({ error: 'No such review.' });
     res.status(204).end();

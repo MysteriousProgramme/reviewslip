@@ -214,13 +214,24 @@ rather than in a training run. The writing prompt carries, in this order:
 
 1. **A realism sample** — reviews already written for this business, framed as
    *how a real one reads here*: their length, their level of detail, how much
-   they leave out. Skipped once the owner has approved anything, because an
-   approved review is a better example than an unrated one.
-2. **The approved ones** — match their tone and length, not their wording.
-3. **The rejected ones** — what this business does not want said about it, which
-   the approved ones cannot express.
+   they leave out. Skipped once the owner has rated anything five stars, because
+   a five-star review is a better example than an unrated one.
+2. **The five-star ones** — match their tone and length, not their wording. Five
+   and only five: four means "nearly", and a business rating honestly will have
+   far more fours than fives, so feeding those back would teach the writer to aim
+   at nearly-right. The bar is the top of the scale, which makes marking one a
+   decision rather than a shrug. Up to five of them, newest-rated first, since
+   each costs prompt tokens on every review from then on.
+3. **The one and two star ones** — what this business does not want said about
+   it, which the good ones cannot express. Worst first, unlike the examples: if
+   only three fit, they should be the three the owner disliked most rather than
+   the three they happened to rate most recently.
 4. **What to write away from** — make this clearly different in wording,
    structure and opening.
+
+Three and four stars are recorded and deliberately fed back neither way: they
+are the reviews that were merely fine, and teaching the writer to aim at fine is
+how everything ends up fine.
 
 The realism sample and the write-away-from list are disjoint slices of one random
 draw, not two draws: the same review in both would be an instruction to differ
@@ -504,7 +515,7 @@ superlative typed into the context box does not survive to the listing, that the
 realism block and the write-away-from block keep their separate framings.
 
 What it cannot tell you is whether the reviews are any *good*. That only comes
-from reading them, which is what the dashboard's thumbs are for — and what the
+from reading them, which is what the dashboard's star ratings are for — and what the
 realism sample feeds back into the next one.
 
 ## Where things live

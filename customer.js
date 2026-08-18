@@ -415,17 +415,24 @@ router.post(
   requireOwnVenue,
   async (req, res, next) => {
     try {
-      const { liked } = req.body || {};
+      const { rating } = req.body || {};
       const id = Number(req.params.id);
 
-      if (typeof liked !== 'boolean' || !Number.isInteger(id)) {
-        return res.status(400).json({ error: 'Bad request.' });
+      // null clears it — the way someone undoes a misclick. Everything else has
+      // to be a whole number of stars; a check constraint says the same thing in
+      // the database, because this is the value the prompt reads back.
+      const stars = rating === null ? null : Number(rating);
+      const usable =
+        stars === null || (Number.isInteger(stars) && stars >= 1 && stars <= 5);
+
+      if (!usable || !Number.isInteger(id)) {
+        return res.status(400).json({ error: 'A rating is one to five stars.' });
       }
 
       const saved = await events.setFeedback({
         subscriberId: req.venue.id,
         id,
-        liked,
+        rating: stars,
       });
       if (!saved) return res.status(404).json({ error: 'No such review.' });
 

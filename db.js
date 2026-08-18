@@ -308,6 +308,43 @@ const MIGRATIONS = [
     await c.query('ALTER TABLE subscribers ADD COLUMN font_display text');
     await c.query('ALTER TABLE subscribers ADD COLUMN font_ui text');
   },
+
+  async (c) => {
+    // Stars instead of thumbs. A thumb answers "was this any good" with one bit,
+    // which is enough to sort by and not enough to learn from: the four-star
+    // review that only needed a word changing was indistinguishable from the
+    // one that was simply fine, and both were fed back as equally good.
+    await c.query('ALTER TABLE review_events ADD COLUMN rating smallint');
+    await c.query(`
+      ALTER TABLE review_events
+        ADD CONSTRAINT review_events_rating_range
+        CHECK (rating IS NULL OR (rating BETWEEN 1 AND 5))
+    `);
+
+    // Thumbs up becomes five, since that is what an owner meant by it: use this
+    // one. Thumbs down becomes two rather than one — it was "not this", not "the
+    // worst thing I have seen", and one should stay available for the reviews an
+    // owner actively wants recorded as bad.
+    await c.query('UPDATE review_events SET rating = 5 WHERE liked = true');
+    await c.query('UPDATE review_events SET rating = 2 WHERE liked = false');
+
+    // `liked` is deliberately left in place. Nothing reads it after this, but a
+    // rollback to the previous release needs it to still hold the old answers,
+    // and a column of stale booleans costs nothing. Drop it once this has been
+    // out long enough that going back is not a plan.
+
+    await c.query(`
+      CREATE INDEX review_events_rating
+        ON review_events (subscriber_id, rated_at DESC)
+        WHERE rating IS NOT NULL
+    `);
+
+    // What the writer was working from, per review, so the dashboard can say why
+    // a review came out the way it did. The topics were already stored as
+    // category_id; these are the other two knobs the guest actually turns.
+    await c.query('ALTER TABLE review_events ADD COLUMN language text');
+    await c.query('ALTER TABLE review_events ADD COLUMN length text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

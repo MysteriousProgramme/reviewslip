@@ -21,13 +21,21 @@ function int(value) {
  * because the meter could not be written — the count being one short is the
  * lesser problem, and it is logged.
  */
-async function record({ subscriberId, categoryId, model, usage, reviewText }) {
+async function record({
+  subscriberId,
+  categoryId,
+  model,
+  usage,
+  reviewText,
+  language,
+  length,
+}) {
   try {
     const row = await one(
       `INSERT INTO review_events
          (subscriber_id, category_id, model, prompt_tokens, completion_tokens,
-          total_tokens, review_text)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+          total_tokens, review_text, language, length)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id`,
       [
         subscriberId,
@@ -37,6 +45,8 @@ async function record({ subscriberId, categoryId, model, usage, reviewText }) {
         int(usage?.completion_tokens),
         int(usage?.total_tokens),
         typeof reviewText === 'string' ? reviewText.slice(0, 2000) : null,
+        language || null,
+        length || null,
       ]
     );
     return row?.id ?? null;
@@ -55,12 +65,17 @@ async function record({ subscriberId, categoryId, model, usage, reviewText }) {
  *
  * @returns {Promise<boolean>} whether a row was actually rated
  */
-async function setFeedback({ subscriberId, id, liked }) {
+async function setFeedback({ subscriberId, id, rating }) {
+  // null clears the rating, which is how someone undoes a misclick. Anything
+  // outside one to five is refused by the caller before it reaches here, and by
+  // a check constraint after, so a bad number cannot quietly become a star.
+  const stars = rating === null ? null : Number(rating);
+
   const result = await query(
     `UPDATE review_events
-        SET liked = $1, rated_at = now()
+        SET rating = $1, rated_at = CASE WHEN $1::smallint IS NULL THEN NULL ELSE now() END
       WHERE id = $2 AND subscriber_id = $3`,
-    [Boolean(liked), Number(id), subscriberId]
+    [stars, Number(id), subscriberId]
   );
   return result.rowCount > 0;
 }
@@ -75,7 +90,8 @@ async function setFeedback({ subscriberId, id, liked }) {
  */
 async function recent(subscriberId, limit = 20) {
   return all(
-    `SELECT id, review_text, category_id, liked, rated_at, created_at
+    `SELECT id, review_text, category_id, rating, rated_at, created_at,
+              language, length
        FROM review_events
       WHERE subscriber_id = $1 AND review_text IS NOT NULL
       ORDER BY created_at DESC
@@ -87,9 +103,10 @@ async function recent(subscriberId, limit = 20) {
 /** The rated reviews, newest first — for a filtered view of the same list. */
 async function rated(subscriberId, limit = 50) {
   return all(
-    `SELECT id, review_text, category_id, liked, rated_at, created_at
+    `SELECT id, review_text, category_id, rating, rated_at, created_at,
+              language, length
        FROM review_events
-      WHERE subscriber_id = $1 AND liked IS NOT NULL
+      WHERE subscriber_id = $1 AND rating IS NOT NULL
       ORDER BY rated_at DESC
       LIMIT $2`,
     [subscriberId, Math.min(Number(limit) || 50, 200)]
@@ -97,17 +114,26 @@ async function rated(subscriberId, limit = 50) {
 }
 
 /**
- * Liked reviews, for feeding back into the prompt as examples.
+ * Five-star reviews, which the writer is shown on every generation from then on.
  *
  * This is what "AI training" actually means at this scale: a handful of approved
  * samples in the prompt, per business. Fine-tuning needs orders of magnitude
  * more rated data than any one business will produce.
+ *
+ * Five and only five stars. Four means "nearly", and a business that rates
+ * honestly will have far more fours than fives — feeding those back would teach
+ * the writer to aim at nearly-right. The bar is deliberately the top of the
+ * scale, so marking one is a decision rather than a shrug.
+ *
+ * Ordered newest-rated first and capped, because every one of these costs
+ * prompt tokens on every review. A business with forty five-star reviews gets
+ * its most recent handful, not all forty.
  */
-async function liked(subscriberId, limit = 5) {
+async function topRated(subscriberId, limit = 5) {
   const rows = await all(
     `SELECT review_text
        FROM review_events
-      WHERE subscriber_id = $1 AND liked = true AND review_text IS NOT NULL
+      WHERE subscriber_id = $1 AND rating = 5 AND review_text IS NOT NULL
       ORDER BY rated_at DESC
       LIMIT $2`,
     [subscriberId, Math.min(Number(limit) || 5, 20)]
@@ -116,17 +142,21 @@ async function liked(subscriberId, limit = 5) {
 }
 
 /**
- * What the owner turned down, as things to avoid.
+ * One and two star reviews, as things to write away from.
  *
  * A rejected review is at least as informative as an approved one — it says what
- * this business does not want said about it — and nothing was reading them.
+ * this business does not want said about it.
+ *
+ * Worst first, unlike the examples above: if only three fit, they should be the
+ * three the owner disliked most rather than the three they happened to rate most
+ * recently.
  */
-async function disliked(subscriberId, limit = 3) {
+async function poorlyRated(subscriberId, limit = 3) {
   const rows = await all(
     `SELECT review_text
        FROM review_events
-      WHERE subscriber_id = $1 AND liked = false AND review_text IS NOT NULL
-      ORDER BY rated_at DESC
+      WHERE subscriber_id = $1 AND rating <= 2 AND review_text IS NOT NULL
+      ORDER BY rating ASC, rated_at DESC
       LIMIT $2`,
     [subscriberId, Math.min(Number(limit) || 3, 10)]
   );
@@ -250,8 +280,8 @@ module.exports = {
   recent,
   setFeedback,
   rated,
-  liked,
-  disliked,
+  topRated,
+  poorlyRated,
   spread,
   usageThisMonth,
   usageThisMonthFor,
