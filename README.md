@@ -10,7 +10,7 @@ website.
 
 Nothing in the app describes a particular kind of business. It is sold to
 whoever wants it — a lodge, a dental clinic, a garage — so what the writer knows
-comes in two layers: [context.js](context.js) holds the craft, the same for
+comes in two documents: [context.md](context.md) holds the craft, the same for
 everyone, and each venue's own row holds who it is. See
 [What the writer knows](#what-the-writer-knows).
 
@@ -133,26 +133,38 @@ settings routes for fifteen minutes. Guests are unaffected — only the panel.
 
 ## What the writer knows
 
-Two layers, on purpose, because they have different lifetimes.
+Two documents, and the split is the whole design.
 
-**The generic context document**, [context.js](context.js), is the same for every
-business on the platform. It opens with the rules that get a customer or a
-business into trouble if broken — see [Compliance](#compliance) — and then turns
-to craft: what a real review reads like
-(short, uneven, one or two specific things, slightly imperfect, no marketing
-vocabulary), and what a *page* of manufactured ones reads like — the repeated
-opening formula, the uniform length, the recurring adjectives, the closing
-"Highly recommend!". That second half is the one that matters, because every
-review this writer produces lands on the same listing, and those tells are
-invisible in one review and obvious across twenty. It is the authenticity section
-of our own published guide, turned into instructions.
+**[context.md](context.md) — the generic one.** Markdown, in the repo, loaded
+once at boot and folded into **every** review request for **every** business on
+the platform. It is the part every customer's context has in common: what a
+real review reads like, what a page of manufactured ones reads like, the
+register to write in, and the compliance rules that keep a customer and a
+business out of trouble. It names no kind of business anywhere.
 
-It is a git-tracked file rather than a database row deliberately: a bad edit here
-degrades every review on the platform at once, so it gets reviewed and deployed
-like the code it is. It goes into every generation, so it earns its length or it
-comes out. It names no kind of business anywhere.
+**The business's own context** — one row each, edited in the dashboard, added
+after the generic one. Who they are, their topics, the details a review may
+claim, and their own About text.
 
-**The business's own context**, one row each, is where the specifics live:
+They are separate because they have different lifetimes. `context.md` is
+reviewed, versioned and deployed like code, because a bad edit there degrades
+every review on the platform at once. A business's own context is edited by its
+owner and can only affect them.
+
+`context.md` is prose in a markdown file rather than string literals in
+`context.js` for the same reason: it is read by a model, not parsed as
+configuration, so it should be editable by someone who is not going to open a
+`.js` file — and its diffs should show the argument changing rather than a
+string literal changing. `context.js` reads it, finds the four `##` sections by
+name, and **refuses to start if one is missing**. An app that will not boot is a
+far better outcome than reviews quietly shipping with no compliance rules in
+them.
+
+Every business can see both halves assembled: **Download context.md** on the
+General tab of its settings gives the real system prompt exactly as sent, its
+topics, and the reviews its ratings are currently feeding back.
+
+Those specifics are:
 
 | Field | What it is |
 | --- | --- |
@@ -172,7 +184,7 @@ whatever the framing says.
 
 ### Compliance
 
-The first section of [context.js](context.js) mirrors the guide we publish at
+The first section of [context.md](context.md) mirrors the guide we publish at
 <https://reviewslip.com/faq>, which is generated from
 `lib/i18n/dictionaries/*.ts` in the website repo. **That guide is the source of
 truth — when it changes, `COMPLIANCE` changes with it.** A test asserts every
@@ -749,7 +761,8 @@ verified. A failed or skipped run then alerts by *not* arriving.
 
 | File | What it holds |
 | --- | --- |
-| `context.js` | The generic context document: the craft, the same for every business. |
+| `context.md` | The generic context document — the prose every review is written from. |
+| `context.js` | Loads it, checks its sections are all there, and refuses to start if not. |
 | `theme.js` | Four colours to a palette, with every text pair held to a contrast ratio, plus the typeface allowlist. |
 | `assets.js` | Downloading a logo or a font from an address a third party controls, safely. |
 | `config.js` | The writing prompt — how the generic document, the business, the topics, the length and the prior reviews are assembled into two messages. |
@@ -790,7 +803,7 @@ verified. A failed or skipped run then alerts by *not* arriving.
   today — only the per-address hourly cap is — so nothing breaks, but the
   dashboard's token meter will read over 100% for a busy venue and the OpenRouter
   bill is roughly three times what it was. Raising
-  `TOKENS_PER_MONTH_PER_VENUE` is one lever; trimming `context.js` is the other.
+  `TOKENS_PER_MONTH_PER_VENUE` is one lever; trimming `context.md` is the other.
 - Clipboard access needs a secure context. On `localhost` that's fine; when you
   put this on a phone-facing URL, serve it over HTTPS or Copy falls back to a
   less reliable path.

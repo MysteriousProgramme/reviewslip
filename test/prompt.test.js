@@ -16,6 +16,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const context = require('../context');
 const config = require('../config');
@@ -75,6 +78,51 @@ test('the compliance rules name the things that are actually banned', () => {
   ]) {
     assert.match(all, new RegExp(banned));
   }
+});
+
+test('the generic context is context.md, and every section of it', () => {
+  // The words live in a markdown file so they can be edited as prose. This is
+  // what stops that being a way to lose one: the document's whole body is what
+  // goes into the prompt, and each named section has to be inside it.
+  const doc = fs.readFileSync(path.join(__dirname, '..', 'context.md'), 'utf8');
+  const body = doc.replace(/^<!--[\s\S]*?-->\s*/, '').trim();
+
+  assert.equal(context.GENERIC_CONTEXT, body);
+
+  for (const section of [context.COMPLIANCE, context.CRAFT, context.TELLS, context.REGISTER]) {
+    assert.ok(context.GENERIC_CONTEXT.includes(section));
+  }
+
+  // The note to whoever edits the file is for them, not for the model.
+  assert.doesNotMatch(context.GENERIC_CONTEXT, /context\.js/);
+  assert.match(doc, /^<!--/);
+});
+
+test('a context.md missing a section refuses to load', () => {
+  // The alternative is a prompt that quietly ships with no compliance rules in
+  // it, which is the one failure this whole file exists to prevent. Better to
+  // not start: systemd restarts on failure, so a bad edit fails at deploy
+  // rather than at three in the morning.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-'));
+  const copy = path.join(dir, 'context.js');
+
+  fs.copyFileSync(path.join(__dirname, '..', 'context.js'), copy);
+  // A template literal, so the fixture needs no escapes and reads as the
+  // document it stands in for.
+  fs.writeFileSync(
+    path.join(dir, 'context.md'),
+    `## Register
+
+Something.
+`
+  );
+
+  assert.throws(() => require(copy), /missing the "## Rules you must not break"/);
+
+  // And a document that is not there at all.
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'ctx-'));
+  fs.copyFileSync(path.join(__dirname, '..', 'context.js'), path.join(bare, 'context.js'));
+  assert.throws(() => require(path.join(bare, 'context.js')), /Could not read/);
 });
 
 test('the generic context carries both halves of the craft', () => {

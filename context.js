@@ -1,104 +1,109 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 /**
  * The generic context document: what the writer knows before it knows anything
  * about the business it is writing for.
  *
+ * The words themselves live in context.md, next door. They are prose a model
+ * reads, not configuration, and keeping them in a markdown file means they can
+ * be read and edited as prose — by someone who is not going to open a .js file
+ * to do it, and in a diff that shows the argument changing rather than a string
+ * literal changing.
+ *
  * This is a commercial product sold to whoever wants it — a lodge, a dental
- * clinic, a garage — so nothing in this file may describe a particular kind of
- * business. Everything here is craft: what a real review reads like, and what a
+ * clinic, a garage — so nothing in that file may describe a particular kind of
+ * business. Everything in it is craft: what a real review reads like, and what a
  * page of manufactured ones reads like. The business-specific half arrives
  * separately, from that business's own row: its details, its topics, and its own
- * context document.
+ * About text.
  *
  * The split matters because these two kinds of knowledge have different
- * lifetimes. This file is reviewed, versioned and deployed like code, because a
- * bad edit here degrades every review on the platform at once. A business's own
+ * lifetimes. context.md is reviewed, versioned and deployed like code, because a
+ * bad edit there degrades every review on the platform at once. A business's own
  * context is edited by its owner, in the dashboard, and can only affect them.
  *
  * It is folded into the system prompt on every single generation, which the
  * business pays for by the token. So it earns its length or it comes out.
  */
 
-/**
- * The rules that get a customer or a business in trouble if broken.
- *
- * These mirror the compliance guide we publish at https://reviewslip.com/faq —
- * generated from `lib/i18n/dictionaries/*.ts` in the website repo, which is the
- * source of truth. **If that guide changes, this changes with it.** A test
- * asserts every one of these reaches the prompt, so the check is mechanical
- * rather than a habit someone has to remember.
- *
- * Most of the published guide is not here, and deliberately. It is largely
- * advice to the owner — where the QR code goes, not asking only the happy ones,
- * not letting everyone post from the venue WiFi, not emailing the whole list at
- * once. None of that is something the writer can obey or disobey, and pouring it
- * into every prompt would dilute the part that is. What is here is the subset
- * that constrains the review *text*: the ways a sentence can itself be the
- * violation.
- *
- * First in the document, ahead of the craft, because these are limits rather
- * than technique — the craft is how to write well inside them.
- */
-const COMPLIANCE = `Rules you must not break
-
-A real customer will post this publicly, under their own name, on a listing the platforms and the regulators both police. Breaking any of these puts that person and the business at genuine risk: reviews filtered or pulled months later, a consumer alert on the listing, suspension, or penalties assessed per fake review.
-
-- You are drafting words for a real customer to edit and post themselves. Write nothing they would have to walk back — keep what you say to what the topic and the details below actually support, and understate rather than overstate.
-- Never state or imply anything they did not experience. An invented specific is a fabricated review, whatever else is true around it.
-- Never mention a discount, free item, gift, prize or reward of any kind. Incentivised reviews are banned outright, and one that so much as mentions an incentive reads as bought.
-- Write as a customer and never as an insider. Nothing that hints at staff, family, a friend of the business, or anyone with a stake in it.
-- Never refer to the review being solicited: no being asked, invited, prompted or reminded, no QR code, no app, no "they asked me to leave a review". A solicited review that gives itself away is the undisclosed kind.
-- Never claim what the customer could not personally vouch for: awards, ratings, rankings, being the best anywhere, or a comparison against a named competitor.`;
+const DOC = path.join(__dirname, 'context.md');
 
 /**
- * What a real review is like.
+ * The headings context.md must contain, and what each is called here.
  *
- * Written as observations rather than instructions on purpose. "Be casual" is
- * an instruction a model satisfies by writing casual-sounding marketing copy;
- * "someone standing outside with their bag in one hand writes a line or two"
- * gives it a person to be instead.
+ * Looked up by name rather than by position, so reordering the document is
+ * harmless while renaming a heading is not — which is the right way round. A
+ * missing section means a prompt with no compliance rules in it, and that must
+ * never reach a guest.
  */
-const CRAFT = `What a real review is like
-
-- Most are short. Someone with their bag already in one hand writes a line or two, not a paragraph — and across a real listing the lengths are uneven, because the people were.
-- They name one or two specific things and stop. A tour of every aspect of the visit is how a business describes itself, not how a customer does.
-- They are about the writer's own experience, in the first person and the past tense. Not about the business as an institution, and never addressed to it.
-- They do not reach for the words a business uses about itself. Nobody who has just paid a bill says "nestled", "boasts", "state-of-the-art" or "a true gem".
-- They are slightly imperfect. A fragment, a contraction, a sentence starting with "and", a thought arriving a little out of order — all normal in real writing, all absent from copy written to be read.
-- They rarely explain themselves. "Rooms were clean and quiet" is a review. "The rooms were clean and quiet, which made for a restful stay" is an advertisement for one.`;
+const SECTIONS = {
+  COMPLIANCE: 'Rules you must not break',
+  CRAFT: 'What a real review is like',
+  TELLS: 'What makes a set of reviews look manufactured',
+  REGISTER: 'Register',
+};
 
 /**
- * What a page of them looks like when it was not written by customers.
+ * Reads context.md once, at require time.
  *
- * This half is the reason the generic document exists at all. Every one of these
- * tells is invisible inside a single review and obvious across a listing — and
- * every review this writer produces lands on the same listing, so it is the
- * failure mode the product actually has. The list is the authenticity section of
- * our own published guide, turned into instructions for the writer.
- */
-const TELLS = `What makes a set of reviews look manufactured
-
-These patterns are invisible in one review and obvious across a listing, and every review you write lands on the same listing as the last one. Avoid all of them:
-
-- A repeated opening formula. "I recently visited", "My stay at", "What a wonderful" — the same opening twice down one listing is the clearest tell there is.
-- Uniform length. Six reviews all of two tidy sentences did not come from six people.
-- A recurring vocabulary: the same two or three adjectives, the same intensifier, the same word for the staff.
-- The same features named in the same order, as if working down a list.
-- Stacked superlatives. "Amazing, incredible, the best we've ever had."
-- Praise so general it would fit any business of the kind. If swapping in a different name would leave it true, it says nothing.
-- A closing endorsement. "Highly recommend!", "Will definitely be back!", "A must-visit!" — common in written-to-order reviews, much rarer in real ones.`;
-
-/**
- * Register, in one paragraph.
+ * Once rather than per request: it is the same for every business and every
+ * generation, and re-reading it on the guest path would put a disk hit in front
+ * of every review to support an edit nobody makes without deploying. A change
+ * takes effect on restart, which is how it gets deployed anyway.
  *
- * The alternative was a table of business types, which would have been longer,
- * always incomplete, and wrong for the first business that did not fit a row.
- * Naming the axis and pointing at the business description does the same work.
+ * Throws rather than degrades. Every alternative is worse than not starting: an
+ * empty document would silently ship reviews with no compliance rules in them,
+ * and a partial one would ship them with some. systemd restarts on failure, so
+ * a broken edit fails visibly at deploy rather than invisibly at three in the
+ * morning.
  */
-const REGISTER = `Register
+function load() {
+  let raw;
+  try {
+    raw = fs.readFileSync(DOC, 'utf8');
+  } catch (err) {
+    throw new Error(
+      `Could not read ${DOC}: ${err.message}. The generic context document is ` +
+        'required — every review on the platform is written from it.'
+    );
+  }
 
-Write in the register that kind of business actually attracts. What a customer notices, and how much warmth is normal, is not the same everywhere: a clinic is judged on competence and on being put at ease, a restaurant on one dish and the room, a hotel on the bed and the staff, a trade on turning up and doing the job. Take the cue from the business described below and write the way its own customers write — not the way hospitality reviews sound.`;
+  // The HTML comment at the top is a note to whoever edits the file, not part
+  // of what the model is told.
+  const body = raw.replace(/^<!--[\s\S]*?-->\s*/, '').trim();
+
+  // Split on the headings so each section keeps its own, which is what goes
+  // into the prompt.
+  const found = {};
+  for (const part of body.split(/^## /m).filter(Boolean)) {
+    const nl = part.indexOf('\n');
+    const heading = part.slice(0, nl).trim();
+    found[heading] = `## ${heading}
+
+${part.slice(nl).trim()}`;
+  }
+
+  const out = {};
+  for (const [name, heading] of Object.entries(SECTIONS)) {
+    if (!found[heading]) {
+      throw new Error(
+        `${DOC} is missing the "## ${heading}" section. Every review is written ` +
+          'from this document; refusing to start without it.'
+      );
+    }
+    out[name] = found[heading];
+  }
+
+  // The file's whole body, not the four joined back together: what a reader
+  // sees is what the model gets, and anything added to the document reaches the
+  // prompt without also having to be added to a list in here.
+  return { ...out, ALL: body };
+}
+
+const { COMPLIANCE, CRAFT, TELLS, REGISTER, ALL } = load();
 
 /**
  * Where the review is going, when we can tell.
@@ -133,8 +138,16 @@ function platformNote(platformIds = []) {
   return PLATFORM_NOTES[platformIds[0]] || '';
 }
 
-/** The always-on document, in reading order: limits first, then technique. */
-const GENERIC_CONTEXT = [COMPLIANCE, CRAFT, TELLS, REGISTER].join('\n\n');
+/**
+ * The always-on document: context.md's own body, with the editor's note
+ * stripped off the top.
+ *
+ * The whole file rather than the four named sections joined back together, so
+ * that a section added to the document reaches the prompt without anyone
+ * having to remember to add it here as well. The names above exist for the
+ * tests and the rulebook; they do not decide what gets sent.
+ */
+const GENERIC_CONTEXT = ALL;
 
 /**
  * The compliance lines, as a list, so a test can assert each one survives into
