@@ -575,7 +575,9 @@ router.post(
           url: resolved.sourceUrl,
           max: settingsRules.MAX_TOPICS,
         }),
-        maxTokens: 3000,
+        // Fifty topics with a focus line each is a long answer; 3000 truncated
+        // it and the JSON came back unparseable.
+        maxTokens: 6000,
       });
       if (!answer.ok) {
         return res.status(answer.status).json({ error: answer.error });

@@ -333,6 +333,46 @@ test('a non-English language is asked for last and only for the review', () => {
 
 /* ------------------------------------------------------------ topic drafts */
 
+test('the topic prompt aims at the cap but licenses falling short', () => {
+  // Aiming at a number is the instruction a model answers with filler, and a
+  // padded topic produces a vague review. What keeps this honest is not the
+  // target but the two things either side of it: a deep well of topics that are
+  // true of every business by definition, and permission to land short.
+  const [system] = seed.buildTopicMessages({ url: 'https://x.example', max: 50 });
+
+  assert.match(system.content, /Aim for close to 50 topics/);
+  assert.match(system.content, /Falling short is fine\. Inventing is not\./);
+
+  // The third kind is the well. If it stops being listed, the number can only
+  // be reached by making things up.
+  for (const universal of ['the welcome', 'how long you waited', 'whether you would come back']) {
+    assert.ok(system.content.includes(universal), `the well lost "${universal}"`);
+  }
+
+  // And the ban on the ways a model would otherwise pad.
+  assert.match(system.content, /split one thing into three/);
+  assert.match(system.content, /never invent|not do to reach the number/i);
+});
+
+test('the topic cap is one number, in the prompt and in the store', () => {
+  // Two places said thirty and fifty at different times. The prompt's ceiling
+  // comes from settings.js so they cannot disagree again.
+  const [system] = seed.buildTopicMessages({
+    url: 'https://x.example',
+    max: settings.MAX_TOPICS,
+  });
+  assert.match(system.content, new RegExp(`At most ${settings.MAX_TOPICS} topics`));
+  assert.match(system.content, new RegExp(`Aim for close to ${settings.MAX_TOPICS}`));
+
+  // And the parser will not hand back more than the store would accept.
+  const many = Array.from({ length: 80 }, (_, i) => ({ label: `T ${i}`, focus: 'x' }));
+  const parsed = seed.parseTopics(JSON.stringify({ topics: many }), {
+    max: settings.MAX_TOPICS,
+  });
+  assert.equal(parsed.length, settings.MAX_TOPICS);
+  assert.ok(settings.validateCategories(parsed).ok);
+});
+
 test('drafted topics are accepted under either key the model reaches for', () => {
   const asTopics = seed.parseTopics('{"topics":[{"label":"Rooms","focus":"the room"}]}');
   const asCategories = seed.parseTopics(

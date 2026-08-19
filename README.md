@@ -325,10 +325,19 @@ in three:
 3. **Common to any visit** — the welcome, how you were treated, whether you
    would come back. These need no evidence and suit any business.
 
-That split is what makes a long list reachable without inventing a bar. The
-prompt leads with the first kind where a business has any, and is explicit that a
-name must be printed on the page — never invented, never guessed at from what a
-business of that kind usually offers.
+The prompt **aims for close to fifty** and works those three in order: exhaust
+the named things, then the specific ones, then the third kind until it is near
+the number.
+
+Aiming at a number is the instruction a model answers with filler, so the
+honesty does not come from the target — it comes from the two things either side
+of it. The third kind is a deep well, two dozen subjects that are true of every
+business by definition, so none of them can be an invention. And falling short
+is explicitly the right answer: *"If a business is genuinely small — a clinic
+with four treatments and one room — you will land well short, and that is the
+correct answer for that business. Falling short is fine. Inventing is not."*
+Splitting one thing into three, listing the same thing twice, and inventing a
+dish or a room the page does not show are each banned by name.
 
 A named topic changes what the writer may say. The writing prompt used to ban
 dish names outright, which would have made "The Pad Thai" a button the writer

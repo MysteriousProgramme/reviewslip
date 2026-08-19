@@ -184,16 +184,25 @@ function parseProposal(raw) {
  * suggestion above.
  *
  * The old suggestion proposed five buttons, all of which the guest saw. The page
- * now samples ten from a set of up to thirty, so the job changed: the model is
- * being asked for *breadth*, and breadth is exactly where a model pads. Two
- * things hold it back. It is told plainly that a short honest list is a correct
- * answer, and the subjects are split in two — things this business demonstrably
- * has, which need evidence on the page, and things every customer of any
- * business experiences, which do not.
+ * now samples ten from a set of up to fifty, so the job changed: the model is
+ * being asked for *breadth*, and breadth is exactly where a model pads.
  *
- * That split is what makes thirty reachable without inventing a bar. "The
- * welcome" is safe for a clinic and a campsite alike; "The rooftop terrace" has
- * to be on the page.
+ * It is asked to aim for close to the cap, which is the instruction models
+ * answer with filler — so the prompt spends most of its length on *how* to get
+ * there honestly rather than on the number. Three kinds, worked in order:
+ *
+ *   1. Named things the business is known for. A menu or a product range is
+ *      worth twenty on its own, and these are what customers want to talk
+ *      about. Every one has to be printed on the page.
+ *   2. Specific but unnamed — a room type, a space, a facility.
+ *   3. Common to any visit. This is the deep well and the reason the number is
+ *      reachable at all: two dozen of them are true of every business by
+ *      definition, so none can be an invention. The prompt lists them.
+ *
+ * Then the escape hatch, stated plainly, because it is the only thing standing
+ * between a target and a fabricated bar: a genuinely small business lands well
+ * short and that is the correct answer for it. Falling short is fine. Inventing
+ * is not.
  *
  * There is no "Any" catch-all any more. It was pinned first out of five, which
  * does not survive sampling — it would show up in two guests out of three — and
@@ -210,21 +219,25 @@ Return a single JSON object of this shape:
   ]
 }
 
-There are three kinds of topic, and a good set mixes them:
+There are three kinds of topic, and a full set uses all three:
 
-1. Named things this business is known for — a signature dish, a house speciality, a flagship product, a treatment or service it is identified with. Take the actual name off the page: "The Pad Thai", "The Sunday Roast", "The Oat Flat White", "The Handmade Frames". These are the topics customers most want to talk about, and they are the reason the list can be long: a menu or a product range gives you a real one per line.
-2. Specific to this business but not named — a room type, a space, a facility, somewhere nearby. A business with no bar does not get a bar topic.
-3. Common to any visit — how you were treated, the welcome, booking or arriving, how the place felt, whether you would come back, recommending it to someone. These need no evidence and are safe for any business.
+1. Named things this business is known for — a signature dish, a house speciality, a flagship product, a treatment or service it is identified with. Take the actual name off the page: "The Pad Thai", "The Sunday Roast", "The Oat Flat White", "The Handmade Frames". These are the topics customers most want to talk about. Take every one the page gives you: a menu or a product range is worth twenty or more on its own.
+2. Specific to this business but not named — a room type, a space, a facility, an area, somewhere nearby. A business with no bar does not get a bar topic.
+3. Common to any visit — true of every business by definition, so always safe and never invented. There are far more of these than people first think: the welcome, being greeted, how you were treated, booking, arriving, finding the place, parking, how long you waited, being looked after without being hovered over, how it felt to be there, how it looked, how clean it was, the quiet or the buzz, being remembered, being helped with something awkward, how easy it was to pay, leaving, whether you would come back, whether you would send a friend, the first visit, coming back again, going as a couple, going with family, going alone.
 
-Lead with the first kind where the business has any. A restaurant with a menu should produce a dozen or more named dishes before it reaches "The Service"; a clinic with four treatments produces four and then moves on. Only take a name that is actually printed on the page — never invent a dish, a product or a treatment, and never guess at one a business of this kind usually has.
+Aim for close to ${max} topics, and reach it in that order: exhaust the named things first, then the specific ones, then work down the third kind until you are near the number. The third kind is what gets you there — it is a deep well and every one of it is true.
+
+What you must not do to reach the number: invent a dish, a product, a treatment, a room or a facility the page does not show; split one thing into three; or list the same thing twice in different words. If a business is genuinely small — a clinic with four treatments and one room — you will land well short of ${max}, and that is the correct answer for that business. Falling short is fine. Inventing is not.
+
+Only take a name that is actually printed on the page. Never guess at one a business of this kind usually has.
 
 Rules:
-- At most ${max} topics. A short honest list is a correct answer. Do not pad, do not split one thing into three, and do not invent a second kind of room to make up the number. The ceiling is high because a menu or a product range genuinely fills it — not as a target to reach by other means.
+- At most ${max} topics.
 - Order them the way a customer would scan them: the most obvious and most specific first, the general ones last.
 - "label" is what a customer taps: one to three words, title case, no punctuation, no emoji.
 - "focus" tells the review writer what that review should be about, as a sentence fragment it can follow. No superlatives, no awards, no ratings, no numbers, no staff names.
 - A named thing from the first kind may of course appear in its own label and focus — that is the whole point of it. Describe it plainly, the way a customer would ("the pad thai", not "our legendary pad thai").
-- No two topics may be the same thing worded differently.
+- No two topics may be the same thing worded differently. Two dishes are two topics; "The Staff" and "The Service" are one.
 
 Output only the JSON object. Nothing before it, nothing after it.`;
 }
@@ -239,7 +252,7 @@ function buildTopicMessages({ url, max = 30 }) {
     { role: 'system', content: topicSystem(max) },
     {
       role: 'user',
-      content: `Read ${url} and propose the review topics. Fetch the page before answering — do not guess from the domain name. Follow the site's own links to what it offers if the front page is thin. If the page shows no evidence for something, leave it out rather than assuming a business of this kind usually has one.`,
+      content: `Read ${url} and propose the review topics. Fetch the page before answering — do not guess from the domain name. Follow the site's own links to the menu, the product range, the treatment list, the rooms: that is where most of the topics are, and the front page rarely has them. Work through what you find item by item rather than summarising it. If the page shows no evidence for something, leave it out rather than assuming a business of this kind usually has one.`,
     },
   ];
 }
