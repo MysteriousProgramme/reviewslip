@@ -796,10 +796,11 @@ verified. A failed or skipped run then alerts by *not* arriving.
   genres. With two or more it stays neutral, because the guest picks the button
   after the review is already written.
 - **The generic context document costs tokens on every generation.** A bare
-  prompt went from roughly 315 tokens to 890, and one with a context document,
-  topics and the full realism and avoid samples reaches about 1,630. At the
-  1,500 reviews a month `plans.js` allows per business, that is 1.4M–2.5M tokens
-  against a stated allowance of 1M. Neither limit is enforced on the review path
+  prompt went from roughly 315 tokens to about 1,720 once the Terms and Privacy
+  clauses were folded in, and one carrying a business's own context, topics and
+  the full realism and avoid samples goes past 2,400. At the 1,500 reviews a
+  month `plans.js` allows per business, that is 3M–3.7M tokens against a stated
+  allowance of 1M. Neither limit is enforced on the review path
   today — only the per-address hourly cap is — so nothing breaks, but the
   dashboard's token meter will read over 100% for a busy venue and the OpenRouter
   bill is roughly three times what it was. Raising

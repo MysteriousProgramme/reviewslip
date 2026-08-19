@@ -70,13 +70,41 @@ test('the compliance rules name the things that are actually banned', () => {
   // Each of these maps to a question on the published guide. A rule quietly
   // reworded out of existence should fail here, not in front of a regulator.
   for (const banned of [
-    'incentivised', // "Can I offer a discount or a free item for a review?"
-    'insider', // "Can staff, friends or family leave reviews?"
+    'incentivised', // FAQ: "Can I offer a discount or a free item for a review?"
+    'insider', // FAQ: "Can staff, friends or family leave reviews?"
     'solicited', // undisclosed solicitation
-    'fabricated', // "What do these rules actually ban?"
+    'fabricated', // FAQ: "What do these rules actually ban?"
     'awards',
+    'defamatory', // Terms 5: unlawful, fraudulent, deceptive or abusive
+    'identifiable person', // Privacy 2B: nobody else ends up in the review
+    'competitor', // Terms 5: only the business named
   ]) {
     assert.match(all, new RegExp(banned));
+  }
+});
+
+test('the rules cite the documents they come from', () => {
+  // These are not house style — each is something we have published, and a
+  // review that breaks one puts the customer who posted it in the wrong. If a
+  // rule stops being traceable to its source, that is worth failing over.
+  for (const clause of ['Terms 5', 'Terms 7', 'Privacy 2B']) {
+    assert.ok(
+      context.COMPLIANCE.includes(clause),
+      `no rule cites ${clause} any more`
+    );
+  }
+
+  // And the documents themselves are named, so the prompt can be audited
+  // against them without anyone having to know where they live.
+  for (const url of [
+    'https://reviewslip.com/faq',
+    'https://reviewslip.com/legal/terms',
+    'https://reviewslip.com/legal/privacy',
+  ]) {
+    assert.ok(
+      context.GENERIC_CONTEXT.includes(url),
+      `${url} is no longer cited in context.md`
+    );
   }
 });
 
