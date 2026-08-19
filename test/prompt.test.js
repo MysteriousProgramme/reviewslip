@@ -333,6 +333,50 @@ test('a non-English language is asked for last and only for the review', () => {
 
 /* ------------------------------------------------------------ topic drafts */
 
+test('a drafting prompt works from pasted text when there is no page', () => {
+  // A great many small businesses are a Facebook page and nothing else, and
+  // Facebook serves a sign-in wall to anything without a session — so falling
+  // back to their listing URL reads well and returns nothing. Pasted text is
+  // the path that always works.
+  const pasted = 'Corner cafe on Bridge Street. Menu: Pad Thai, Green Curry.';
+
+  for (const build of [
+    () => seed.buildSeedMessages({ text: pasted }),
+    () => seed.buildTopicMessages({ text: pasted, max: 50 }),
+    () => seed.buildContextMessages({ text: pasted }),
+  ]) {
+    const [, user] = build();
+
+    assert.ok(user.content.includes(pasted), 'the text has to be in the prompt');
+    // Nothing to fetch, and the model has to be told so — otherwise it goes
+    // looking, finds nothing, and reports failure rather than using what it has.
+    assert.match(user.content, /There is no page to fetch/);
+    assert.doesNotMatch(user.content, /^Read /);
+    assert.doesNotMatch(user.content, /undefined/);
+  }
+});
+
+test('a URL still reads as a fetch, unchanged', () => {
+  const [, user] = seed.buildSeedMessages({ url: 'https://riverside.example' });
+
+  assert.match(user.content, /^Read https:\/\/riverside\.example and /);
+  assert.doesNotMatch(user.content, /There is no page to fetch/);
+});
+
+test('pasted text is stored, capped, and described', () => {
+  assert.equal(settings.resolve({ sourceText: 'A cafe.' }).sourceText, 'A cafe.');
+  assert.equal(settings.describe({ sourceText: 'A cafe.' }).sourceText.source, 'subscriber');
+  assert.equal(settings.describe({}).sourceText.value, '');
+
+  // Generous, because it is read once by a drafting call rather than sent on
+  // every review — but capped, because it is a text area on a form.
+  assert.ok(settings.validate({ sourceText: 'x'.repeat(settings.MAX_SOURCE_TEXT) }).ok);
+  assert.equal(
+    settings.validate({ sourceText: 'x'.repeat(settings.MAX_SOURCE_TEXT + 1) }).ok,
+    false
+  );
+});
+
 test('the topic prompt aims at the cap but licenses falling short', () => {
   // Aiming at a number is the instruction a model answers with filler, and a
   // padded topic produces a vague review. What keeps this honest is not the

@@ -562,6 +562,7 @@ app.post('/api/settings', requireTenant, requireSubscriber, async (req, res) => 
       place: patch.place,
       safeDetails: patch.safeDetails,
       contextDoc: patch.contextDoc,
+      sourceText: patch.sourceText,
     });
   } catch (err) {
     if (err?.expose && err.status) {

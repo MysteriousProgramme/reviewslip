@@ -355,6 +355,17 @@ const MIGRATIONS = [
     // every settings load, and half a megabyte of base64 does not belong in it.
     await c.query('ALTER TABLE subscribers ADD COLUMN background text');
   },
+
+  async (c) => {
+    // What the owner pasted about their business, when there is no page we can
+    // read. A great many small businesses are a Facebook page and nothing else,
+    // and Facebook serves a sign-in wall to anything without a session — so the
+    // fallback to their listing URL, while correct, usually comes back empty.
+    //
+    // Pasted text always works. It feeds the same drafting prompts a fetched
+    // page would, in place of the fetch.
+    await c.query('ALTER TABLE subscribers ADD COLUMN source_text text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

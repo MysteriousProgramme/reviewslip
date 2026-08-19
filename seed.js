@@ -71,14 +71,49 @@ Output only the JSON object. Nothing before it, nothing after it.`;
  * @param {object} args
  * @param {string} args.url - the business's website
  */
-function buildSeedMessages({ url }) {
+function buildSeedMessages({ url, text }) {
   return [
     { role: 'system', content: SEED_SYSTEM },
     {
       role: 'user',
-      content: `Read ${url} and extract the details. Fetch the page before answering — do not infer anything from the domain name alone. If a page section is marketing copy with no checkable facts in it, skip that section rather than rephrasing it.`,
+      content: opening(
+        { url, text },
+        'extract the details. Fetch the page before answering — do not infer anything from the domain name alone. If a page section is marketing copy with no checkable facts in it, skip that section rather than rephrasing it.',
+        'Extract the details from what the owner of this business has pasted below. Marketing copy with no checkable fact in it gets skipped rather than rephrased. The "source" for each detail is the sentence in this text it came from.'
+      ),
     },
   ];
+}
+
+/**
+ * How a drafting request opens, given whatever source we actually have.
+ *
+ * There are two: a page to fetch, or text the owner pasted. The second exists
+ * because a great many small businesses are a Facebook page and nothing else,
+ * and Facebook serves a sign-in wall to anything without a session — so
+ * "fall back to their Facebook URL" reads well and returns nothing. Pasted text
+ * always works.
+ *
+ * The instruction differs in more than the noun. A fetched page can be followed
+ * to a menu or an About page; pasted text is all there is, so the model is told
+ * so plainly — otherwise it goes looking, finds nothing, and reports failure
+ * rather than working with what it was given.
+ *
+ * @param {object} source - one of `{ url }` or `{ text }`
+ * @param {string} fetching - what to do with a page, appended after the URL
+ * @param {string} pasted - what to do with the text, before it
+ */
+function opening({ url, text }, fetching, pasted) {
+  if (text) {
+    return `${pasted}
+
+There is no page to fetch — this is everything you have, and it is enough. Work only from what is between the markers. Do not go looking for a website, and do not fill gaps with what a business of this kind usually has.
+
+----- what the owner pasted -----
+${text}
+----- end -----`;
+  }
+  return `Read ${url} and ${fetching}`;
 }
 
 /** @returns {string|undefined} the first banned word found, if any */
@@ -247,12 +282,16 @@ Output only the JSON object. Nothing before it, nothing after it.`;
  * @param {string} args.url - the business's website
  * @param {number} args.max - how many topics may be stored, from settings.js
  */
-function buildTopicMessages({ url, max = 30 }) {
+function buildTopicMessages({ url, text, max = 30 }) {
   return [
     { role: 'system', content: topicSystem(max) },
     {
       role: 'user',
-      content: `Read ${url} and propose the review topics. Fetch the page before answering — do not guess from the domain name. Follow the site's own links to the menu, the product range, the treatment list, the rooms: that is where most of the topics are, and the front page rarely has them. Work through what you find item by item rather than summarising it. If the page shows no evidence for something, leave it out rather than assuming a business of this kind usually has one.`,
+      content: opening(
+        { url, text },
+        `propose the review topics. Fetch the page before answering — do not guess from the domain name. Follow the site's own links to the menu, the product range, the treatment list, the rooms: that is where most of the topics are, and the front page rarely has them. Work through what you find item by item rather than summarising it. If the page shows no evidence for something, leave it out rather than assuming a business of this kind usually has one.`,
+        `Propose the review topics from what the owner of this business has pasted below. Every dish, product, treatment or room it names is a topic — work through them item by item. Then the third kind, which needs no evidence at all, until you are near the number.`
+      ),
     },
   ];
 }
@@ -347,7 +386,7 @@ Output only the JSON object. Nothing before it, nothing after it.`;
  * @param {string} args.url - the business's website
  * @param {string[]} [args.listings] - its review-platform links, if it set any
  */
-function buildContextMessages({ url, listings = [] }) {
+function buildContextMessages({ url, text, listings = [] }) {
   const also = listings.length
     ? ` Then look at ${listings.join(' and ')} — if you can see real customer reviews there, note how they read; if the page comes back without any, ignore it and say nothing about reviews.`
     : '';
@@ -356,7 +395,11 @@ function buildContextMessages({ url, listings = [] }) {
     { role: 'system', content: CONTEXT_SYSTEM },
     {
       role: 'user',
-      content: `Read ${url} and write the background note.${also} Fetch the pages before answering — do not infer anything from a domain name.`,
+      content: opening(
+        { url, text },
+        `write the background note.${also} Fetch the pages before answering — do not infer anything from a domain name.`,
+        'Write the background note from what the owner of this business has pasted below. It is likely shorter than a website, so lean on what it does tell you — who comes here and what they came for — rather than padding the rest.'
+      ),
     },
   ];
 }

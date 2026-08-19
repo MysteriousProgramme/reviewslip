@@ -253,6 +253,32 @@ only those leaves the model free to drift back onto last week's review.
 
 ## Reading the venue website
 
+### When there is no website
+
+A great many small businesses are a Facebook page and nothing else. The readers
+fall back through whatever is set — a website first, then Facebook, then any
+other listing — but **that fallback usually returns nothing**: Facebook serves a
+sign-in wall to anything without a session, so what comes back is the wall
+rather than the page. Falling back was correct and still failed.
+
+So there is a second kind of source. Under the website field is a box to
+**paste** what is on the Facebook page — the About text, the hours, the menu.
+Pasted text feeds the same drafting prompts a fetched page would, and it works
+every time. It is preferred over any listing URL and loses only to a real
+website, so somebody who has taken the trouble to paste their About page does
+not have us fetch the page instead and come back empty.
+
+The prompts differ in more than the noun. A fetched page can be followed to a
+menu or an About page; pasted text is all there is, so the model is told so
+plainly — otherwise it goes looking, finds nothing, and reports failure rather
+than working with what it was given.
+
+**The Theme tab is the exception.** Colours, typefaces, a logo and a photograph
+are properties of a rendered page, and there is nothing in a paragraph of prose
+to take them from. That reader says so rather than attempting it and failing.
+
+### From the site itself
+
 Settings takes the venue's own website address, and three buttons read it via
 OpenRouter's `web_fetch` server tool:
 
