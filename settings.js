@@ -478,11 +478,14 @@ function validateSafeDetails(value) {
  * way while the set behind it is deep enough that two guests an hour apart are
  * unlikely to be offered the same ten.
  *
- * Thirty is where the depth stops being free. A business generating topics from
+ * Fifty is where the depth stops being free. A business generating topics from
  * its own website runs out of things there is real evidence for somewhere around
- * there and starts padding, and padded topics produce vague reviews.
+ * there and starts padding, and padded topics produce vague reviews. What moved
+ * it up from thirty was signature products: a restaurant with a menu, or a shop
+ * with a range, has a genuine named thing per line, and those are the topics a
+ * customer most wants to talk about.
  */
-const MAX_TOPICS = 30;
+const MAX_TOPICS = 50;
 const MAX_LABEL = 40;
 const MAX_FOCUS = 200;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;

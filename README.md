@@ -287,13 +287,13 @@ say nothing rather than describe reviews it has not read.
 
 ## Topics
 
-The buttons a customer picks from are per venue, **thirty at most**, edited in
+The buttons a customer picks from are per venue, **fifty at most**, edited in
 the dashboard. Each one is a **label** — what the button says — and an optional
 **note** that steers what that review talks about. A blank note falls back to the
 label, which reads fine: "write one review about Rooms".
 
 The guest page shows **ten of them, drawn at random**, with the rest behind
-**Browse for more topics**. That is the reason the cap is thirty rather than
+**Browse for more topics**. That is the reason the cap is fifty rather than
 five. The old argument for five was about the *picker* — a departing guest past
 five is reading a menu — and sampling satisfies it while making the set behind it
 worth having: two customers an hour apart are offered different tens, so they
@@ -310,13 +310,32 @@ There is no "Any" catch-all any more. It used to be pinned first out of five,
 which does not survive sampling, and it was never needed: a customer who taps
 nothing already gets a review about the visit overall.
 
-Write them yourself, or press **Generate from website** and have up to thirty
+Write them yourself, or press **Generate from website** and have up to fifty
 drafted from the venue's own site. Breadth is where a model pads, so the prompt
 says plainly that a short honest list is a correct answer and splits the subjects
-in two: things this business demonstrably *has*, which need evidence on the page,
-and things every customer of any business experiences — the welcome, how you were
-treated, whether you would come back — which do not. That split is what makes
-thirty reachable without inventing a bar.
+in three:
+
+1. **Named things the business is known for** — a signature dish, a house
+   speciality, a flagship product, a treatment it is identified with. Taken by
+   name off the page: "The Pad Thai", "The Sunday Roast". These are the topics
+   customers most want to talk about, and they are the reason the cap is fifty
+   rather than thirty: a menu or a product range gives a real one per line.
+2. **Specific but unnamed** — a room type, a space, a facility, somewhere
+   nearby. A business with no bar does not get a bar topic.
+3. **Common to any visit** — the welcome, how you were treated, whether you
+   would come back. These need no evidence and suit any business.
+
+That split is what makes a long list reachable without inventing a bar. The
+prompt leads with the first kind where a business has any, and is explicit that a
+name must be printed on the page — never invented, never guessed at from what a
+business of that kind usually offers.
+
+A named topic changes what the writer may say. The writing prompt used to ban
+dish names outright, which would have made "The Pad Thai" a button the writer
+was forbidden to discuss; it now permits naming **the specific thing the topic
+names, and nothing else** — that name came off the business's own pages and the
+customer chose it, so it is not an invention. Everything else stays banned: no
+staff names, no prices, and no name the writer supplied itself.
 
 The note reaches the writing prompt, so it is screened on the way in: a note
 carrying a number or an unverifiable claim ("our award-winning bar") is dropped

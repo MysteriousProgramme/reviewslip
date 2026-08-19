@@ -190,7 +190,8 @@ function buildSystemPrompt(venue, { length = DEFAULT_LENGTH, platformIds = [] } 
 
 - ${LENGTH_RULES[length] || LENGTH_RULES[DEFAULT_LENGTH]} Casual, first person, past tense.
 - Always positive — this is a five-star review.
-- Do not invent facts: no staff names, no prices, no dish names, no room numbers, no dates, no claims about awards, amenities or facilities that are not in the list above.
+- Do not invent facts: no staff names, no prices, no room numbers, no dates, no claims about awards, amenities or facilities that are not in the list above.
+- You may name the specific thing the topic above names — a dish, a product, a treatment, a room type — because that came off the business's own pages and the customer chose it. Nothing else by name, and never a name you have supplied yourself. If the topic names nothing specific, name nothing.
 - No numbers of any kind. No emoji, no hashtags, no star ratings, no headings, no quotation marks around the review.
 - Do not address the reader or the business. Do not sign off.
 - Output only the review text. Nothing before it, nothing after it.${note ? `\n- ${note}` : ''}`);

@@ -210,16 +210,20 @@ Return a single JSON object of this shape:
   ]
 }
 
-There are two kinds of topic, and a good set mixes them:
+There are three kinds of topic, and a good set mixes them:
 
-1. Specific to this business — a room type, a service, a space, something on the menu category level, somewhere nearby. Propose one of these ONLY where the page gives real evidence for it. A business with no bar does not get a bar topic.
-2. Common to any visit — how you were treated, the welcome, booking or arriving, how the place felt, whether you would come back, recommending it to someone. These need no evidence and are safe for any business.
+1. Named things this business is known for — a signature dish, a house speciality, a flagship product, a treatment or service it is identified with. Take the actual name off the page: "The Pad Thai", "The Sunday Roast", "The Oat Flat White", "The Handmade Frames". These are the topics customers most want to talk about, and they are the reason the list can be long: a menu or a product range gives you a real one per line.
+2. Specific to this business but not named — a room type, a space, a facility, somewhere nearby. A business with no bar does not get a bar topic.
+3. Common to any visit — how you were treated, the welcome, booking or arriving, how the place felt, whether you would come back, recommending it to someone. These need no evidence and are safe for any business.
+
+Lead with the first kind where the business has any. A restaurant with a menu should produce a dozen or more named dishes before it reaches "The Service"; a clinic with four treatments produces four and then moves on. Only take a name that is actually printed on the page — never invent a dish, a product or a treatment, and never guess at one a business of this kind usually has.
 
 Rules:
-- At most ${max} topics. A short honest list is a correct answer. Do not pad, do not split one thing into three, and do not invent a second kind of room to make up the number.
+- At most ${max} topics. A short honest list is a correct answer. Do not pad, do not split one thing into three, and do not invent a second kind of room to make up the number. The ceiling is high because a menu or a product range genuinely fills it — not as a target to reach by other means.
 - Order them the way a customer would scan them: the most obvious and most specific first, the general ones last.
 - "label" is what a customer taps: one to three words, title case, no punctuation, no emoji.
-- "focus" tells the review writer what that review should be about, as a sentence fragment it can follow. No superlatives, no awards, no ratings, no numbers, no staff or dish names.
+- "focus" tells the review writer what that review should be about, as a sentence fragment it can follow. No superlatives, no awards, no ratings, no numbers, no staff names.
+- A named thing from the first kind may of course appear in its own label and focus — that is the whole point of it. Describe it plainly, the way a customer would ("the pad thai", not "our legendary pad thai").
 - No two topics may be the same thing worded differently.
 
 Output only the JSON object. Nothing before it, nothing after it.`;

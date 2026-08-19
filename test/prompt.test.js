@@ -418,13 +418,46 @@ test('a business resolves to its own topics and details, or to none', () => {
   assert.equal(bare.contextDoc, '');
 });
 
-test('thirty topics are allowed and thirty-one are refused', () => {
+test('fifty topics are allowed and fifty-one are refused', () => {
   const rows = (n) =>
     Array.from({ length: n }, (_, i) => ({ label: `Topic ${i}`, focus: '' }));
 
-  assert.equal(settings.MAX_TOPICS, 30);
-  assert.ok(settings.validateCategories(rows(30)).ok);
-  assert.equal(settings.validateCategories(rows(31)).ok, false);
+  assert.equal(settings.MAX_TOPICS, 50);
+  assert.ok(settings.validateCategories(rows(50)).ok);
+  assert.equal(settings.validateCategories(rows(51)).ok, false);
+});
+
+test('the writer may name what the topic names, and nothing else', () => {
+  // The two rules used to contradict each other: topics can be a signature
+  // dish, while the writing prompt banned dish names outright. A button the
+  // writer is forbidden to talk about is worse than no button.
+  const prompt = config.buildSystemPrompt(CLINIC);
+
+  assert.match(prompt, /You may name the specific thing the topic above names/);
+  assert.match(prompt, /never a name you have supplied yourself/);
+  // The blanket ban is gone; the parts of it that still hold are not.
+  assert.doesNotMatch(prompt, /no dish names/);
+  assert.match(prompt, /no staff names/);
+  assert.match(prompt, /no prices/);
+});
+
+test('a signature dish survives topic drafting', () => {
+  // The focus screen drops a steer carrying a number or an unverifiable claim.
+  // A named dish is neither, and losing it would defeat the whole point.
+  const [dish] = seed.parseTopics(
+    '{"topics":[{"label":"The Pad Thai","focus":"the pad thai — how it tasted and whether you would order it again"}]}'
+  );
+  assert.deepEqual(dish, {
+    label: 'The Pad Thai',
+    focus: 'the pad thai — how it tasted and whether you would order it again',
+  });
+
+  // A boast about it still loses the steer and keeps the button.
+  const [boast] = seed.parseTopics(
+    '{"topics":[{"label":"The Pad Thai","focus":"our award-winning pad thai"}]}'
+  );
+  assert.equal(boast.label, 'The Pad Thai');
+  assert.equal(boast.focus, '');
 });
 
 test('topic ids survive a rename so a guest is not bounced off their choice', () => {
