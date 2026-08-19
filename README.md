@@ -553,23 +553,55 @@ every venue's OpenRouter key in plain text and every customer's email and
 password hash. It is the most sensitive object the business owns. A public
 bucket here is worse than having no backups at all.
 
+### 0. What you need first
+
+Run everything in steps 1–3 from somewhere with **admin** AWS credentials — your
+laptop or CloudShell. Not the box: the instance role is deliberately allowed to
+write backups and nothing else, so it cannot create the bucket it writes to.
+
+Collect these first; every command below uses them.
+
+```bash
+aws sts get-caller-identity --query Account --output text
+```
+
+```bash
+aws ec2 describe-instances --filters Name=ip-address,Values=YOUR.EC2.IP --query 'Reservations[].Instances[].[InstanceId,Placement.AvailabilityZone,IamInstanceProfile.Arn]' --output text
+```
+
+That last one answers three questions at once: the instance id, the region (the
+availability zone minus its trailing letter), and **whether a role is already
+attached**. If the third column is not `None`, do not create a new role in step
+3 — an instance can only have one. Add the policy to the role it already has.
+
 ### 1. The bucket
 
 In the **same region as the instance** — cross-region transfer is billed and
 slower, and there is no benefit here.
 
+Bucket names are globally unique across all of AWS, so `reviewslip-backups` is
+almost certainly taken. Suffix it with your account id, which is not a secret:
+
 ```bash
-aws s3api create-bucket --bucket reviewslip-backups --region ap-southeast-1 --create-bucket-configuration LocationConstraint=ap-southeast-1
+BUCKET=reviewslip-backups-123456789012 REGION=ap-northeast-1
 ```
+
+```bash
+aws s3api create-bucket --bucket "$BUCKET" --region "$REGION" --create-bucket-configuration LocationConstraint="$REGION"
+```
+
+If your region is `us-east-1`, drop the `--create-bucket-configuration` flag
+entirely — that one region rejects it, which is a long-standing wart rather than
+anything you have done wrong.
 
 Then, in order:
 
 ```bash
-aws s3api put-public-access-block --bucket reviewslip-backups --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+aws s3api put-public-access-block --bucket "$BUCKET" --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 ```
 
 ```bash
-aws s3api put-bucket-versioning --bucket reviewslip-backups --versioning-configuration Status=Enabled
+aws s3api put-bucket-versioning --bucket "$BUCKET" --versioning-configuration Status=Enabled
 ```
 
 Versioning is what makes a bad overwrite or an accidental delete recoverable.
@@ -579,7 +611,7 @@ Add a bucket policy refusing anything that is not TLS, so a misconfigured client
 cannot send this file in the clear:
 
 ```bash
-aws s3api put-bucket-policy --bucket reviewslip-backups --policy '{"Version":"2012-10-17","Statement":[{"Sid":"DenyInsecureTransport","Effect":"Deny","Principal":"*","Action":"s3:*","Resource":["arn:aws:s3:::reviewslip-backups","arn:aws:s3:::reviewslip-backups/*"],"Condition":{"Bool":{"aws:SecureTransport":"false"}}}]}'
+aws s3api put-bucket-policy --bucket "$BUCKET" --policy "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Sid\":\"DenyInsecureTransport\",\"Effect\":\"Deny\",\"Principal\":\"*\",\"Action\":\"s3:*\",\"Resource\":[\"arn:aws:s3:::$BUCKET\",\"arn:aws:s3:::$BUCKET/*\"],\"Condition\":{\"Bool\":{\"aws:SecureTransport\":\"false\"}}}]}"
 ```
 
 ### 2. A KMS key, and what it buys
@@ -605,26 +637,53 @@ under S3 and nothing else.
 ### 3. The instance role
 
 **Never put access keys on the box.** Attach an IAM role to the instance and the
-CLI picks up credentials from the metadata service on its own.
+CLI picks up credentials from the metadata service on its own — nothing to
+rotate, nothing to leak in a dump.
+
+If step 0 showed the instance already has a profile attached, skip to the policy
+and attach it to that role instead. An instance can only carry one.
 
 Least privilege for what the script actually does — `PutObject` to upload, and
 `GetObject` because it calls `head-object` afterwards to prove the object landed
 and is the right length:
 
-```json
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject"],"Resource":"arn:aws:s3:::reviewslip-backups/reviewslip/*"}]}
+```bash
+aws iam create-role --role-name reviewslip-backup --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 ```
+
+```bash
+aws iam put-role-policy --role-name reviewslip-backup --policy-name write-backups --policy-document "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Action\":[\"s3:PutObject\",\"s3:GetObject\"],\"Resource\":\"arn:aws:s3:::$BUCKET/reviewslip/*\"}]}"
+```
+
+A role is not the same thing as an instance profile, and the CLI will not create
+the profile for you the way the console does. This is the step that is easy to
+miss, and the symptom is `associate-iam-instance-profile` failing with a message
+about the profile not existing:
+
+```bash
+aws iam create-instance-profile --instance-profile-name reviewslip-backup && aws iam add-role-to-instance-profile --instance-profile-name reviewslip-backup --role-name reviewslip-backup
+```
+
+Attach it. IAM is eventually consistent, so if this fails the first time, wait
+ten seconds and run it again rather than assuming something is wrong:
+
+```bash
+aws ec2 associate-iam-instance-profile --instance-id i-xxxxxxxx --iam-instance-profile Name=reviewslip-backup
+```
+
+Then prove it from the box itself, before touching anything else:
+
+```bash
+aws sts get-caller-identity
+```
+
+That should name `reviewslip-backup`. If it names something else, or asks for
+credentials, the association has not landed yet.
 
 If you are using KMS and `head-object` starts returning AccessDenied, that call
 is asking KMS to decrypt. Either grant `kms:Decrypt` — giving up the write-only
 property — or replace the verification with `list-objects-v2`, which reports
 `Size` and never touches KMS.
-
-Attach it:
-
-```bash
-aws ec2 associate-iam-instance-profile --instance-id i-xxxxxxxx --iam-instance-profile Name=reviewslip-backup
-```
 
 ### 4. On the box
 
@@ -655,7 +714,7 @@ In a lifecycle rule, not in the script. A declarative rule is reversible and
 visible; a shell script that deletes things unattended at 3am is neither.
 
 ```bash
-aws s3api put-bucket-lifecycle-configuration --bucket reviewslip-backups --lifecycle-configuration '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":"reviewslip/"},"Transitions":[{"Days":30,"StorageClass":"GLACIER_IR"}],"Expiration":{"Days":365},"NoncurrentVersionExpiration":{"NoncurrentDays":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":7}}]}'
+aws s3api put-bucket-lifecycle-configuration --bucket "$BUCKET" --lifecycle-configuration '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":"reviewslip/"},"Transitions":[{"Days":30,"StorageClass":"GLACIER_IR"}],"Expiration":{"Days":365},"NoncurrentVersionExpiration":{"NoncurrentDays":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":7}}]}'
 ```
 
 ### 6. Prove you can restore it
@@ -664,7 +723,7 @@ This is the only step that turns the rest into a backup. Do it now, not on the
 day you need it:
 
 ```bash
-aws s3 cp s3://reviewslip-backups/reviewslip/reviewslip-2026-08-19T032000Z.dump /var/tmp/test.dump
+aws s3 ls "s3://$BUCKET/reviewslip/" && aws s3 cp "s3://$BUCKET/reviewslip/reviewslip-2026-08-19T032000Z.dump" /var/tmp/test.dump
 ```
 
 ```bash
