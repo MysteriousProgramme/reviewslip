@@ -540,6 +540,152 @@ What it cannot tell you is whether the reviews are any *good*. That only comes
 from reading them, which is what the dashboard's star ratings are for — and what the
 realism sample feeds back into the next one.
 
+## Backups
+
+A nightly `pg_dump` to S3, run by a systemd timer. Everything below is in the
+repo — [scripts/backup-to-s3.sh](scripts/backup-to-s3.sh),
+[deploy/reviewslip-backup.service](deploy/reviewslip-backup.service) and
+[deploy/reviewslip-backup.timer](deploy/reviewslip-backup.timer) — but the AWS
+side has to be built once by hand.
+
+**Know what is in this file before you decide where it goes.** The dump contains
+every venue's OpenRouter key in plain text and every customer's email and
+password hash. It is the most sensitive object the business owns. A public
+bucket here is worse than having no backups at all.
+
+### 1. The bucket
+
+In the **same region as the instance** — cross-region transfer is billed and
+slower, and there is no benefit here.
+
+```bash
+aws s3api create-bucket --bucket reviewslip-backups --region ap-southeast-1 --create-bucket-configuration LocationConstraint=ap-southeast-1
+```
+
+Then, in order:
+
+```bash
+aws s3api put-public-access-block --bucket reviewslip-backups --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
+```
+
+```bash
+aws s3api put-bucket-versioning --bucket reviewslip-backups --versioning-configuration Status=Enabled
+```
+
+Versioning is what makes a bad overwrite or an accidental delete recoverable.
+Without it, a script bug at 3am can destroy the history in one run.
+
+Add a bucket policy refusing anything that is not TLS, so a misconfigured client
+cannot send this file in the clear:
+
+```bash
+aws s3api put-bucket-policy --bucket reviewslip-backups --policy '{"Version":"2012-10-17","Statement":[{"Sid":"DenyInsecureTransport","Effect":"Deny","Principal":"*","Action":"s3:*","Resource":["arn:aws:s3:::reviewslip-backups","arn:aws:s3:::reviewslip-backups/*"],"Condition":{"Bool":{"aws:SecureTransport":"false"}}}]}'
+```
+
+### 2. A KMS key, and what it buys
+
+Optional, and worth understanding rather than copying. With a customer-managed
+key you can let the instance role **write** backups without letting it **read
+them back** — so someone who gets onto the box cannot download the history of
+every key you have ever held.
+
+The catch, and it is a real one: uploading with SSE-KMS needs
+`kms:GenerateDataKey*`, and a **multipart** upload additionally needs
+`kms:Decrypt`. The AWS CLI switches to multipart at 8MB by default. So the
+write-only property holds while dumps are small and breaks silently the night
+one crosses the threshold. Raise the threshold so that never happens:
+
+```bash
+sudo -u ubuntu aws configure set default.s3.multipart_threshold 5GB
+```
+
+Without a key, set nothing — objects still get SSE-S3, which protects the disks
+under S3 and nothing else.
+
+### 3. The instance role
+
+**Never put access keys on the box.** Attach an IAM role to the instance and the
+CLI picks up credentials from the metadata service on its own.
+
+Least privilege for what the script actually does — `PutObject` to upload, and
+`GetObject` because it calls `head-object` afterwards to prove the object landed
+and is the right length:
+
+```json
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject"],"Resource":"arn:aws:s3:::reviewslip-backups/reviewslip/*"}]}
+```
+
+If you are using KMS and `head-object` starts returning AccessDenied, that call
+is asking KMS to decrypt. Either grant `kms:Decrypt` — giving up the write-only
+property — or replace the verification with `list-objects-v2`, which reports
+`Size` and never touches KMS.
+
+Attach it:
+
+```bash
+aws ec2 associate-iam-instance-profile --instance-id i-xxxxxxxx --iam-instance-profile Name=reviewslip-backup
+```
+
+### 4. On the box
+
+```bash
+sudo apt install -y postgresql-client awscli
+```
+
+Set `BACKUP_S3_URI` in `/opt/reviewslip/.env` — and `BACKUP_KMS_KEY_ID` if you
+made a key. Then install the timer:
+
+```bash
+sudo cp /opt/reviewslip/deploy/reviewslip-backup.* /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now reviewslip-backup.timer
+```
+
+Run it once by hand before trusting it:
+
+```bash
+sudo systemctl start reviewslip-backup.service && sudo journalctl -u reviewslip-backup.service -n 20 --no-pager
+```
+
+```bash
+systemctl list-timers reviewslip-backup.timer
+```
+
+### 5. Retention
+
+In a lifecycle rule, not in the script. A declarative rule is reversible and
+visible; a shell script that deletes things unattended at 3am is neither.
+
+```bash
+aws s3api put-bucket-lifecycle-configuration --bucket reviewslip-backups --lifecycle-configuration '{"Rules":[{"ID":"expire","Status":"Enabled","Filter":{"Prefix":"reviewslip/"},"Transitions":[{"Days":30,"StorageClass":"GLACIER_IR"}],"Expiration":{"Days":365},"NoncurrentVersionExpiration":{"NoncurrentDays":30},"AbortIncompleteMultipartUpload":{"DaysAfterInitiation":7}}]}'
+```
+
+### 6. Prove you can restore it
+
+This is the only step that turns the rest into a backup. Do it now, not on the
+day you need it:
+
+```bash
+aws s3 cp s3://reviewslip-backups/reviewslip/reviewslip-2026-08-19T032000Z.dump /var/tmp/test.dump
+```
+
+```bash
+createdb restore_test && pg_restore --no-owner --no-privileges --dbname=restore_test /var/tmp/test.dump && psql restore_test -c 'SELECT count(*) FROM subscribers;'
+```
+
+```bash
+dropdb restore_test && rm /var/tmp/test.dump
+```
+
+The script already refuses to upload anything `pg_restore --list` cannot read,
+so a truncated or corrupt dump never reaches the bucket. That catches the file
+being broken; only the above catches the *contents* being wrong.
+
+### 7. Know when it stops
+
+Backups fail silently by nature, and a backup you wrongly believe in is worse
+than none. Set `BACKUP_HEARTBEAT_URL` to a dead-man's-switch — healthchecks.io,
+BetterStack, Cronitor — and the script pings it only after an upload is
+verified. A failed or skipped run then alerts by *not* arriving.
+
 ## Where things live
 
 | File | What it holds |

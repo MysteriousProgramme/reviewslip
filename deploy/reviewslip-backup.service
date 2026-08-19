@@ -1,0 +1,40 @@
+# One Postgres dump to S3. Started by reviewslip-backup.timer, not enabled
+# itself — a oneshot service that is `enabled` would try to run at boot.
+#
+#   sudo cp deploy/reviewslip-backup.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now reviewslip-backup.timer
+
+[Unit]
+Description=Dump the reviewslip Postgres database to S3
+Documentation=file:/opt/reviewslip/README.md
+# Nothing to back up if the network is not up yet.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/reviewslip/scripts/backup-to-s3.sh
+
+# Reads /opt/reviewslip/.env for the connection string and the bucket, so it
+# runs as the user that owns them rather than as root.
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/reviewslip
+
+# A dump of a small database is quick; anything past this is stuck, not slow,
+# and should fail loudly rather than overlap tomorrow's run.
+TimeoutStartSec=30min
+
+# The dump is a plaintext copy of every API key in the system. These keep it
+# out of reach of anything else on the box while it exists.
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+# ProtectSystem=strict makes everything read-only except these.
+ReadWritePaths=/var/tmp
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
