@@ -19,6 +19,7 @@ const {
   parseTopics,
 } = require('./seed');
 const settingsRules = require('./settings');
+const strings = require('./strings');
 const theme = require('./theme');
 const { ready } = require('./db');
 const subscribers = require('./subscribers');
@@ -55,6 +56,23 @@ if (process.env.TRUST_PROXY) {
 app.use(express.json({ limit: '16kb' }));
 // No max-age: the files are small and served off the same box, and a stale
 // index.html on a guest's phone is far more annoying than a revalidation.
+/**
+ * Every guest-facing string, in every language, as one script.
+ *
+ * Before express.static and outside tenant resolution: it is the same table for
+ * every business, and the page needs it to render its own furniture — including
+ * the error it shows when the address belongs to no business at all.
+ *
+ * Cached hard. The body is built once at boot and cannot change without a
+ * deploy, and the URL is versioned by that build, so a long max-age costs a
+ * guest nothing and saves the second page load a round trip.
+ */
+app.get('/i18n.js', (req, res) => {
+  res.type('application/javascript; charset=utf-8');
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.send(strings.SCRIPT);
+});
+
 app.use(express.static(path.join(__dirname, 'public'), { etag: true }));
 
 // Admin first, and outside tenant resolution: creating the first subscriber
@@ -322,16 +340,20 @@ app.post('/api/review', requireTenant, async (req, res) => {
   const resolved = subscribers.settingsFor(req.subscriber);
   const { apiKey, model, categories } = resolved;
 
+  // Which language to fail in. The page sends what the guest picked; the header
+  // covers a request that arrives before it has picked anything. Read up here
+  // rather than beside the first error, because every error below wants it and
+  // one of them fires before the body is otherwise touched.
+  const lang = languageFor(
+    req.body?.language || strings.fromHeader(req.get('accept-language'))
+  ).code;
+
   if (!apiKey) {
-    return res.status(500).json({
-      error: 'No OpenRouter key yet. Add one in Settings.',
-    });
+    return res.status(500).json({ error: strings.t(lang, 'noKey') });
   }
 
   if (throttled(`${req.subscriber.slug}:${req.ip}`)) {
-    return res
-      .status(429)
-      .json({ error: 'That is a lot of reviews. Wait a moment and try again.' });
+    return res.status(429).json({ error: strings.t(lang, 'tooFast') });
   }
 
   // Counted before the model is called, not after: a cap enforced on the way
@@ -339,8 +361,7 @@ app.post('/api/review', requireTenant, async (req, res) => {
   const quota = countGeneration(`${req.subscriber.slug}:${req.ip}`);
   if (!quota.allowed) {
     return res.status(429).json({
-      error:
-        'You have used the reviews available for now. Edit the one you have — it is yours to change.',
+      error: strings.t(lang, 'outOfTries'),
       left: 0,
     });
   }
@@ -441,9 +462,7 @@ app.post('/api/review', requireTenant, async (req, res) => {
       console.error(
         `OpenRouter ${upstream.status} for ${req.subscriber.slug}: ${detail.slice(0, 500)}`
       );
-      return res
-        .status(502)
-        .json({ error: 'The writer is unavailable right now. Try again.' });
+      return res.status(502).json({ error: strings.t(lang, 'writerDown') });
     }
 
     const data = await upstream.json();
@@ -451,9 +470,7 @@ app.post('/api/review', requireTenant, async (req, res) => {
 
     if (!review) {
       console.error('Empty completion:', JSON.stringify(data).slice(0, 500));
-      return res
-        .status(502)
-        .json({ error: 'The writer came back empty. Try again.' });
+      return res.status(502).json({ error: strings.t(lang, 'writerEmpty') });
     }
 
     // Awaited now, unlike before, because the guest needs the row id to rate

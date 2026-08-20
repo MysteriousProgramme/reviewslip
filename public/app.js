@@ -15,7 +15,25 @@ const el = {
   destinations: document.getElementById('destinations'),
   hint: document.getElementById('hint'),
 
+  // The furniture. Static text until the selector moved the page as well as the
+  // review; these are the handles applyStrings() writes through.
+  heading: document.getElementById('heading'),
+  lede: document.getElementById('lede'),
+  pickerLabel: document.getElementById('picker-label'),
+  lengthLabel: document.getElementById('length-label'),
+  slipLabel: document.getElementById('slip-label'),
+  titleDot: document.getElementById('title-dot'),
 };
+
+/**
+ * Languages that do not end a sentence with a full stop.
+ *
+ * The coloured dot after the heading is a flourish in the English design, but a
+ * flourish shaped like punctuation still reads as punctuation — and Thai ends
+ * sentences with a space, while Chinese and Japanese use their own full-width
+ * mark. Korean is not here: it does use a full stop.
+ */
+const NO_FULL_STOP = new Set(['th', 'zh', 'ja']);
 
 /**
  * How many topics the picker offers before the guest asks for more.
@@ -28,6 +46,27 @@ const el = {
  */
 const SHOWN = 10;
 
+/**
+ * One string, in the language the guest has chosen.
+ *
+ * The table arrives from /i18n.js as a plain global, before this file runs. If
+ * it somehow did not, every lookup returns the key's own name rather than
+ * throwing — a page reading "browseMore" is poor, and a page that fails to boot
+ * because a script 404'd is worse.
+ *
+ * Placeholders are {braced}, matching strings.js on the server, because half
+ * these strings are read on one side and half on the other and two syntaxes
+ * would be one too many.
+ */
+function t(key, vars = {}) {
+  const table = window.RS_STRINGS || {};
+  const raw =
+    table[state.language]?.[key] ?? table.en?.[key] ?? key;
+  return raw.replace(/\{(\w+)\}/g, (whole, name) =>
+    name in vars ? String(vars[name]) : whole
+  );
+}
+
 const state = {
   topics: [], // every topic the business has, {id, label}
   shown: [], // the ids currently on screen
@@ -37,6 +76,7 @@ const state = {
   destinations: [], // {id, label, hex, path, url} for each link that is set
 
   recent: [], // last few generations, so the next one reads differently
+  venue: '', // the business's name, kept for the document title
   language: 'en',
   length: 'any',
   busy: false,
@@ -51,6 +91,12 @@ let copyResetTimer = null;
 init();
 
 async function init() {
+  // Before the fetch, not after it. The first thing on screen should already be
+  // in the guest's language — including the error, if the fetch is what fails.
+  // renderLanguages narrows this later to what the business actually offers.
+  state.language = guessLanguage(Object.keys(window.RS_STRINGS || { en: 1 }));
+  applyStrings();
+
   autosize();
   el.review.addEventListener('input', autosize);
   el.regenerate.addEventListener('click', () => generate());
@@ -63,14 +109,14 @@ async function init() {
     config = await res.json().catch(() => ({}));
     // A 404 here means the address does not belong to any venue, and the
     // server says so far more usefully than a generic message could.
-    if (!res.ok) throw new Error(config.error || 'Could not load the page.');
+    if (!res.ok) throw new Error(config.error || t('loadFailed'));
 
     state.destinations = Array.isArray(config.destinations)
       ? config.destinations
       : [];
     if (config.venue) {
+      state.venue = config.venue;
       el.eyebrow.textContent = config.venue;
-      document.title = `Leave a review — ${config.venue}`;
     }
 
     // The mark, once we know there is one. Its alt is empty on purpose: the
@@ -85,12 +131,16 @@ async function init() {
         el.logo.hidden = true;
       });
     }
+    // Languages first: the two below draw buttons whose words come out of the
+    // table, and rendering them before the language is settled would paint
+    // English and then correct itself in front of the guest.
+    renderLanguages(config.languages || []);
+    applyStrings();
     renderTopics(config.categories || []);
     renderLengths(config.lengths || []);
-    renderLanguages(config.languages || []);
   } catch (err) {
     setBusy(false);
-    say(err.message || 'Could not load the page settings.', 'error');
+    say(err.message || t('loadFailed'), 'error');
     el.regenerate.disabled = true;
     return;
   }
@@ -140,16 +190,14 @@ function renderDestinations() {
     // Marigold is spent once, as a fill. The first listing keeps it and the
     // rest are outlined, however many there are.
     button.className = `btn btn-go${index ? ' btn-go-second' : ''}`;
-    button.textContent = `Proceed to ${place.label}`;
+    button.textContent = t('proceed', { place: place.label });
     button.addEventListener('click', () => onProceed(place.url, place.label));
 
     row.append(button);
     el.destinations.append(row);
   }
 
-  el.hint.textContent = state.destinations.length
-    ? 'Copies your review, then opens the listing.'
-    : 'No review link set yet.';
+  el.hint.textContent = state.destinations.length ? t('hint') : t('noLink');
 }
 
 /* ---------------------------------------------------------------- topics */
@@ -240,8 +288,8 @@ function drawTopics() {
   const more = state.topics.length - visible.length;
   el.browse.hidden = !state.browsing && more <= 0;
   el.browse.textContent = state.browsing
-    ? 'Show fewer topics'
-    : `Browse for more topics (${more})`;
+    ? t('browseFewer')
+    : t('browseMore', { n: more });
   el.browse.setAttribute('aria-expanded', String(state.browsing));
 }
 
@@ -274,8 +322,13 @@ function renderLengths(lengths) {
     chip.type = 'button';
     chip.className = 'chip';
     chip.role = 'radio';
-    chip.textContent = length.label;
+    // The server's label is the fallback, not the source: a length the page
+    // has no word for still gets a button rather than a blank one.
     chip.dataset.id = length.id;
+    chip.textContent =
+      { any: t('lengthAny'), short: t('lengthShort'), detailed: t('lengthDetailed') }[
+        length.id
+      ] ?? length.label;
     chip.setAttribute('aria-checked', String(length.id === state.length));
     // One tab stop for the group, arrows to move within it — the radio pattern.
     chip.tabIndex = length.id === state.length ? 0 : -1;
@@ -317,6 +370,82 @@ function renderLengths(lengths) {
 }
 
 /**
+ * Puts every fixed word on the page into the current language.
+ *
+ * Called three times: at boot from the browser's own preference, once the
+ * business's language list has narrowed that, and again whenever the guest
+ * moves the selector. Everything it touches is furniture — the business's name,
+ * its topics and its platforms are its own words and are left alone.
+ *
+ * The lists that are drawn rather than written (topics, lengths, destinations)
+ * redraw themselves, because their text is built from the table too.
+ */
+function applyStrings() {
+  document.documentElement.lang = state.language;
+
+  document.title = state.venue
+    ? `${t('title')} — ${state.venue}`
+    : t('title');
+
+  el.heading.textContent = t('heading');
+  el.titleDot.hidden = NO_FULL_STOP.has(state.language);
+  el.lede.textContent = t('lede');
+  el.pickerLabel.textContent = t('picker');
+  el.lengthLabel.textContent = t('lengthLabel');
+  el.slipLabel.textContent = t('reviewLabel');
+  el.review.placeholder = t('placeholder');
+  el.lang.setAttribute('aria-label', t('language'));
+
+  // Mid-copy: the button says "Copied" for a moment and must not be reset to
+  // "Copy" by a language change landing inside that window.
+  if (!copyResetTimer) el.copy.textContent = t('copy');
+
+  // Regenerate carries a count once the server has sent one; renderCount owns
+  // that wording, so defer to it rather than writing the label twice.
+  if (state.max === null || state.left === null) {
+    el.regenerate.textContent = t('regenerate');
+  } else {
+    renderCount();
+  }
+
+  // Drawn lists. Guarded because applyStrings runs once before any of them
+  // exist, on a page that has not been told what the business offers yet.
+  if (state.topics.length) drawTopics();
+  for (const chip of el.lengths.children) {
+    const key = {
+      any: 'lengthAny',
+      short: 'lengthShort',
+      detailed: 'lengthDetailed',
+    }[chip.dataset.id];
+    if (key) chip.textContent = t(key);
+  }
+  if (state.destinations.length) renderDestinations();
+}
+
+/**
+ * The browser's own preference, narrowed to a list we have words for.
+ *
+ * Used before the business's language list has arrived — at that point the only
+ * constraint is which languages the strings table holds. A remembered choice
+ * wins over the browser, the same way it does once the real list is in hand.
+ */
+function guessLanguage(offered) {
+  const remembered = localStorage.getItem('reviewslip.lang');
+  if (offered.includes(remembered)) return remembered;
+
+  const asked = navigator.languages?.length
+    ? navigator.languages
+    : [navigator.language].filter(Boolean);
+
+  for (const tag of asked) {
+    const base = String(tag).toLowerCase().split('-')[0];
+    if (offered.includes(base)) return base;
+  }
+
+  return 'en';
+}
+
+/**
  * What to select before the guest has chosen anything.
  *
  * A previous choice wins. Otherwise the browser's own preferences, in the order
@@ -342,15 +471,23 @@ function preferredLanguage(languages) {
 }
 
 /**
- * Which language the review is written in — not the page.
+ * Which language the page and the review are both in.
  *
- * A guest who cannot read English still needs the review itself in their own
- * language: it is the thing they are about to post publicly under their name,
- * and they cannot judge a sentence they cannot read.
+ * It used to be the review alone. That was half a feature: a guest who cannot
+ * read English cannot read the buttons around the review either, and being
+ * handed a Thai paragraph framed in English chrome says the review is a
+ * translation of somebody else's words rather than their own.
+ *
+ * Hidden when a business offers one language, because a selector with one
+ * option is furniture that does nothing. The page is still translated in that
+ * case — into whichever single language is on offer.
  */
 function renderLanguages(languages) {
   if (languages.length < 2) {
     el.lang.hidden = true;
+    // One language is still a language. A business offering only Thai gets a
+    // Thai page, with no selector to say so.
+    if (languages.length === 1) state.language = languages[0].code;
     return;
   }
 
@@ -371,7 +508,12 @@ function renderLanguages(languages) {
   el.lang.addEventListener('change', () => {
     state.language = el.lang.value;
     localStorage.setItem('reviewslip.lang', state.language);
-    say('The next one will be written in that language.');
+    // The page changes now; the review changes on the next generation, for the
+    // same reason toggling a topic does not regenerate. Saying so is the point
+    // of the notice — the guest can see the page moved and needs telling that
+    // the paragraph in front of them did not.
+    applyStrings();
+    say(t('languageChanged'));
   });
 }
 
@@ -408,9 +550,9 @@ async function generate() {
       renderCount();
       if (data.left === 0) {
         el.regenerate.disabled = true;
-        say('That is the last one for now. Edit it however you like.');
+        say(t('lastTry'));
       } else if (data.left <= 3) {
-        say(`${data.left} more ${data.left === 1 ? 'try' : 'tries'} for now.`);
+        say(t(data.left === 1 ? 'triesOne' : 'triesMany', { n: data.left }));
       }
     }
 
@@ -419,7 +561,7 @@ async function generate() {
     replay(el.review, 'settling');
   } catch (err) {
     setBusy(false);
-    say(err.message || 'Could not reach the writer. Try again.', 'error');
+    say(err.message || t('writerFailed'), 'error');
   }
 }
 
@@ -429,10 +571,10 @@ async function onCopy() {
   const ok = await copyReview();
   if (!ok) return;
 
-  el.copy.textContent = 'Copied';
+  el.copy.textContent = t('copied');
   clearTimeout(copyResetTimer);
   copyResetTimer = setTimeout(() => {
-    el.copy.textContent = 'Copy';
+    el.copy.textContent = t('copy');
   }, 1800);
 }
 
@@ -449,18 +591,14 @@ async function onProceed(url, where) {
   if (!url) return;
 
   const copied = await copyReview();
-  say(
-    copied
-      ? `Copied. Tap "Write a review" on ${where}, then paste.`
-      : `Select the review and copy it, then tap "Write a review" on ${where}.`
-  );
+  say(t(copied ? 'pasteCopied' : 'pasteManual', { place: where }));
   window.open(url, '_blank', 'noopener');
 }
 
 async function copyReview() {
   const text = el.review.value.trim();
   if (!text) {
-    say('Nothing to copy yet.', 'error');
+    say(t('nothingToCopy'), 'error');
     return false;
   }
 
@@ -491,7 +629,10 @@ async function copyReview() {
 function renderCount() {
   if (state.max === null || state.left === null) return;
   const used = state.max - state.left;
-  el.regenerate.textContent = `Regenerate (${used}/${state.max})`;
+  el.regenerate.textContent = t('regenerateCount', {
+    used,
+    max: state.max,
+  });
 }
 
 function setBusy(busy) {

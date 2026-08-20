@@ -832,6 +832,7 @@ verified. A failed or skipped run then alerts by *not* arriving.
 | `context.js` | Loads it, checks its sections are all there, and refuses to start if not. |
 | `theme.js` | Four colours to a palette, with every text pair held to a contrast ratio, plus the typeface allowlist. |
 | `assets.js` | Downloading a logo or a font from an address a third party controls, safely. |
+| `strings.js` | Every word the guest page says, in each language it offers — the page's own text and the errors the server sends it. |
 | `config.js` | The writing prompt — how the generic document, the business, the topics, the length and the prior reviews are assembled into two messages. |
 | `db.js` | The Postgres pool and the schema migrations. |
 | `subscribers.js` | The subscriber store: rows, tokens, the legacy import. |

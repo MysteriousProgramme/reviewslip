@@ -24,6 +24,7 @@ const context = require('../context');
 const config = require('../config');
 const seed = require('../seed');
 const settings = require('../settings');
+const strings = require('../strings');
 const theme = require('../theme');
 const assets = require('../assets');
 
@@ -960,4 +961,79 @@ test('topics come back in alphabetical order, whatever order they were stored in
     settings.describe({ categories: stored }).categories.value.map((c) => c.label),
     labels
   );
+});
+
+/* ------------------------------------------------------------------ strings */
+
+test('every language the page offers has every word the page says', () => {
+  // A language in the selector with no words behind it shows a guest a page in
+  // English and a review in their own language, which is the exact confusion
+  // the selector exists to remove.
+  for (const { code } of config.LANGUAGES) {
+    assert.ok(strings.STRINGS[code], `no strings for ${code}, but it is offered`);
+
+    const missing = strings.KEYS.filter((key) => !(key in strings.STRINGS[code]));
+    assert.deepEqual(missing, [], `${code} is missing: ${missing.join(', ')}`);
+  }
+
+  // And nothing translated that is not offered — a table entry nobody can pick
+  // is dead weight that still has to be maintained.
+  for (const code of Object.keys(strings.STRINGS)) {
+    assert.ok(
+      config.LANGUAGES.some((l) => l.code === code),
+      `${code} has strings but is not in LANGUAGES`
+    );
+  }
+});
+
+test('a translation cannot drop a placeholder', () => {
+  // "{n} more tries" translated without its {n} loses the number silently: the
+  // sentence still reads, so nothing catches it except a guest wondering how
+  // many they have left.
+  const placeholders = (text) =>
+    (text.match(/\{\w+\}/g) || []).slice().sort().join(',');
+
+  for (const key of strings.KEYS) {
+    const expected = placeholders(strings.STRINGS.en[key]);
+    for (const code of Object.keys(strings.STRINGS)) {
+      assert.equal(
+        placeholders(strings.STRINGS[code][key]),
+        expected,
+        `${code}.${key} does not carry the same placeholders as English`
+      );
+    }
+  }
+});
+
+test('strings fill in, fall back per key, and never come back blank', () => {
+  assert.equal(strings.t('en', 'proceed', { place: 'Google' }), 'Proceed to Google');
+  assert.equal(strings.t('th', 'proceed', { place: 'Google' }), 'ไปที่ Google');
+
+  // Per key, not per language: an unknown key falls back to English, and an
+  // unknown language falls back to English, but neither returns empty.
+  assert.equal(strings.t('th', 'nosuchkey'), 'nosuchkey');
+  assert.equal(strings.t('xx', 'copy'), 'Copy');
+
+  // A missing variable leaves its placeholder rather than printing "undefined".
+  assert.equal(strings.t('en', 'triesMany'), '{n} more tries for now.');
+
+  for (const code of Object.keys(strings.STRINGS)) {
+    for (const key of strings.KEYS) {
+      assert.ok(
+        strings.t(code, key).trim().length > 0,
+        `${code}.${key} is empty`
+      );
+    }
+  }
+});
+
+test('the language for a guest we have not heard from yet', () => {
+  assert.equal(strings.fromHeader('th-TH,th;q=0.9,en;q=0.8'), 'th');
+  // Base tag, so the three Chinese tags are one offer here.
+  assert.equal(strings.fromHeader('zh-Hant-TW'), 'zh');
+  // Order of preference wins over position in our own table.
+  assert.equal(strings.fromHeader('ko,en'), 'ko');
+  assert.equal(strings.fromHeader('xx-YY'), 'en');
+  assert.equal(strings.fromHeader(''), 'en');
+  assert.equal(strings.fromHeader(undefined), 'en');
 });

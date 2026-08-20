@@ -35,12 +35,20 @@
                broken image. -->
           <img class="logo" id="logo" alt="" hidden />
           <p class="eyebrow" id="eyebrow"></p>
-          <!-- Which language the review is written in. Options come from the
-               server so the list cannot drift from what the prompt accepts. -->
-          <select class="lang" id="lang" aria-label="Review language"></select>
+          <!-- Which language the page and the review are both in. Options come
+               from the server so the list cannot drift from what the prompt
+               accepts, nor from the strings table that translates this page. -->
+          <select class="lang" id="lang" aria-label="Language"></select>
         </div>
-        <h1 class="title">Thanks for staying<span class="title-dot">.</span></h1>
-        <p class="lede">
+        <!-- English here, and replaced the moment /app.js runs. Markup rather
+             than an empty element so a guest on a slow connection reads
+             something rather than watching a blank page assemble itself; the
+             dot is a separate span because it is styled, not spoken. -->
+        <h1 class="title" id="title">
+          <span id="heading">Thanks for stopping by</span
+          ><span class="title-dot" id="title-dot">.</span>
+        </h1>
+        <p class="lede" id="lede">
           Here's a review in your words. Change anything you like, then post it.
         </p>
       </header>
@@ -97,6 +105,11 @@
     </main>
 
 
+    <!-- Every string the page can say, in every language it offers. Before
+         app.js and not deferred: the page's first act is to put itself into the
+         guest's language, and a table that arrives afterwards would show them
+         English first and then swap it. -->
+    <script src="/i18n.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>
