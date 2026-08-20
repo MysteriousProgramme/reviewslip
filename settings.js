@@ -156,10 +156,38 @@ function ownTheme(own) {
   return verdict.ok ? verdict.theme : null;
 }
 
-/** @returns {object[]|null} the venue's own list, if it set one */
+/**
+ * Sorts topics by their label, the way a person reading a list expects.
+ *
+ * Through a collator rather than `<`, because labels are whatever the business
+ * writes and that includes Thai and Chinese, where comparing UTF-16 code units
+ * gives an order nobody recognises. `numeric` so "Room 2" precedes "Room 10";
+ * `base` so case and accents do not split words that belong together — those
+ * compare equal, and `Array.sort` is stable, so equal labels keep the order
+ * they were stored in.
+ */
+const collator = new Intl.Collator(undefined, {
+  numeric: true,
+  sensitivity: 'base',
+});
+
+/** @param {{label?: string}} a @param {{label?: string}} b */
+function byLabel(a, b) {
+  return collator.compare(a?.label || '', b?.label || '');
+}
+
+/**
+ * @returns {object[]|null} the venue's own list, if it set one
+ *
+ * Sorted here, at the one point both readers pass through: the dashboard's
+ * editor and the guest page's picker are then in the same order without either
+ * one sorting for itself. A copy rather than a sort in place — this array comes
+ * off the subscriber row, and reordering it underneath the caller that stored
+ * it would be a surprise.
+ */
 function ownCategories(own) {
   const list = own?.categories;
-  return Array.isArray(list) && list.length ? list : null;
+  return Array.isArray(list) && list.length ? [...list].sort(byLabel) : null;
 }
 
 /** @returns {string[]|null} the venue's own details, if it set any */
@@ -615,4 +643,5 @@ module.exports = {
   mask,
   validate,
   validateCategories,
+  byLabel,
 };

@@ -172,11 +172,12 @@ function renderTopics(topics) {
 }
 
 /**
- * `count` ids drawn without replacement, in the business's own order.
+ * `count` ids drawn without replacement, in the order they arrived.
  *
- * Order preserved rather than shuffled: the topic list is written most-obvious
- * first, and a picker that reorders itself on every load would make the same ten
- * feel like a different ten. Random *which*, not random *where*.
+ * That order is alphabetical — the server sorts the list once, so the picker
+ * here and the editor in the dashboard agree. Preserved rather than shuffled: a
+ * picker that reordered itself on every load would make the same ten feel like a
+ * different ten. Random *which*, not random *where*.
  */
 function sampleIds(topics, count) {
   if (topics.length <= count) return topics.map((t) => t.id);

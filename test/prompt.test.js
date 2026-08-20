@@ -933,3 +933,31 @@ test('a drafted theme is read from either shape the model returns', () => {
   assert.equal(seed.parseTheme('no json at all'), null);
   assert.equal(seed.parseTheme('{"ground":"#0b1b33"}'), null);
 });
+
+test('topics come back in alphabetical order, whatever order they were stored in', () => {
+  const stored = [
+    { id: 'a', label: 'Ambience' },
+    { id: 'b', label: 'room 10' },
+    { id: 'c', label: 'Room 2' },
+    { id: 'd', label: 'coffee' },
+  ];
+
+  const labels = settings
+    .resolve({ categories: stored })
+    .categories.map((c) => c.label);
+
+  // Case-insensitive, so 'coffee' sits between the two capitalised words
+  // instead of after them, and numeric, so Room 2 precedes Room 10.
+  assert.deepEqual(labels, ['Ambience', 'coffee', 'Room 2', 'room 10']);
+
+  // The stored array is the subscriber's row. Sorting a copy is the difference
+  // between a display order and a silent rewrite of what they saved.
+  assert.equal(stored[0].label, 'Ambience');
+  assert.equal(stored[1].label, 'room 10');
+
+  // Same list, same order, through the dashboard's view of it.
+  assert.deepEqual(
+    settings.describe({ categories: stored }).categories.value.map((c) => c.label),
+    labels
+  );
+});

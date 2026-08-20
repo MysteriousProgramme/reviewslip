@@ -616,7 +616,14 @@ router.post(
         });
       }
 
-      res.json({ categories, url: resolved.sourceUrl });
+      // Sorted before it reaches the editor, so the list the customer is
+      // about to save already reads in the order it will be shown in. The cap
+      // is applied first, by parseTopics: the model's own ordering decides
+      // which fifty survive, and alphabetical decides only how they are shown.
+      res.json({
+        categories: [...categories].sort(settingsRules.byLabel),
+        url: resolved.sourceUrl,
+      });
     } catch (err) {
       next(err);
     }
