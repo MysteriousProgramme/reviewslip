@@ -23,6 +23,12 @@ const el = {
   lengthLabel: document.getElementById('length-label'),
   slipLabel: document.getElementById('slip-label'),
   titleDot: document.getElementById('title-dot'),
+
+  // The full topic list, in a modal.
+  dialog: document.getElementById('topics-dialog'),
+  allChips: document.getElementById('all-chips'),
+  topicsTitle: document.getElementById('topics-title'),
+  topicsDone: document.getElementById('topics-done'),
 };
 
 /**
@@ -70,7 +76,6 @@ function t(key, vars = {}) {
 const state = {
   topics: [], // every topic the business has, {id, label}
   shown: [], // the ids currently on screen
-  browsing: false, // whether the guest opened the full list
   // A set, not one value: a guest may want the room and the food in one review.
   categoryIds: [],
   destinations: [], // {id, label, hex, path, url} for each link that is set
@@ -102,6 +107,13 @@ async function init() {
   el.regenerate.addEventListener('click', () => generate());
   el.copy.addEventListener('click', onCopy);
   el.browse.addEventListener('click', onBrowse);
+  el.topicsDone.addEventListener('click', () => el.dialog.close());
+  // Tapping outside the sheet closes it. A <dialog> puts the backdrop behind
+  // the element rather than in it, so a click on the backdrop lands on the
+  // dialog itself — which is what this checks for.
+  el.dialog.addEventListener('click', (event) => {
+    if (event.target === el.dialog) el.dialog.close();
+  });
 
   let config;
   try {
@@ -213,7 +225,6 @@ function renderTopics(topics) {
 
   const offered = topics.map((t) => t.id);
   state.categoryIds = state.categoryIds.filter((id) => offered.includes(id));
-  state.browsing = false;
   state.shown = sampleIds(topics, SHOWN);
 
   drawTopics();
@@ -245,58 +256,93 @@ function sampleIds(topics, count) {
   return topics.filter((_, index) => taken.has(index)).map((t) => t.id);
 }
 
+/**
+ * One topic button, wherever it is being drawn.
+ *
+ * Shared between the picker and the sheet because the same topic can be in both
+ * at once — chosen in the sheet, then visible in the picker after it closes —
+ * and two builders would eventually disagree about what a selected one looks
+ * like.
+ */
+function topicChip(topic) {
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'chip';
+  chip.textContent = topic.label;
+  chip.dataset.id = topic.id;
+  chip.setAttribute('aria-pressed', String(state.categoryIds.includes(topic.id)));
+
+  // Toggling does not regenerate. Picking three topics would otherwise spend
+  // three reviews to get one, and each costs tokens the business pays for —
+  // Regenerate is one tap away once the selection is right.
+  chip.addEventListener('click', () => {
+    if (state.busy) return;
+
+    const on = state.categoryIds.includes(topic.id);
+    state.categoryIds = on
+      ? state.categoryIds.filter((id) => id !== topic.id)
+      : [...state.categoryIds, topic.id];
+
+    chip.setAttribute('aria-pressed', String(!on));
+
+    // Tapped inside the sheet, so the picker behind it is now out of date — a
+    // topic chosen here has to be on screen once the sheet is gone, or the
+    // guest is sending one they cannot see.
+    //
+    // Redrawn now rather than when the sheet closes. Closing has three routes —
+    // the button, Escape and the backdrop — and the `close` event that would
+    // catch all three does not fire in every engine. Doing it here needs no
+    // event at all, and the picker is inert behind a modal, so nobody is
+    // looking at what changes under it.
+    if (chip.parentElement === el.allChips) drawTopics();
+  });
+
+  return chip;
+}
+
 function drawTopics() {
-  el.chips.replaceChildren();
-
   // A topic the guest has already picked stays on screen even when it is not in
-  // the sample — browsing, choosing something, then collapsing the list must not
+  // the sample — choosing something in the sheet, then closing it, must not
   // silently drop the choice while leaving it in the request.
-  const visible = state.browsing
-    ? state.topics
-    : state.topics.filter(
-        (t) => state.shown.includes(t.id) || state.categoryIds.includes(t.id)
-      );
+  const visible = state.topics.filter(
+    (t) => state.shown.includes(t.id) || state.categoryIds.includes(t.id)
+  );
 
-  for (const topic of visible) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = 'chip';
-    chip.textContent = topic.label;
-    chip.dataset.id = topic.id;
-    chip.setAttribute(
-      'aria-pressed',
-      String(state.categoryIds.includes(topic.id))
-    );
-
-    // Toggling does not regenerate. Picking three topics would otherwise spend
-    // three reviews to get one, and each costs tokens the business pays for —
-    // Regenerate is one tap away once the selection is right.
-    chip.addEventListener('click', () => {
-      if (state.busy) return;
-
-      const on = state.categoryIds.includes(topic.id);
-      state.categoryIds = on
-        ? state.categoryIds.filter((id) => id !== topic.id)
-        : [...state.categoryIds, topic.id];
-
-      chip.setAttribute('aria-pressed', String(!on));
-    });
-
-    el.chips.append(chip);
-  }
+  el.chips.replaceChildren(...visible.map(topicChip));
 
   const more = state.topics.length - visible.length;
-  el.browse.hidden = !state.browsing && more <= 0;
-  el.browse.textContent = state.browsing
-    ? t('browseFewer')
-    : t('browseMore', { n: more });
-  el.browse.setAttribute('aria-expanded', String(state.browsing));
+  el.browse.hidden = more <= 0;
+  el.browse.textContent = t('browseMore', { n: more });
+
+  // The button opens a dialog, so it is described by aria-haspopup rather than
+  // aria-expanded — nothing expands in place any more.
+  el.browse.setAttribute('aria-haspopup', 'dialog');
 }
 
+/**
+ * Every topic the business has, alphabetically, in a modal.
+ *
+ * Sorted here as well as on the server. The server is where the order is
+ * decided and both lists come from it already sorted — but this sheet is the
+ * one place whose whole promise is "all of them, in order", and a promise that
+ * depends on an upstream deploy having happened is not one worth making.
+ *
+ * Rebuilt on every open rather than kept: it has to reflect a selection made in
+ * the picker since the last time it was seen, and fifty buttons is nothing.
+ */
 function onBrowse() {
-  state.browsing = !state.browsing;
-  drawTopics();
+  const all = [...state.topics].sort((a, b) =>
+    a.label.localeCompare(b.label, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  );
+
+  el.allChips.replaceChildren(...all.map(topicChip));
+  el.dialog.showModal();
 }
+
+
 
 /* ---------------------------------------------------------------- length */
 
@@ -395,6 +441,8 @@ function applyStrings() {
   el.slipLabel.textContent = t('reviewLabel');
   el.review.placeholder = t('placeholder');
   el.lang.setAttribute('aria-label', t('language'));
+  el.topicsTitle.textContent = t('allTopics');
+  el.topicsDone.textContent = t('done');
 
   // Mid-copy: the button says "Copied" for a moment and must not be reset to
   // "Copy" by a language change landing inside that window.

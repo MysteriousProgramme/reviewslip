@@ -56,10 +56,24 @@
       <section class="picker" aria-labelledby="picker-label">
         <p class="label" id="picker-label">What stood out?</p>
         <div class="chips" id="chips" role="group" aria-labelledby="picker-label"></div>
-        <!-- Ten topics are shown, drawn at random. This reveals the rest, and
-             stays hidden when there is no rest to reveal. -->
+        <!-- Ten topics are shown, drawn at random. This opens the rest, and
+             stays hidden when there is no rest to open. -->
         <button type="button" class="browse" id="browse" hidden></button>
       </section>
+
+      <!-- Every topic the business has, alphabetically.
+           A <dialog> rather than a div: showModal() gives the backdrop, the
+           Escape key, the focus trap and the inertness of everything behind it
+           for free, and all four are things a hand-rolled overlay gets wrong.
+           Outside .picker so the sheet is positioned against the viewport
+           rather than against a section that scrolls. -->
+      <dialog class="sheet" id="topics-dialog" aria-labelledby="topics-title">
+        <div class="sheet-head">
+          <h2 class="sheet-title" id="topics-title">All topics</h2>
+          <button type="button" class="sheet-close" id="topics-done">Done</button>
+        </div>
+        <div class="chips sheet-chips" id="all-chips" role="group" aria-labelledby="topics-title"></div>
+      </dialog>
 
       <section class="picker" aria-labelledby="length-label">
         <p class="label" id="length-label">How long?</p>

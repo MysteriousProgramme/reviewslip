@@ -282,6 +282,114 @@ body {
   text-decoration-color: var(--jade-dim);
 }
 
+/* ---------------------------------------------------------------- sheet -- */
+
+/* Every topic, in a modal. The picker offers ten of maybe fifty; this is where
+   the rest live, so it has to be comfortable to scan rather than clever.
+
+   A <dialog>, so the backdrop, Escape, the focus trap and the inertness of the
+   page behind it are the browser's job rather than ours. Everything below is
+   appearance only. */
+.sheet {
+  /* Fixed rather than the UA default of centred-and-absolute: on a phone this
+     is a bottom sheet, and it has to sit against the viewport. */
+  position: fixed;
+  inset: auto 0 0 0;
+  margin: 0 auto;
+  width: min(34rem, 100%);
+  /* The user-agent sheet caps a dialog at calc(100% - 6px - 2em), which on a
+     phone leaves a bottom sheet floating 19px off each edge instead of flush
+     against them. Width above is the intent; this is what lets it hold. */
+  max-width: 100%;
+  max-height: min(78vh, 40rem);
+  box-sizing: border-box;
+  padding: 1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom));
+  border: 1px solid var(--jade-line);
+  /* Square along the bottom edge: it is flush with it. */
+  border-radius: 1.1rem 1.1rem 0 0;
+  background: var(--shade-deep);
+  color: var(--jade);
+  overflow: hidden;
+  /* Grid, so the header stays put and only the chips scroll. */
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.9rem;
+}
+
+/* [open] rather than the bare element, because a dialog is display:none until
+   it is opened and a grid declaration would override that. */
+.sheet:not([open]) {
+  display: none;
+}
+
+.sheet::backdrop {
+  background: rgba(6, 17, 14, 0.72);
+  backdrop-filter: blur(2px);
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sheet-title {
+  margin: 0;
+  font-size: 0.813rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--jade-dim);
+}
+
+.sheet-close {
+  appearance: none;
+  border: 1px solid var(--jade-line);
+  background: transparent;
+  color: var(--jade);
+  font-family: inherit;
+  font-size: 0.813rem;
+  font-weight: 600;
+  /* Same tap target as a chip: it is the only way out on a phone that has no
+     Escape key and no room for a backdrop to tap. */
+  padding: 0.5rem 0.95rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    border-color 0.18s var(--ease),
+    color 0.18s var(--ease);
+}
+
+.sheet-close:hover,
+.sheet-close:focus-visible {
+  border-color: var(--jade-dim);
+  color: var(--paper);
+}
+
+.sheet-chips {
+  overflow-y: auto;
+  /* Room for the last row's focus ring, which a flush edge would clip. */
+  padding: 0.2rem 0.2rem 0.4rem;
+  margin: -0.2rem;
+  align-content: start;
+  overscroll-behavior: contain;
+}
+
+/* Wide enough for the sheet to sit as a panel rather than an edge. */
+@media (min-width: 34rem) {
+  .sheet {
+    inset: 0;
+    /* All four insets plus auto margins is the centring every engine has
+       agreed on for twenty years. align-self would also do it here, but only
+       in the browsers that apply box alignment to absolutely positioned boxes,
+       and this page is read on whatever phone scanned the code. */
+    margin: auto;
+    border-radius: 1.1rem;
+    padding-bottom: 1.25rem;
+  }
+}
+
 /* ----------------------------------------------------------------- slip -- */
 
 .label-slip {
