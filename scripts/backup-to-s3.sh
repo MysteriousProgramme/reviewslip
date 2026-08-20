@@ -45,7 +45,7 @@ BACKUP_KMS_KEY_ID="${BACKUP_KMS_KEY_ID:-$(env_value BACKUP_KMS_KEY_ID)}"
 BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL:-$(env_value BACKUP_HEARTBEAT_URL)}"
 
 [ -n "$DATABASE_URL" ] || fail "DATABASE_URL is not set in $ENV_FILE or the environment."
-[ -n "$BACKUP_S3_URI" ] || fail "BACKUP_S3_URI is not set. Add it to $ENV_FILE, e.g. s3://my-bucket/reviewslip"
+[ -n "$BACKUP_S3_URI" ] || fail "BACKUP_S3_URI is not set. Add it to $ENV_FILE, e.g. s3://my-bucket"
 
 # s3://bucket/prefix -> bucket, prefix. Needed because head-object below takes
 # them separately, and that check is the only proof the upload actually landed.
@@ -59,9 +59,23 @@ prefix="${prefix%/}"
 command -v pg_dump >/dev/null 2>&1 || fail "pg_dump not found. apt install postgresql-client"
 command -v aws >/dev/null 2>&1 || fail "aws not found. Install the AWS CLI."
 
+# The database's own name, read off the connection string rather than written
+# in here. It becomes both the folder and the start of the filename, so an
+# object says which database it holds without anyone having to remember which
+# box wrote it — and a second database on the same box lands beside this one
+# instead of overwriting it.
+#
+# Everything after the last slash, minus any ?query. Reduced to the characters
+# a database name can actually contain, so a malformed URL cannot put a slash
+# or a space into an object key.
+db="${DATABASE_URL##*/}"
+db="${db%%\?*}"
+db="$(printf '%s' "$db" | tr -cd 'A-Za-z0-9_-')"
+[ -n "$db" ] || fail "could not read a database name out of DATABASE_URL."
+
 stamp="$(date -u +%Y-%m-%dT%H%M%SZ)"
-name="reviewslip-$stamp.dump"
-key="${prefix:+$prefix/}$name"
+name="$db-$stamp.dump"
+key="${prefix:+$prefix/}$db/$name"
 
 # In /var/tmp rather than /tmp: /tmp is often a tmpfs sized as a fraction of
 # RAM, and this box is small. A dump that grows past it would fail at 3am with

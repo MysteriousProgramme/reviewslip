@@ -757,8 +757,21 @@ property — or replace the verification with `list-objects-v2`, which reports
 sudo apt install -y postgresql-client awscli
 ```
 
-Set `BACKUP_S3_URI` in `/opt/reviewslip/.env` — and `BACKUP_KMS_KEY_ID` if you
-made a key. Then install the timer:
+Set `BACKUP_S3_URI` in `/opt/reviewslip/.env` — the bucket alone, with no
+trailing folder — and `BACKUP_KMS_KEY_ID` if you made a key:
+
+```
+BACKUP_S3_URI=s3://reviewslip-backups-123456789012
+```
+
+The script adds the rest. It reads the database name out of `DATABASE_URL` and
+uses it for both the folder and the filename, so objects land as
+`reviewslip/reviewslip-2026-08-19T032000Z.dump` — which is what the IAM policy
+in step 3 and the lifecycle rule in step 5 are both scoped to. Give the URI a
+folder of its own only if one bucket holds more than one environment
+(`s3://…/prod`), and widen those two prefixes to match.
+
+Then install the timer:
 
 ```bash
 sudo cp /opt/reviewslip/deploy/reviewslip-backup.* /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now reviewslip-backup.timer
