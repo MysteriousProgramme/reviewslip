@@ -39,15 +39,11 @@ const FIELDS = [
   'xiaohongshuUrl',
   'wongnaiUrl',
   'websiteUrl',
-  'sourceText',
 ];
 
 const BUILT_IN = {
   apiKey: '',
   model: MODEL,
-  // What the owner pasted about the business, for when there is no readable
-  // page. Same reasoning as the rest of this block: nobody else's is any use.
-  sourceText: '',
   // No built-in review links. One venue's listing is the wrong default for
   // every other venue — an unset link is reported as unset, and the guest page
   // drops that button rather than sending someone to a stranger's listing.
@@ -213,7 +209,6 @@ function describe(own) {
     xiaohongshuUrl: { value: values.xiaohongshuUrl, source: source.xiaohongshuUrl },
     wongnaiUrl: { value: values.wongnaiUrl, source: source.wongnaiUrl },
     categories: { value: values.categories, source: source.categories },
-    sourceText: { value: values.sourceText, source: source.sourceText },
     // The four chosen colours, plus what they derive to and anything the
     // contrast check had to move. The dashboard needs the derived set to draw a
     // truthful preview — showing the four raw colours would promise a page the
@@ -304,17 +299,6 @@ function validate(patch) {
     if (bad) return bad;
   }
 
-  // Generous: this is raw material a drafting prompt
-  // reads once, not something sent on every review, so its length costs a
-  // single call rather than every one of them. Capped at all because it is a
-  // text area on a form and someone will eventually paste a book into it.
-  const sourceText = checkLength(
-    patch.sourceText,
-    MAX_SOURCE_TEXT,
-    'pasted description'
-  );
-  if (sourceText) return sourceText;
-
   // Handed back normalised, so the caller stores exactly what was checked
   // rather than re-deriving it.
   const out = { ok: true };
@@ -357,11 +341,6 @@ function checkLength(value, max, label) {
     ? { ok: false, error: `That ${label} is too long.` }
     : null;
 }
-
-/* ------------------------------------------------------- the pasted source */
-
-/** Room for a Facebook About page, an opening-hours block and a menu. */
-const MAX_SOURCE_TEXT = 12000;
 
 /* ------------------------------------------------- topics (aka categories) */
 
@@ -528,7 +507,6 @@ module.exports = {
   MODEL,
   MAX_TOPICS,
   MAX_DESCRIPTION,
-  MAX_SOURCE_TEXT,
   clean,
   fromEnv,
   resolve,

@@ -573,9 +573,6 @@ app.post('/api/settings', requireTenant, requireSubscriber, async (req, res) => 
       tripadvisorUrl: patch.tripadvisorUrl,
       websiteUrl: patch.websiteUrl,
       categories: patch.categories,
-      kind: patch.kind,
-      place: patch.place,
-      sourceText: patch.sourceText,
     });
   } catch (err) {
     if (err?.expose && err.status) {

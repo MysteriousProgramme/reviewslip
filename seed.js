@@ -39,37 +39,6 @@ const BANNED_WORDS = [
   'star',
 ];
 
-/**
- * How a drafting request opens, given whatever source we actually have.
- *
- * There are two: a page to fetch, or text the owner pasted. The second exists
- * because a great many small businesses are a Facebook page and nothing else,
- * and Facebook serves a sign-in wall to anything without a session — so
- * "fall back to their Facebook URL" reads well and returns nothing. Pasted text
- * always works.
- *
- * The instruction differs in more than the noun. A fetched page can be followed
- * to a menu or an About page; pasted text is all there is, so the model is told
- * so plainly — otherwise it goes looking, finds nothing, and reports failure
- * rather than working with what it was given.
- *
- * @param {object} source - one of `{ url }` or `{ text }`
- * @param {string} fetching - what to do with a page, appended after the URL
- * @param {string} pasted - what to do with the text, before it
- */
-function opening({ url, text }, fetching, pasted) {
-  if (text) {
-    return `${pasted}
-
-There is no page to fetch — this is everything you have, and it is enough. Work only from what is between the markers. Do not go looking for a website, and do not fill gaps with what a business of this kind usually has.
-
------ what the owner pasted -----
-${text}
------ end -----`;
-  }
-  return `Read ${url} and ${fetching}`;
-}
-
 /** @returns {string|undefined} the first banned word found, if any */
 function bannedWord(value) {
   return BANNED_WORDS.find((w) =>
@@ -179,19 +148,22 @@ Output only the JSON object. Nothing before it, nothing after it.`;
 
 /**
  * @param {object} args
- * @param {string} args.url - the business's website
+ * @param {string} args.url - whatever page this business has: its website, or
+ *   its Facebook page, or one of its review listings. The instruction below is
+ *   deliberately the same for all of them. A social page that answers with a
+ *   sign-in wall is not a different kind of source needing different words; it
+ *   is a page that came back with nothing on it, and the honest response to
+ *   that is the one already asked for — leave it out rather than assume.
  * @param {number} args.max - how many topics may be stored, from settings.js
  */
-function buildTopicMessages({ url, text, max = 30 }) {
+function buildTopicMessages({ url, max = 30 }) {
   return [
     { role: 'system', content: topicSystem(max) },
     {
       role: 'user',
-      content: opening(
-        { url, text },
-        `propose the review topics. Fetch the page before answering — do not guess from the domain name. Follow the site's own links to the menu, the product range, the treatment list, the rooms: that is where most of the topics are, and the front page rarely has them. Work through what you find item by item rather than summarising it. If the page shows no evidence for something, leave it out rather than assuming a business of this kind usually has one.`,
-        `Propose the review topics from what the owner of this business has pasted below. Every dish, product, treatment or room it names is a topic — work through them item by item. Then the third kind, which needs no evidence at all, until you are near the number.`
-      ),
+      content: `Read ${url} and propose the review topics. Fetch the page before answering — do not guess from the domain name or from the business's name. Follow the site's own links to the menu, the product range, the treatment list, the rooms: that is where most of the topics are, and the front page rarely has them. Work through what you find item by item rather than summarising it.
+
+If the page will not load, or shows a sign-in wall, or carries nothing about the business, say so plainly and return only the topics of the third kind — the ones true of any visit. Do not describe a business you could not read.`,
     },
   ];
 }

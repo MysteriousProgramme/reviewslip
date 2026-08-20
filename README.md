@@ -258,27 +258,27 @@ only those leaves the model free to drift back onto last week's review.
 
 ### When there is no website
 
-A great many small businesses are a Facebook page and nothing else. The readers
-fall back through whatever is set — a website first, then Facebook, then any
-other listing — but **that fallback usually returns nothing**: Facebook serves a
-sign-in wall to anything without a session, so what comes back is the wall
-rather than the page. Falling back was correct and still failed.
+A great many small businesses are a Facebook page and nothing else. There is one
+kind of source — an address — and the readers fall back through whatever is set:
+the website field first, then the Facebook link, then any other listing. A
+Facebook URL can go in either field and is read the same way.
 
-So there is a second kind of source. Under the website field is a box to
-**paste** what is on the Facebook page — the About text, the hours, the menu.
-Pasted text feeds the same drafting prompts a fetched page would, and it works
-every time. It is preferred over any listing URL and loses only to a real
-website, so somebody who has taken the trouble to paste their About page does
-not have us fetch the page instead and come back empty.
+**Expect it to come back empty.** Facebook serves a sign-in wall to anything
+without a session, so what gets fetched is the wall rather than the page. The
+drafting prompt is told to expect exactly that: a page that will not load, or
+shows a sign-in wall, or carries nothing about the business means say so and
+return only the topics true of any visit — never describe a business it could
+not read. That is the difference between an empty result and an invented one.
 
-The prompts differ in more than the noun. A fetched page can be followed to a
-menu or an About page; pasted text is all there is, so the model is told so
-plainly — otherwise it goes looking, finds nothing, and reports failure rather
-than working with what it was given.
+When it does come back empty, the topics and their descriptions are written by
+hand on the Topics tab, and the dashboard says so rather than leaving someone to
+work it out.
 
-**The Theme tab is the exception.** Colours, typefaces, a logo and a photograph
-are properties of a rendered page, and there is nothing in a paragraph of prose
-to take them from. That reader says so rather than attempting it and failing.
+Reading Facebook properly is not a credentials problem — no token can be added
+to the current path, because `openrouter:web_fetch` is a server-side tool with
+nowhere to put one. It needs the Meta Graph API: a Meta app, business
+verification, App Review for the page permissions, and an OAuth flow in which
+each Page's own admin connects it. That is a project, not a setting.
 
 ### From the site itself
 

@@ -349,7 +349,6 @@ router.patch(
         categories: patch.categories,
         kind: patch.kind,
         place: patch.place,
-        sourceText: patch.sourceText,
         theme: patch.theme,
         fontDisplay: patch.fontDisplay,
         fontUi: patch.fontUi,
@@ -489,17 +488,7 @@ function sourceHint(field) {
   if (field === 'websiteUrl') {
     return 'Try a different page on the site — an About page usually works best.';
   }
-  if (field === 'sourceText') {
-    return 'That was read from what you pasted. Paste more of it — the About text, the opening hours, the menu — and try again.';
-  }
-  return `That is your ${SOURCE_LABELS[field] ?? 'listing'}, and those usually refuse to be read by anything that is not a signed-in browser. Facebook in particular almost always will. Rather than fighting it: open your page, select the About text and whatever else describes you, and paste it into the box under the website field. That always works.`;
-}
-
-/** `{url}` or `{text}`, whichever this business actually has. */
-function sourceFor(resolved) {
-  return resolved.sourceField === 'sourceText'
-    ? { text: resolved.sourceText }
-    : { url: resolved.sourceUrl };
+  return `That is your ${SOURCE_LABELS[field] ?? 'listing'}, and those often refuse to be read by anything that is not a signed-in browser — Facebook most of all, which shows a sign-in wall rather than the page. If it keeps coming back empty, the topics and their descriptions can be written by hand below, which is the only route that always works.`;
 }
 
 function readable(venue, res) {
@@ -510,20 +499,17 @@ function readable(venue, res) {
     return null;
   }
 
-  // Pasted text beats every listing and loses only to a real website. A
-  // website is richer; everything below it is a URL that may well refuse to be
-  // read, while pasted text is certain. Somebody who has taken the trouble to
-  // paste their Facebook About page should not have us fetch the page instead
-  // and come back empty.
-  if (!resolved.websiteUrl && resolved.sourceText) {
-    return { ...resolved, sourceUrl: '', sourceField: 'sourceText' };
-  }
-
+  // First address that is set, in the order above. A website is richer than a
+  // listing and a listing is better than nothing — but every one of them is a
+  // URL handed to the same fetch, so there is no second code path here and no
+  // special case for Facebook. A page that answers with a sign-in wall is a
+  // page that came back with nothing on it, and the prompt is what handles
+  // that.
   const field = SOURCE_ORDER.find((name) => resolved[name]);
   if (!field) {
     res.status(400).json({
       error:
-        'Nothing to read yet. Add a website address, or paste what is on your Facebook page into the box below it, then save.',
+        'Nothing to read yet. Add a website address — or your Facebook page as the Facebook link — then save.',
     });
     return null;
   }
@@ -551,7 +537,7 @@ router.post(
 
       const answer = await readWebsite(req.venue, resolved, {
         messages: buildTopicMessages({
-          ...sourceFor(resolved),
+          ...{ url: resolved.sourceUrl },
           max: settingsRules.MAX_TOPICS,
         }),
         // Fifty topics with a focus line each is a long answer; 3000 truncated
@@ -607,17 +593,6 @@ router.post(
     try {
       const resolved = readable(req.venue, res);
       if (!resolved) return;
-
-      // The one reader that cannot work from pasted text. Colours, typefaces, a
-      // logo and a photograph are properties of a rendered page; there is
-      // nothing in a paragraph of prose to take them from. Said plainly rather
-      // than attempted and failed.
-      if (resolved.sourceField === 'sourceText') {
-        return res.status(400).json({
-          error:
-            'A theme has to be read from a real page — the colours, the typefaces and the logo are not in text. Add a website address, or set the four colours by hand below.',
-        });
-      }
 
       const answer = await readWebsite(req.venue, resolved, {
         messages: buildThemeMessages({

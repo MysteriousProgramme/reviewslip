@@ -354,23 +354,23 @@ test('a non-English language is asked for last and only for the review', () => {
 
 /* ------------------------------------------------------------ topic drafts */
 
-test('a drafting prompt works from pasted text when there is no page', () => {
-  // A great many small businesses are a Facebook page and nothing else, and
-  // Facebook serves a sign-in wall to anything without a session — so falling
-  // back to their listing URL reads well and returns nothing. Pasted text is
-  // the path that always works.
-  const pasted = 'Corner cafe on Bridge Street. Menu: Pad Thai, Green Curry.';
+test('a page that will not read is told what to do about it', () => {
+  // Any address can be handed to this: a website, a Facebook page, a listing.
+  // The one that matters is Facebook, which answers a signed-out fetch with a
+  // sign-in wall rather than a 404 — so the model gets a page, just not the
+  // one it asked for. Left to itself it describes what it can see, which is a
+  // login form, or invents what a business of that kind usually has.
+  const [, user] = seed.buildTopicMessages({
+    url: 'https://facebook.com/riverside',
+    max: 50,
+  });
 
-  for (const build of [() => seed.buildTopicMessages({ text: pasted, max: 50 })]) {
-    const [, user] = build();
-
-    assert.ok(user.content.includes(pasted), 'the text has to be in the prompt');
-    // Nothing to fetch, and the model has to be told so — otherwise it goes
-    // looking, finds nothing, and reports failure rather than using what it has.
-    assert.match(user.content, /There is no page to fetch/);
-    assert.doesNotMatch(user.content, /^Read /);
-    assert.doesNotMatch(user.content, /undefined/);
-  }
+  assert.match(user.content, /^Read https:\/\/facebook\.com\/riverside and /);
+  assert.match(user.content, /shows a sign-in wall/);
+  assert.match(user.content, /Do not describe a business you could not read/);
+  // The honest fallback: topics true of any visit need no page behind them.
+  assert.match(user.content, /only the topics of the third kind/);
+  assert.doesNotMatch(user.content, /undefined/);
 });
 
 test('a URL still reads as a fetch, unchanged', () => {
@@ -380,18 +380,18 @@ test('a URL still reads as a fetch, unchanged', () => {
   assert.doesNotMatch(user.content, /There is no page to fetch/);
 });
 
-test('pasted text is stored, capped, and described', () => {
-  assert.equal(settings.resolve({ sourceText: 'A cafe.' }).sourceText, 'A cafe.');
-  assert.equal(settings.describe({ sourceText: 'A cafe.' }).sourceText.source, 'subscriber');
-  assert.equal(settings.describe({}).sourceText.value, '');
+test('a business is read from one address, whatever kind of page it is', () => {
+  // There is no second kind of source any more. A caller reading sourceText
+  // would get undefined and put it in a prompt, so it has to be gone rather
+  // than merely blank.
+  const bare = settings.resolve({});
+  assert.ok(!('sourceText' in bare), 'sourceText is still being resolved');
+  assert.ok(!('sourceText' in settings.describe({})));
 
-  // Generous, because it is read once by a drafting call rather than sent on
-  // every review — but capped, because it is a text area on a form.
-  assert.ok(settings.validate({ sourceText: 'x'.repeat(settings.MAX_SOURCE_TEXT) }).ok);
-  assert.equal(
-    settings.validate({ sourceText: 'x'.repeat(settings.MAX_SOURCE_TEXT + 1) }).ok,
-    false
-  );
+  // And it cannot be smuggled back in through a save.
+  const saved = settings.validate({ sourceText: 'A cafe on Bridge Street.' });
+  assert.ok(saved.ok);
+  assert.ok(!('sourceText' in saved));
 });
 
 test('the topic prompt aims at the cap but licenses falling short', () => {
