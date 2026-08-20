@@ -94,16 +94,18 @@ test('the rules cite the documents they come from', () => {
     );
   }
 
-  // And the documents themselves are named, so the prompt can be audited
-  // against them without anyone having to know where they live.
-  for (const url of [
-    'https://reviewslip.com/faq',
-    'https://reviewslip.com/legal/terms',
-    'https://reviewslip.com/legal/privacy',
+  // And the clauses themselves are in the document, not linked. A writer
+  // cannot open a URL mid-generation, so a citation is only checkable if the
+  // text it cites is present. These are the load-bearing phrases from each.
+  for (const [clause, quote] of [
+    ['Terms 4', 'genuine customer experience with the business'],
+    ['Terms 5', 'fake, misleading or fabricated reviews'],
+    ['Terms 7', 'invent false customer experiences'],
+    ['Privacy 2B', 'sensitive personal identifiers'],
   ]) {
     assert.ok(
-      context.GENERIC_CONTEXT.includes(url),
-      `${url} is no longer cited in context.md`
+      context.GENERIC_CONTEXT.includes(quote),
+      `${clause} is no longer quoted in context.md`
     );
   }
 });
