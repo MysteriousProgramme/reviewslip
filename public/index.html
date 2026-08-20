@@ -72,7 +72,23 @@
           <h2 class="sheet-title" id="topics-title">All topics</h2>
           <button type="button" class="sheet-close" id="topics-done">Done</button>
         </div>
-        <div class="chips sheet-chips" id="all-chips" role="group" aria-labelledby="topics-title"></div>
+        <!-- type="search" for the clear affordance and the right on-screen
+             keyboard. No autofocus: the first focusable thing in this dialog is
+             Done, deliberately, because focusing the field would raise a phone
+             keyboard over the list the guest just asked to see. -->
+        <input
+          type="search"
+          class="sheet-search"
+          id="topics-search"
+          autocomplete="off"
+          enterkeyhint="done"
+        />
+        <div class="sheet-body" id="sheet-body">
+          <div class="chips sheet-chips" id="all-chips" role="group" aria-labelledby="topics-title"></div>
+          <!-- Announced when it appears, so a screen reader hears that the list
+               emptied rather than falling silent. -->
+          <p class="sheet-empty" id="topics-empty" role="status" hidden></p>
+        </div>
       </dialog>
 
       <section class="picker" aria-labelledby="length-label">

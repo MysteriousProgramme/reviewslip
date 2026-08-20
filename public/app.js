@@ -29,6 +29,8 @@ const el = {
   allChips: document.getElementById('all-chips'),
   topicsTitle: document.getElementById('topics-title'),
   topicsDone: document.getElementById('topics-done'),
+  topicsSearch: document.getElementById('topics-search'),
+  topicsEmpty: document.getElementById('topics-empty'),
 };
 
 /**
@@ -108,6 +110,12 @@ async function init() {
   el.copy.addEventListener('click', onCopy);
   el.browse.addEventListener('click', onBrowse);
   el.topicsDone.addEventListener('click', () => el.dialog.close());
+  el.topicsSearch.addEventListener('input', filterTopics);
+  // Enter in a search field submits, and a form-less input inside a dialog
+  // closes it. The guest meant "that one", not "close".
+  el.topicsSearch.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') event.preventDefault();
+  });
   // Tapping outside the sheet closes it. A <dialog> puts the backdrop behind
   // the element rather than in it, so a click on the backdrop lands on the
   // dialog itself — which is what this checks for.
@@ -339,7 +347,49 @@ function onBrowse() {
   );
 
   el.allChips.replaceChildren(...all.map(topicChip));
+
+  // Cleared on every open. A filter left over from last time would hide topics
+  // the guest never chose to hide, and the box that explains why is above the
+  // fold only until the keyboard is up.
+  el.topicsSearch.value = '';
+  filterTopics();
+
   el.dialog.showModal();
+}
+
+/**
+ * Folds a label down to what a search should match.
+ *
+ * Case first, then accents, so "cafe" finds "Café" and "Zimmer" finds "zimmer".
+ * The decomposition is a no-op for Thai and the CJK scripts — they have no
+ * combining accents to strip — and substring matching is the right behaviour
+ * there anyway, since neither language puts spaces between words.
+ */
+function fold(text) {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '');
+}
+
+/**
+ * Shows the topics matching what has been typed, and hides the rest.
+ *
+ * Hidden rather than removed and rebuilt: a chip carries the guest's selection
+ * in an attribute, and rebuilding on every keystroke would throw away the
+ * focused element under a keyboard user mid-search.
+ */
+function filterTopics() {
+  const query = fold(el.topicsSearch.value.trim());
+  let matched = 0;
+
+  for (const chip of el.allChips.children) {
+    const hit = !query || fold(chip.textContent).includes(query);
+    chip.hidden = !hit;
+    if (hit) matched += 1;
+  }
+
+  el.topicsEmpty.hidden = matched > 0;
 }
 
 
@@ -443,6 +493,9 @@ function applyStrings() {
   el.lang.setAttribute('aria-label', t('language'));
   el.topicsTitle.textContent = t('allTopics');
   el.topicsDone.textContent = t('done');
+  el.topicsSearch.placeholder = t('searchTopics');
+  el.topicsSearch.setAttribute('aria-label', t('searchTopics'));
+  el.topicsEmpty.textContent = t('noMatches');
 
   // Mid-copy: the button says "Copied" for a moment and must not be reset to
   // "Copy" by a language change landing inside that window.

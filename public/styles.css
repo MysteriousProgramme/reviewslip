@@ -310,9 +310,10 @@ body {
   background: var(--shade-deep);
   color: var(--jade);
   overflow: hidden;
-  /* Grid, so the header stays put and only the chips scroll. */
+  /* Grid, so the header and the search field stay put and only the list
+     scrolls. */
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 0.9rem;
 }
 
@@ -367,13 +368,53 @@ body {
   color: var(--paper);
 }
 
-.sheet-chips {
+/* Filters the list below. Only ever seen over eleven topics or more — the
+   button that opens this sheet is hidden when everything already fits in the
+   picker — so it is never a search box over a handful of chips. */
+.sheet-search {
+  appearance: none;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid var(--jade-line);
+  border-radius: 999px;
+  background: var(--jade-wash);
+  color: var(--paper);
+  font-family: inherit;
+  /* 1rem, not the 0.875rem a chip uses: iOS zooms the whole page when a field
+     under 16px takes focus, and a page zoomed inside a modal cannot be zoomed
+     back out by the guest. */
+  font-size: 1rem;
+  transition: border-color 0.18s var(--ease);
+}
+
+.sheet-search::placeholder {
+  color: var(--jade-dim);
+}
+
+.sheet-search:focus-visible {
+  outline: none;
+  border-color: var(--jade-dim);
+}
+
+/* The scrolling half. Wraps the chips and the empty line so that swapping one
+   for the other cannot change what scrolls. */
+.sheet-body {
   overflow-y: auto;
   /* Room for the last row's focus ring, which a flush edge would clip. */
   padding: 0.2rem 0.2rem 0.4rem;
   margin: -0.2rem;
-  align-content: start;
   overscroll-behavior: contain;
+}
+
+.sheet-chips {
+  align-content: start;
+}
+
+.sheet-empty {
+  margin: 0.4rem 0.2rem;
+  font-size: 0.875rem;
+  color: var(--jade-dim);
 }
 
 /* Wide enough for the sheet to sit as a panel rather than an edge. */
