@@ -141,7 +141,25 @@ async function verifyPassword(password, stored) {
 /* ----------------------------------------------------------------- sessions */
 
 const SESSION_PREFIX = 'rvs_';
-const SESSION_DAYS = 30;
+
+/**
+ * How long a signed-in session lasts.
+ *
+ * A day, not the month it was. A dashboard session can read and change every
+ * business on the account — the review links a QR code sends people to, and the
+ * OpenRouter key that is billed — so a token left behind on a shared or lost
+ * device is worth something for as long as it lives. A month of that is a long
+ * time to be wrong about who has the laptop.
+ *
+ * The cost is signing in again each day, which is the ordinary price of this
+ * being an admin surface rather than a reader.
+ *
+ * The browser cookie is set to match in the website repo. Both have to move
+ * together: a cookie outliving its row means a token sent on every request that
+ * the server has already forgotten, and a row outliving its cookie means a
+ * session nobody can reach still sitting in the table.
+ */
+const SESSION_HOURS = 24;
 
 function newSessionToken() {
   return SESSION_PREFIX + crypto.randomBytes(32).toString('base64url');
@@ -268,7 +286,7 @@ async function login(identifier, password) {
 async function startSession(accountId) {
   const token = newSessionToken();
   const expiresAt = new Date(
-    Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000
+    Date.now() + SESSION_HOURS * 60 * 60 * 1000
   ).toISOString();
 
   await query(

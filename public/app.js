@@ -639,22 +639,23 @@ async function generate() {
     });
 
     const data = await res.json().catch(() => ({}));
+
+    // Before the throw, not after it. A refusal carries a count too, and the
+    // one that matters most is the refusal for being out — the page used to
+    // read the count only on success, so being told "no more" left `state.left`
+    // untouched, `setBusy(false)` re-enabled the button, and the guest could
+    // tap it forever against a server that would never say yes again.
+    applyQuota(data);
+
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 
     el.review.value = data.review;
     state.recent = [...state.recent, data.review].slice(-3);
 
-    // The server decides; this only reflects it, so a reload cannot buy more.
-    if (typeof data.left === 'number') {
-      state.left = data.left;
-      state.max = typeof data.max === 'number' ? data.max : state.max;
-      renderCount();
-      if (data.left === 0) {
-        el.regenerate.disabled = true;
-        say(t('lastTry'));
-      } else if (data.left <= 3) {
-        say(t(data.left === 1 ? 'triesOne' : 'triesMany', { n: data.left }));
-      }
+    if (state.left === 0) {
+      say(t('lastTry'));
+    } else if (state.left !== null && state.left <= 3) {
+      say(t(state.left === 1 ? 'triesOne' : 'triesMany', { n: state.left }));
     }
 
     setBusy(false);
@@ -662,8 +663,32 @@ async function generate() {
     replay(el.review, 'settling');
   } catch (err) {
     setBusy(false);
+    // setBusy re-enables the button unless the count says otherwise, which is
+    // why applyQuota runs first: an ordinary failure should leave the guest
+    // able to try again, and running out should not.
     say(err.message || t('writerFailed'), 'error');
   }
+}
+
+/**
+ * Takes whatever the server said about the count and makes the page agree.
+ *
+ * The server is the only authority here — the map it counts against is keyed by
+ * business and address, so reloading the page, clearing storage or opening a
+ * new tab buys nothing. This only reflects that decision, and its whole job is
+ * to make a refusal stick to the button rather than being announced once and
+ * forgotten.
+ *
+ * @param {object} data - a response body, successful or not
+ */
+function applyQuota(data) {
+  if (typeof data?.left !== 'number') return;
+
+  state.left = data.left;
+  if (typeof data.max === 'number') state.max = data.max;
+
+  renderCount();
+  if (state.left === 0) el.regenerate.disabled = true;
 }
 
 /* ----------------------------------------------------------- copy & post */
@@ -729,9 +754,12 @@ async function copyReview() {
  */
 function renderCount() {
   if (state.max === null || state.left === null) return;
-  const used = state.max - state.left;
+
+  // Regenerations, both of them: the first draft arrives before the guest has
+  // asked for anything, so counting it here would open the page on "1/10"
+  // having spent nothing.
   el.regenerate.textContent = t('regenerateCount', {
-    used,
+    used: state.max - state.left,
     max: state.max,
   });
 }

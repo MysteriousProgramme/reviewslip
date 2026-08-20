@@ -18,6 +18,7 @@ const {
 } = require('./seed');
 const settingsRules = require('./settings');
 const strings = require('./strings');
+const { createQuota, MAX_REGENERATIONS } = require('./quota');
 const theme = require('./theme');
 const { ready } = require('./db');
 const subscribers = require('./subscribers');
@@ -28,6 +29,9 @@ const { PLATFORMS } = require('./platforms');
 const adminRouter = require('./admin');
 const customerRouter = require('./customer');
 const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
+
+// One counter for the process, keyed by business and address inside.
+const quota = createQuota();
 const {
   resolveTenant,
   requireTenant,
@@ -242,45 +246,6 @@ const WINDOW_MS = 60_000;
 const MAX_PER_WINDOW = 30;
 const hits = new Map();
 
-/**
- * The generation cap.
- *
- * The per-minute throttle above stops a script; this stops an honest guest
- * regenerating forty times looking for a sentence they like. Each attempt is a
- * model call the business pays for, and a guest who has not settled by the tenth
- * is not going to.
- *
- * An hour, keyed the same way as the throttle. In memory, like the throttle:
- * a restart forgives everyone, which is the right way to fail for a limit whose
- * only job is to bound spending.
- */
-const MAX_GENERATIONS = 10;
-const GENERATION_WINDOW_MS = 60 * 60_000;
-const generations = new Map();
-
-/** @returns {{allowed: boolean, used: number, left: number}} */
-function countGeneration(key) {
-  const now = Date.now();
-  const entry = generations.get(key);
-
-  if (!entry || now > entry.resetAt) {
-    generations.set(key, { count: 1, resetAt: now + GENERATION_WINDOW_MS });
-    if (generations.size > 5000) generations.clear();
-    return { allowed: true, used: 1, left: MAX_GENERATIONS - 1 };
-  }
-
-  if (entry.count >= MAX_GENERATIONS) {
-    return { allowed: false, used: entry.count, left: 0 };
-  }
-
-  entry.count += 1;
-  return {
-    allowed: true,
-    used: entry.count,
-    left: MAX_GENERATIONS - entry.count,
-  };
-}
-
 function throttled(key) {
   const now = Date.now();
   const entry = hits.get(key);
@@ -356,11 +321,12 @@ app.post('/api/review', requireTenant, async (req, res) => {
 
   // Counted before the model is called, not after: a cap enforced on the way
   // out has already spent the tokens it exists to protect.
-  const quota = countGeneration(`${req.subscriber.slug}:${req.ip}`);
-  if (!quota.allowed) {
+  const spend = quota.count(`${req.subscriber.slug}:${req.ip}`);
+  if (!spend.allowed) {
     return res.status(429).json({
       error: strings.t(lang, 'outOfTries'),
       left: 0,
+      max: MAX_REGENERATIONS,
     });
   }
 
@@ -493,8 +459,8 @@ app.post('/api/review', requireTenant, async (req, res) => {
       review,
       categoryId,
       reviewId,
-      left: quota.left,
-      max: MAX_GENERATIONS,
+      left: spend.left,
+      max: MAX_REGENERATIONS,
     });
   } catch (err) {
     const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError';

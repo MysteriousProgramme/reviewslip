@@ -25,6 +25,7 @@ const config = require('../config');
 const seed = require('../seed');
 const settings = require('../settings');
 const strings = require('../strings');
+const quota = require('../quota');
 const theme = require('../theme');
 const assets = require('../assets');
 
@@ -1038,4 +1039,56 @@ test('the language for a guest we have not heard from yet', () => {
   assert.equal(strings.fromHeader('xx-YY'), 'en');
   assert.equal(strings.fromHeader(''), 'en');
   assert.equal(strings.fromHeader(undefined), 'en');
+});
+
+/* ------------------------------------------------------------------- quota */
+
+test('a guest gets ten regenerations, and the eleventh is refused', () => {
+  // The count that survived a release without working: it was inside server.js,
+  // which cannot be required without a database, so nothing could exercise it.
+  let clock = 0;
+  const q = quota.createQuota({ now: () => clock });
+
+  // The first draft is not a regeneration. Nobody asked for it — the page
+  // writes it on load — so it must not spend one of the ten.
+  const first = q.count('riverside:1.2.3.4');
+  assert.deepEqual(first, { allowed: true, used: 0, left: 10 });
+
+  for (let i = 1; i <= 10; i += 1) {
+    const r = q.count('riverside:1.2.3.4');
+    assert.ok(r.allowed, `regeneration ${i} should be allowed`);
+    assert.equal(r.used, i);
+    assert.equal(r.left, 10 - i);
+  }
+
+  // And it stays refused rather than refusing once and forgiving.
+  for (let i = 0; i < 3; i += 1) {
+    assert.deepEqual(q.count('riverside:1.2.3.4'), {
+      allowed: false,
+      used: 10,
+      left: 0,
+    });
+  }
+});
+
+test('the count is per guest and per business, and lets go after an hour', () => {
+  let clock = 0;
+  const q = quota.createQuota({ now: () => clock });
+
+  for (let i = 0; i < 11; i += 1) q.count('riverside:1.2.3.4');
+  assert.equal(q.count('riverside:1.2.3.4').allowed, false);
+
+  // A different address at the same business, and the same address at a
+  // different business, both start fresh. One busy guest must not close the
+  // page for everyone else in the room.
+  assert.equal(q.count('riverside:5.6.7.8').left, 10);
+  assert.equal(q.count('otherplace:1.2.3.4').left, 10);
+
+  // An hour on, the window has rolled.
+  clock += quota.WINDOW_MS + 1;
+  assert.deepEqual(q.count('riverside:1.2.3.4'), {
+    allowed: true,
+    used: 0,
+    left: 10,
+  });
 });
