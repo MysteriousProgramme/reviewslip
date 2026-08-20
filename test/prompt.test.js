@@ -8,8 +8,8 @@
  * What this cannot tell you is whether the reviews are any good — that only
  * comes from reading them, which is what the dashboard's thumbs are for. What it
  * can tell you is that the guest's Short actually reached the prompt, that a
- * business with no details is not handed somebody else's, and that a superlative
- * typed into the context box does not survive to the listing.
+ * business with no topics is not handed somebody else's, and that a superlative
+ * typed into a topic description does not survive to the listing.
  *
  *   node --test test/
  */
@@ -28,17 +28,24 @@ const strings = require('../strings');
 const theme = require('../theme');
 const assets = require('../assets');
 
-/** A business that has described itself. */
-const CLINIC = {
-  name: 'Riverside Dental',
-  kind: 'a dental clinic',
-  place: 'Hobart, Tasmania',
-  safeDetails: ['a quiet waiting room', 'parking right outside'],
-};
+/**
+ * A business is a name now. Everything a review may say about one travels with
+ * the topic the guest picked, so there is nothing else here to get wrong.
+ */
+const CLINIC = { name: 'Riverside Dental' };
 
 const TOPICS = [
-  { id: 'rooms', label: 'Rooms', focus: 'the room itself' },
-  { id: 'staff', label: 'Staff', focus: 'how you were treated' },
+  {
+    id: 'rooms',
+    label: 'Rooms',
+    focus:
+      'The treatment rooms look out over the river. Each has its own chair and screen, and the blinds come down if you would rather not watch.',
+  },
+  {
+    id: 'staff',
+    label: 'Staff',
+    focus: 'How you were greeted, and whether anyone explained what was happening before it happened.',
+  },
 ];
 
 /** Picks index 0 of every pool, so a drawn phrasing is assertable. */
@@ -54,7 +61,7 @@ test('every compliance rule reaches every prompt', () => {
   // is the one where every other section of the prompt is empty.
   assert.ok(context.COMPLIANCE_RULES.length >= 6);
 
-  for (const venue of [CLINIC, { name: 'Somewhere', safeDetails: [] }]) {
+  for (const venue of [CLINIC, { name: 'Somewhere' }]) {
     const [system] = config.buildMessages({ venue });
     for (const rule of context.COMPLIANCE_RULES) {
       assert.ok(
@@ -181,28 +188,35 @@ test('a platform note needs exactly one known destination', () => {
 test('the system prompt opens on this business, not a built-in one', () => {
   const prompt = config.buildSystemPrompt(CLINIC);
 
-  assert.match(prompt, /Riverside Dental, a dental clinic in Hobart, Tasmania/);
-  assert.match(prompt, /a quiet waiting room/);
+  assert.match(prompt, /just finished at Riverside Dental\./);
   assert.match(prompt, /What a real review is like/);
-});
-
-test('a business with no details is told to claim nothing, not handed a lodge', () => {
-  const prompt = config.buildSystemPrompt({ name: 'Somewhere', safeDetails: [] });
-
-  assert.match(prompt, /None have been recorded/);
-  assert.match(prompt, /state no specific fact/);
-  // The regression this exists for: the built-in used to be the first customer.
+  // The regression this exists for: the built-in used to be the first customer,
+  // and every business that had not described itself inherited it.
   assert.doesNotMatch(prompt, /garden|Chiang Mai/i);
 });
 
-test('the context doc goes in framed as background, not as fact', () => {
-  const prompt = config.buildSystemPrompt({
-    ...CLINIC,
-    contextDoc: 'Mostly families booking a check-up.',
-  });
+test('the description is named as the edge of what a review may claim', () => {
+  // The whole no-fabrication guarantee now rests on one paragraph the business
+  // wrote, so the prompt has to say that it is a boundary rather than a
+  // starting point — and has to say it before the paragraph arrives.
+  const prompt = config.buildSystemPrompt(CLINIC);
 
-  assert.match(prompt, /Mostly families booking a check-up\./);
-  assert.match(prompt, /do not treat anything here as a fact/i);
+  assert.match(prompt, /Everything you know about Riverside Dental is in the topic description/);
+  assert.match(prompt, /boundary rather than a starting point/);
+  assert.match(prompt, /it does not exist as far as you are concerned/);
+  // And the empty case, which is a guest who tapped nothing.
+  assert.match(prompt, /If the request names no topic/);
+
+  // Stated before the request, so it reads as the rule the material arrives
+  // under rather than as a caveat attached to it.
+  // Anchored on a rule that appears once. Searching for "Rules" would find
+  // "## Rules you must not break" inside context.md, which is earlier and is
+  // not the block meant here.
+  assert.ok(
+    prompt.indexOf('What you may say about this business') <
+      prompt.indexOf('Do not invent facts'),
+    'the boundary has to be stated before the rules that lean on it'
+  );
 });
 
 test('the length ceiling moves with the length choice', () => {
@@ -302,7 +316,11 @@ test('one topic is used directly and several are woven rather than listed', () =
     categories: TOPICS,
     categoryIds: ['rooms'],
   });
-  assert.match(one.content, /Write one review about the room itself\./);
+  assert.match(one.content, /Write one review about Rooms/);
+  // The paragraph travels with it, quoted as the business's own words rather
+  // than folded into the instruction — the two are read differently.
+  assert.match(one.content, /What the business says about it:/);
+  assert.match(one.content, /look out over the river/);
 
   const [, both] = config.buildMessages({
     venue: CLINIC,
@@ -343,11 +361,7 @@ test('a drafting prompt works from pasted text when there is no page', () => {
   // the path that always works.
   const pasted = 'Corner cafe on Bridge Street. Menu: Pad Thai, Green Curry.';
 
-  for (const build of [
-    () => seed.buildSeedMessages({ text: pasted }),
-    () => seed.buildTopicMessages({ text: pasted, max: 50 }),
-    () => seed.buildContextMessages({ text: pasted }),
-  ]) {
+  for (const build of [() => seed.buildTopicMessages({ text: pasted, max: 50 })]) {
     const [, user] = build();
 
     assert.ok(user.content.includes(pasted), 'the text has to be in the prompt');
@@ -360,7 +374,7 @@ test('a drafting prompt works from pasted text when there is no page', () => {
 });
 
 test('a URL still reads as a fetch, unchanged', () => {
-  const [, user] = seed.buildSeedMessages({ url: 'https://riverside.example' });
+  const [, user] = seed.buildTopicMessages({ url: 'https://riverside.example' });
 
   assert.match(user.content, /^Read https:\/\/riverside\.example and /);
   assert.doesNotMatch(user.content, /There is no page to fetch/);
@@ -463,46 +477,17 @@ test('unusable topic output is null rather than an empty list', () => {
 
 /* ----------------------------------------------------- context doc drafts */
 
-test('a drafted context keeps its paragraphs and drops only bad sentences', () => {
-  const raw = JSON.stringify({
-    contextDoc:
-      'Families book check-ups here. It is our award-winning practice. The waiting room is quiet.\n\nReviews here are short.',
-  });
-
-  const parsed = seed.parseContextDoc(raw);
-
-  assert.match(parsed.contextDoc, /Families book check-ups here\./);
-  assert.match(parsed.contextDoc, /The waiting room is quiet\./);
-  assert.match(parsed.contextDoc, /Reviews here are short\./);
-  // Dropped, and reported — a silent gap would send the customer looking for a
-  // bug, and leaving it in would only fail the validator on Save.
-  assert.doesNotMatch(parsed.contextDoc, /award-winning/);
-  assert.equal(parsed.dropped.length, 1);
-  assert.match(parsed.dropped[0], /award-winning/);
-  assert.ok(parsed.contextDoc.includes('\n\n'));
-});
-
-test('a drafted context is cut to the stored limit', () => {
-  const raw = JSON.stringify({ contextDoc: 'a. '.repeat(500) });
-  assert.ok(seed.parseContextDoc(raw, { maxChars: 200 }).contextDoc.length <= 200);
-});
-
-test('unusable context output is null', () => {
-  assert.equal(seed.parseContextDoc('no json here'), null);
-  assert.equal(seed.parseContextDoc('{"contextDoc":"   "}'), null);
-  // Every sentence screened out is the same as nothing usable coming back.
-  assert.equal(seed.parseContextDoc('{"contextDoc":"Our award-winning clinic."}'), null);
-});
-
 /* ----------------------------------------------------------- stored limits */
 
-test('a business resolves to its own topics and details, or to none', () => {
+test('a business resolves to its own topics, or to none', () => {
   const bare = settings.resolve({});
   assert.deepEqual(bare.categories, []);
-  assert.deepEqual(bare.safeDetails, []);
-  assert.equal(bare.kind, '');
-  assert.equal(bare.place, '');
-  assert.equal(bare.contextDoc, '');
+
+  // The four that used to describe a business are gone, not merely blank. A
+  // caller reading one would silently get undefined and put it in a prompt.
+  for (const field of ['kind', 'place', 'safeDetails', 'contextDoc']) {
+    assert.ok(!(field in bare), `${field} is still being resolved`);
+  }
 });
 
 test('fifty topics are allowed and fifty-one are refused', () => {
@@ -520,7 +505,7 @@ test('the writer may name what the topic names, and nothing else', () => {
   // writer is forbidden to talk about is worse than no button.
   const prompt = config.buildSystemPrompt(CLINIC);
 
-  assert.match(prompt, /You may name the specific thing the topic above names/);
+  assert.match(prompt, /You may name the specific thing the description names/);
   assert.match(prompt, /never a name you have supplied yourself/);
   // The blanket ban is gone; the parts of it that still hold are not.
   assert.doesNotMatch(prompt, /no dish names/);
@@ -556,23 +541,40 @@ test('topic ids survive a rename so a guest is not bounced off their choice', ()
   assert.equal(categories[0].focus, 'Breakfast & Coffee');
 });
 
-test('the context doc refuses superlatives but allows figures', () => {
-  assert.equal(settings.validate({ contextDoc: 'Our award-winning kitchen.' }).ok, false);
+test('a topic description is screened, and the refusal says why', () => {
+  const one = (focus) =>
+    settings.validateCategories([{ label: 'Rooms', focus }]);
 
-  // Unlike a detail, this is background the writer is told not to repeat — so a
-  // number in it is not a claim that reaches the listing.
-  assert.ok(settings.validate({ contextDoc: 'Open 7 days, busiest at 8pm.' }).ok);
+  // Screened harder than the old background document was, because it is no
+  // longer background: whatever is in here is what a review may assert.
+  const superlative = one('Our award-winning rooms are lovely.');
+  assert.equal(superlative.ok, false);
+  assert.match(superlative.error, /award/);
 
-  const long = settings.validate({ contextDoc: 'a'.repeat(settings.MAX_CONTEXT_DOC + 1) });
+  // Numbers used to be allowed in the background document, on the grounds that
+  // the writer was told not to repeat it. Nothing is background any more.
+  const numeric = one('There are 12 rooms, all with a river view.');
+  assert.equal(numeric.ok, false);
+  assert.match(numeric.error, /number/);
+
+  const long = one('a'.repeat(settings.MAX_DESCRIPTION + 1));
   assert.equal(long.ok, false);
   assert.match(long.error, /is the limit/);
+
+  const fine = one('The rooms look out over the river, and the blinds come down if you would rather not watch.');
+  assert.ok(fine.ok);
+  assert.match(fine.categories[0].focus, /look out over the river/);
+
+  // Reported rather than dropped. These are prose an owner typed, and prose
+  // that vanishes on save with no explanation is worse than a refusal.
+  assert.equal(settings.MAX_DESCRIPTION, 600);
 });
 
-test('a hand-typed detail is screened exactly as a drafted one is', () => {
-  // The reason the details list could be made editable at all.
-  assert.equal(settings.validate({ safeDetails: ['our award-winning bar'] }).ok, false);
-  assert.equal(settings.validate({ safeDetails: ['12 rooms'] }).ok, false);
-  assert.ok(settings.validate({ safeDetails: ['a quiet waiting room'] }).ok);
+test('a topic with no description of its own falls back to its label', () => {
+  // Which is what a topic typed by hand in a hurry will be, and it still reads:
+  // "write one review about Rooms".
+  const { categories } = settings.validateCategories([{ label: 'Rooms', focus: '' }]);
+  assert.equal(categories[0].focus, 'Rooms');
 });
 
 /* ------------------------------------------------------------------ themes */

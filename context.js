@@ -211,9 +211,11 @@ function rulebook({
     '',
     '## 2. The topics a customer can pick',
     '',
-    'The guest page shows ten of these at random with the rest behind a browse',
-    'button. Whichever they tap becomes the subject; the note beside it is what',
-    'actually reaches the prompt.',
+    'The guest page shows ten of these at random, with the rest behind a browse',
+    'button and a search. Whichever they tap becomes the subject, and the',
+    'description beside it is the whole of what a review about that topic may',
+    'claim. There is nothing else: if something about your business is not in',
+    'one of these paragraphs, no review will ever say it.',
     '',
     topics.length
       ? topics

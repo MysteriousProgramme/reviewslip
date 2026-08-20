@@ -10,12 +10,8 @@ const openrouter = require('./openrouter');
 const { publicUrl } = require('./tenant');
 const { readWebsite } = require('./reader');
 const {
-  buildSeedMessages,
-  parseProposal,
   buildTopicMessages,
   parseTopics,
-  buildContextMessages,
-  parseContextDoc,
   buildThemeMessages,
   parseTheme,
 } = require('./seed');
@@ -353,8 +349,6 @@ router.patch(
         categories: patch.categories,
         kind: patch.kind,
         place: patch.place,
-        safeDetails: patch.safeDetails,
-        contextDoc: patch.contextDoc,
         sourceText: patch.sourceText,
         theme: patch.theme,
         fontDisplay: patch.fontDisplay,
@@ -539,41 +533,6 @@ function readable(venue, res) {
   return { ...resolved, sourceUrl: resolved[field], sourceField: field };
 }
 
-router.post(
-  '/businesses/:slug/seed',
-  requireAccount,
-  requireOwnVenue,
-  async (req, res, next) => {
-    try {
-      const resolved = readable(req.venue, res);
-      if (!resolved) return;
-
-      const answer = await readWebsite(req.venue, resolved, {
-        messages: buildSeedMessages(sourceFor(resolved)),
-        maxTokens: 2000,
-      });
-      if (!answer.ok) {
-        return res.status(answer.status).json({ error: answer.error });
-      }
-
-      const parsed = parseProposal(answer.content);
-      if (!parsed || !parsed.proposal.safeDetails.length) {
-        console.error(
-          'Seed produced nothing usable:',
-          String(answer.content).slice(0, 500)
-        );
-        return res.status(502).json({
-          error: `Nothing checkable came back from that page. ${sourceHint(resolved.sourceField)}`,
-        });
-      }
-
-      res.json({ ...parsed, url: resolved.sourceUrl });
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
 /**
  * The topic set, drafted from the website.
  *
@@ -605,6 +564,7 @@ router.post(
 
       const categories = parseTopics(answer.content, {
         max: settingsRules.MAX_TOPICS,
+        maxChars: settingsRules.MAX_DESCRIPTION,
       });
       if (!categories) {
         console.error(
@@ -624,64 +584,6 @@ router.post(
         categories: [...categories].sort(settingsRules.byLabel),
         url: resolved.sourceUrl,
       });
-    } catch (err) {
-      next(err);
-    }
-  }
-);
-
-/**
- * The business's own AI context document, drafted from what it publishes.
- *
- * Reads the review listings alongside the website, because how this business's
- * real customers already write is the single most useful thing on the subject —
- * and it is the one input the website cannot give. Whether any of those pages
- * actually yields reviews to a server-side fetch varies by platform; the prompt
- * is told that seeing none is a normal outcome and to say nothing rather than
- * describe reviews it has not read.
- *
- * A draft, again. The customer reads it in a textarea and Save stores it — which
- * matters more here than anywhere else in this file, because this is free prose
- * with no source quote behind any sentence.
- */
-router.post(
-  '/businesses/:slug/context/draft',
-  requireAccount,
-  requireOwnVenue,
-  async (req, res, next) => {
-    try {
-      const resolved = readable(req.venue, res);
-      if (!resolved) return;
-
-      const listings = PLATFORMS.map((p) => resolved[`${p.id}Url`]).filter(
-        Boolean
-      );
-
-      const answer = await readWebsite(req.venue, resolved, {
-        messages: buildContextMessages({
-          ...sourceFor(resolved),
-          listings,
-        }),
-        maxTokens: 1500,
-      });
-      if (!answer.ok) {
-        return res.status(answer.status).json({ error: answer.error });
-      }
-
-      const parsed = parseContextDoc(answer.content, {
-        maxChars: settingsRules.MAX_CONTEXT_DOC,
-      });
-      if (!parsed) {
-        console.error(
-          'Context drafting produced nothing usable:',
-          String(answer.content).slice(0, 500)
-        );
-        return res.status(502).json({
-          error: `Nothing usable came back from that page. ${sourceHint(resolved.sourceField)}`,
-        });
-      }
-
-      res.json({ ...parsed, url: resolved.sourceUrl, read: listings.length + 1 });
     } catch (err) {
       next(err);
     }

@@ -9,16 +9,13 @@
  * in San Kamphaeng. Categories had already been cut loose from their built-in
  * for exactly that reason; these are the rest of it.
  *
- * What is left is a shape, not a place: enough for `buildMessages` to be called
- * with nothing and still produce something coherent, which is what the tests and
- * the demo need. A real business overrides all of it, and one that has not is
- * told to keep to the guest's own impression rather than inventing a garden.
+ * A name is all that is left of it. Everything else a review may say now
+ * travels with the topic the guest picked, so there is nothing here to inherit
+ * and nothing to get wrong: a business with no topics is told to keep to the
+ * guest's own impression rather than inventing a garden.
  */
 const VENUE = {
   name: 'the business',
-  kind: '',
-  place: '',
-  safeDetails: [],
 };
 
 const { GENERIC_CONTEXT, platformNote } = require('./context');
@@ -151,47 +148,49 @@ const ANGLES = [
  * reads as the exception to a rule already stated, which is the order it is
  * meant to be read in.
  *
- * @param {object} venue - name, kind, place, safeDetails, and optionally
- *   contextDoc: whichever business is being served, not a built-in.
+ * @param {object} venue - the business being served: its name, and nothing
+ *   else. Everything a review may say about it now travels with the topic.
  * @param {object} [options]
  * @param {string} [options.length] - which length choice is in force
  * @param {string[]} [options.platformIds] - the platforms this business links to
  */
 function buildSystemPrompt(venue, { length = DEFAULT_LENGTH, platformIds = [] } = {}) {
-  const who = [venue.kind, venue.place].filter(Boolean).join(' in ');
   const note = platformNote(platformIds);
 
   const parts = [
-    `You write short, positive reviews in the voice of a real customer who has just finished at ${venue.name}${who ? `, ${who}` : ''}.`,
+    `You write short, positive reviews in the voice of a real customer who has just finished at ${venue.name}.`,
     GENERIC_CONTEXT,
   ];
 
-  // The business's own context document, if its owner wrote or drafted one.
-  // Framed as background rather than as facts: it is free text an owner typed,
-  // so it steers what a review is about and how it sounds, while the only things
-  // a review may actually assert are the details below.
-  if (venue.contextDoc) {
-    parts.push(
-      `About this business, from its owner\n\nBackground, for tone and subject matter. Do not quote figures or claims from it, and do not treat anything here as a fact you may state — the list of things you may state is below.\n\n${venue.contextDoc}`
-    );
-  }
-
-  // The load-bearing part of the no-fabrication guarantee. An empty list is a
-  // real state — a business that has not analysed its website yet — and it has
-  // to degrade into "say nothing specific" rather than into an empty bullet list
-  // the model fills in for itself.
+  // Where the no-fabrication guarantee lives now.
+  //
+  // It used to be a list of details checked line by line against the business's
+  // own website, sitting here in the system prompt. That list is gone and the
+  // topic description in the request has taken its place, so this block's whole
+  // job is to say that the description is a boundary and not a starting point.
+  //
+  // In the system prompt rather than beside the description itself, for two
+  // reasons. It is the same words on every generation, so it sits in the half a
+  // prompt cache can keep. And a limit stated in the same breath as the material
+  // it limits reads as a caveat; stated first, it reads as the rule that material
+  // arrives under.
   parts.push(
-    venue.safeDetails?.length
-      ? `Details you may draw on\n\n${venue.safeDetails.map((d) => `- ${d}`).join('\n')}`
-      : `Details you may draw on\n\nNone have been recorded for this business. Write only about the customer's own impression — how it felt, how they were treated — and state no specific fact about the place at all.`
+    `What you may say about this business
+
+Everything you know about ${venue.name} is in the topic description in the request below. The business wrote it itself, and it is a boundary rather than a starting point.
+
+- You may say what that description says, in the customer's own words rather than the business's.
+- You may say how the visit felt and how the customer was treated. That is theirs to report and needs no source.
+- You may not add anything else about this business: not a service, not a facility, not a speciality, not a detail that a business of this kind usually has. If the description does not mention it, it does not exist as far as you are concerned.
+- If the request names no topic then you have no description, and you must write about how the visit felt and nothing specific about the place at all.`
   );
 
   parts.push(`Rules
 
 - ${LENGTH_RULES[length] || LENGTH_RULES[DEFAULT_LENGTH]} Casual, first person, past tense.
 - Always positive — this is a five-star review.
-- Do not invent facts: no staff names, no prices, no room numbers, no dates, no claims about awards, amenities or facilities that are not in the list above.
-- You may name the specific thing the topic above names — a dish, a product, a treatment, a room type — because that came off the business's own pages and the customer chose it. Nothing else by name, and never a name you have supplied yourself. If the topic names nothing specific, name nothing.
+- Do not invent facts: no staff names, no prices, no room numbers, no dates, no claims about awards, amenities or facilities that the description does not make.
+- You may name the specific thing the description names — a dish, a product, a treatment, a room type — because the business wrote it and the customer chose it. Nothing else by name, and never a name you have supplied yourself. If the description names nothing specific, name nothing.
 - No numbers of any kind. No emoji, no hashtags, no star ratings, no headings, no quotation marks around the review.
 - Do not address the reader or the business. Do not sign off.
 - Output only the review text. Nothing before it, nothing after it.${note ? `\n- ${note}` : ''}`);
@@ -240,23 +239,35 @@ function buildMessages({
   const shape = pool[Math.floor(rand() * pool.length)];
   const voice = VOICES[Math.floor(rand() * VOICES.length)];
 
+  // One topic's label and the paragraph the business wrote under it.
+  //
+  // Quoted as the business's own words rather than folded into the instruction,
+  // because the two are read differently: an instruction is something to carry
+  // out, while quoted material is something to draw from — and the system prompt
+  // above has already said this paragraph is the edge of what may be claimed.
+  const describe = (c) =>
+    c.focus && c.focus !== c.label
+      ? `${c.label}\n\nWhat the business says about it:\n${c.focus}`
+      : c.label;
+
   // Nothing picked, or nothing to pick: write about the visit rather than
-  // refusing. A guest who goes straight to Regenerate still gets something.
-  let about =
-    'the visit overall — pick whichever single aspect feels most natural to lead with';
+  // refusing. A guest who goes straight to Regenerate still gets something —
+  // and with no description in hand, the system prompt has already told the
+  // writer that means feelings only.
+  let about = `the visit overall. There is no topic and so no description: write about how it felt and name nothing specific about the place`;
 
   if (picked.length === 1) {
-    about = picked[0].focus;
+    about = describe(picked[0]);
   } else if (picked.length > 1) {
     // Woven, not listed. Several topics in one short review becomes an inventory
     // unless the prompt says otherwise, and an inventory does not read like a
     // customer — it is one of the tells in the generic document.
     about =
-      picked.map((c) => c.focus).join('; and ') +
-      `.\n\nThat is ${picked.length} things at once — do not list them. Lead with whichever felt most worth saying and let the rest show up in passing, or leave one out if it will not fit naturally`;
+      picked.map(describe).join(`\n\n---\n\n`) +
+      `\n\nThat is ${picked.length} things at once — do not list them. Lead with whichever felt most worth saying and let the rest show up in passing, or leave one out if it will not fit naturally.`;
   }
 
-  let user = `Write one review about ${about}.\n\nThis time: ${angle}. Make it ${shape}, and write it ${voice}.`;
+  let user = `Write one review about ${about}\n\nThis time: ${angle}. Make it ${shape}, and write it ${voice}.`;
 
   // What has actually been posted for this business, as a calibration sample.
   // This is the closest thing to training the product does: the writer is shown

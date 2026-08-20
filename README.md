@@ -164,23 +164,26 @@ Every business can see both halves assembled: **Download context.md** on the
 General tab of its settings gives the real system prompt exactly as sent, its
 topics, and the reviews its ratings are currently feeding back.
 
-Those specifics are:
+Those specifics are one field: **`categories`**, the topics a customer picks
+from. Each topic carries a `label` — what the button says — and a description of
+up to 600 characters.
 
-| Field | What it is |
-| --- | --- |
-| `kind`, `place` | What kind of business, and where. |
-| `safeDetails` | The only things a review is allowed to *claim*. Editable. |
-| `contextDoc` | Free prose: who comes here, what they mention, how their reviews read. Editable. |
-| `categories` | The topics a customer picks from. |
+That description is the whole of what a review about that topic may claim. There
+is no other per-business material: no separate description of the business, no
+location field, no list of verified details. If something is not written in one
+of those paragraphs, no review will ever say it.
 
-`safeDetails` and `contextDoc` are deliberately different in kind. A detail is a
-fact the review may assert, so it is screened hard — no numbers, nothing a
-customer could not check with their own eyes — whether a model proposed it or a
-person typed it. The context document asserts nothing: the prompt tells the
-writer it is background for tone and subject matter and not to repeat claims from
-it, which is why a figure is allowed there and refused in a detail. Superlatives
-are refused in both, because "award-winning" comes back out in the reviews
-whatever the framing says.
+The system prompt states that as a boundary *before* the description arrives, so
+it reads as the rule the material comes under rather than a caveat attached to
+it. A guest who picks no topic gets no description at all, and the prompt tells
+the writer that means feelings only — nothing specific about the place.
+
+Descriptions are screened harder than the prose document they replaced, because
+nothing is background any more: a number or a superlative is refused on save, in
+both directions. A model that proposes one has it dropped silently — the owner
+has not seen it yet, and the button survives on its label alone. An owner who
+types one is told which topic and why, because prose that vanishes on save with
+no explanation is worse than a refusal.
 
 ### Compliance
 
@@ -284,18 +287,19 @@ OpenRouter's `web_fetch` server tool:
 
 | Button | Proposes |
 | --- | --- |
-| **Read website** | `kind`, `place`, and the `safeDetails` list. |
-| **Generate from website** | The topic set. |
-| **Draft from website** | The AI context document. |
+| **Generate from website** | The topic set, each topic with its description. |
+| **Generate theme** | Four colours, the typefaces, the logo and a hero image. |
 
-**Every one of them returns a draft.** Nothing is stored by reading a website:
-the values land in the editor, and Save is a separate deliberate act — so a human
-reads every line before it can reach a review.
+**Both return a draft.** Nothing is stored by reading a website: the values land
+in the editor, and Save is a separate deliberate act — so a human reads every
+line before it can reach a review.
 
-Every proposed *detail* quotes the sentence on the page it came from. That's the
-point: the no-fabrication guarantee rests on `safeDetails` being true, and a
-wrong detail gets repeated in *every* review from then on, not just one. The
-source quote makes a wrong one visible at a glance.
+The no-fabrication guarantee rests on those descriptions being true, and a wrong
+one is repeated in *every* review written under that button, not once. So the
+drafting prompt is constrained harder than the writing prompt: everything in a
+description has to come off the page, and a topic of the kind that has nothing on
+the page behind it — the welcome, the wait, being looked after — is told to
+describe that part of a visit plainly and claim nothing specific.
 
 Two layers guard it. The prompt forbids awards, superlatives, numbers, and staff
 or dish names, and requires a source quote. Then `screen()` in [seed.js](seed.js)
@@ -857,8 +861,8 @@ verified. A failed or skipped run then alerts by *not* arriving.
 - The review throttle is keyed per subscriber *and* per address, so one busy
   venue cannot throttle another.
 - The prompt forbids inventing details. Anything the writer is allowed to claim
-  is in that venue's own `safeDetails`; a venue with none is told to write about
-  the customer's impression and state no specific fact at all.
+  is in the description of the topic the guest picked; a guest who picked none
+  leaves the writer with the customer's impression and no specific fact at all.
 - When a venue has exactly one review link set, the prompt says which platform
   the review is bound for — a Google review and a Xiaohongshu post are different
   genres. With two or more it stays neutral, because the guest picks the button

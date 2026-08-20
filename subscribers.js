@@ -98,15 +98,17 @@ const COLUMNS = {
   facebookUrl: 'facebook_url',
   xiaohongshuUrl: 'xiaohongshu_url',
   wongnaiUrl: 'wongnai_url',
-  kind: 'kind',
-  place: 'place',
-  contextDoc: 'context_doc',
 };
 
 // The columns holding a JSON list rather than a scalar, by settings field.
+//
+// kind, place, safe_details and context_doc are still columns on the table and
+// are deliberately absent from here and from SCALARS above. The product no
+// longer has anywhere to show them, but a dropped column takes its data with
+// it, and this one holds text owners wrote. Left in place, unread, so the
+// decision stays reversible.
 const LISTS = {
   categories: 'categories',
-  safeDetails: 'safe_details',
 };
 
 // JSON too, but an object rather than a list, so it needs its own parse: an
@@ -186,13 +188,9 @@ function settingsFor(row) {
  */
 function venueFor(row) {
   const resolved = settings.resolve(own(row));
-  return {
-    name: row.name,
-    kind: resolved.kind,
-    place: resolved.place,
-    safeDetails: resolved.safeDetails,
-    contextDoc: resolved.contextDoc,
-  };
+  // A name, and nothing else. Everything a review may say about a business now
+  // travels with the topic the guest picked.
+  return { name: row.name };
 }
 
 /** Panel-safe: masked key, plus where each value came from. */
@@ -232,10 +230,10 @@ const Q = {
   insert: `
     INSERT INTO subscribers
       (slug, name, status, account_id, api_key, model, google_url,
-       tripadvisor_url, website_url, categories, kind, place, safe_details,
-       context_doc, token_hash, created_at, updated_at)
+       tripadvisor_url, website_url, categories, token_hash, created_at,
+       updated_at)
     VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $16)
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
   `,
   remove: 'DELETE FROM subscribers WHERE slug = $1',
   setToken:
@@ -304,10 +302,6 @@ async function create(input = {}) {
       values.tripadvisorUrl || null,
       values.websiteUrl || null,
       packList(check.categories),
-      values.kind || null,
-      values.place || null,
-      packList(check.safeDetails),
-      values.contextDoc || null,
       hashToken(token),
       now(),
     ]);

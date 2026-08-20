@@ -13,8 +13,6 @@ const {
   buildMessages,
 } = require('./config');
 const {
-  buildSeedMessages,
-  parseProposal,
   buildTopicMessages,
   parseTopics,
 } = require('./seed');
@@ -577,8 +575,6 @@ app.post('/api/settings', requireTenant, requireSubscriber, async (req, res) => 
       categories: patch.categories,
       kind: patch.kind,
       place: patch.place,
-      safeDetails: patch.safeDetails,
-      contextDoc: patch.contextDoc,
       sourceText: patch.sourceText,
     });
   } catch (err) {
@@ -596,36 +592,6 @@ app.post('/api/settings', requireTenant, requireSubscriber, async (req, res) => 
 app.get('/api/models', requireTenant, requireSubscriber, async (req, res) => {
   const models = await openrouter.catalogue();
   res.json({ models: models.map(({ id, name }) => ({ id, name })) });
-});
-
-/**
- * Seeding. Reads the venue's website via OpenRouter's web_fetch server tool and
- * proposes venue details. Returns a draft only — nothing here writes to config.
- */
-app.post('/api/seed', requireTenant, requireSubscriber, async (req, res) => {
-  const resolved = websiteSettings(req, res);
-  if (!resolved) return;
-
-  const answer = await readWebsite(req.subscriber, resolved, {
-    messages: buildSeedMessages({ url: resolved.websiteUrl }),
-    maxTokens: 2000,
-  });
-  if (!answer.ok) return res.status(answer.status).json({ error: answer.error });
-
-  const parsed = parseProposal(answer.content);
-
-  if (!parsed || !parsed.proposal.safeDetails.length) {
-    console.error(
-      'Seed produced nothing usable:',
-      String(answer.content).slice(0, 500)
-    );
-    return res.status(502).json({
-      error:
-        'Nothing checkable came back from that page. It may be image-only, or blocked. Try a different page on the site — an About page usually works best.',
-    });
-  }
-
-  res.json({ ...parsed, url: resolved.websiteUrl, model: resolved.model });
 });
 
 /**

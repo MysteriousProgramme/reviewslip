@@ -39,27 +39,12 @@ const FIELDS = [
   'xiaohongshuUrl',
   'wongnaiUrl',
   'websiteUrl',
-  'kind',
-  'place',
-  'contextDoc',
   'sourceText',
 ];
 
 const BUILT_IN = {
   apiKey: '',
   model: MODEL,
-  // Who the business is, in the writer's words. No .env layer and no built-in
-  // value: one business's description is meaningless for another, and until this
-  // was emptied every business that had not described itself inherited the first
-  // customer's — so a dental clinic's reviews described a lodge in Chiang Mai.
-  // Blank is the honest default, and `buildSystemPrompt` handles it by writing
-  // about the customer's impression and nothing else.
-  kind: '',
-  place: '',
-  // The business's own AI context document: free text its owner wrote or had
-  // drafted from their website, steering what a review talks about and how it
-  // sounds. Same reasoning as kind and place — nobody else's is any use here.
-  contextDoc: '',
   // What the owner pasted about the business, for when there is no readable
   // page. Same reasoning as the rest of this block: nobody else's is any use.
   sourceText: '',
@@ -112,7 +97,6 @@ function resolve(own) {
   // buttons was worse than showing none at all. Callers must cope with an empty
   // list. Details are the same, for the same reason.
   merged.categories = ownCategories(own) || [];
-  merged.safeDetails = ownSafeDetails(own) || [];
   // null rather than the shipped palette: "this business has no theme" and
   // "this business chose the shipped colours" want to behave differently.
   // The first serves an empty /theme.css and leaves the stylesheet alone.
@@ -190,12 +174,6 @@ function ownCategories(own) {
   return Array.isArray(list) && list.length ? [...list].sort(byLabel) : null;
 }
 
-/** @returns {string[]|null} the venue's own details, if it set any */
-function ownSafeDetails(own) {
-  const list = own?.safeDetails;
-  return Array.isArray(list) && list.length ? list : null;
-}
-
 /** Where each value came from — shown next to the fields in the panel. */
 function sources(own) {
   const mine = clean(own);
@@ -207,7 +185,6 @@ function sources(own) {
   // Not in FIELDS, so the loop above never sets it — and it is always ours.
   out.model = 'default';
   out.categories = ownCategories(own) ? 'subscriber' : 'default';
-  out.safeDetails = ownSafeDetails(own) ? 'subscriber' : 'default';
   out.theme = ownTheme(own) ? 'subscriber' : 'default';
   return out;
 }
@@ -236,10 +213,6 @@ function describe(own) {
     xiaohongshuUrl: { value: values.xiaohongshuUrl, source: source.xiaohongshuUrl },
     wongnaiUrl: { value: values.wongnaiUrl, source: source.wongnaiUrl },
     categories: { value: values.categories, source: source.categories },
-    kind: { value: values.kind, source: source.kind },
-    place: { value: values.place, source: source.place },
-    safeDetails: { value: values.safeDetails, source: source.safeDetails },
-    contextDoc: { value: values.contextDoc, source: source.contextDoc },
     sourceText: { value: values.sourceText, source: source.sourceText },
     // The four chosen colours, plus what they derive to and anything the
     // contrast check had to move. The dashboard needs the derived set to draw a
@@ -273,8 +246,7 @@ function describe(own) {
     // topics, which is the word a customer uses.
     limits: {
       categories: MAX_TOPICS,
-      safeDetails: MAX_SAFE_DETAILS,
-      contextDoc: MAX_CONTEXT_DOC,
+      description: MAX_DESCRIPTION,
     },
   };
 }
@@ -332,16 +304,7 @@ function validate(patch) {
     if (bad) return bad;
   }
 
-  const kind = checkLength(patch.kind, MAX_KIND, 'description');
-  if (kind) return kind;
-
-  const place = checkLength(patch.place, MAX_PLACE, 'location');
-  if (place) return place;
-
-  const contextDoc = checkContextDoc(patch.contextDoc);
-  if (contextDoc) return contextDoc;
-
-  // Generous, unlike the About text: this is raw material a drafting prompt
+  // Generous: this is raw material a drafting prompt
   // reads once, not something sent on every review, so its length costs a
   // single call rather than every one of them. Capped at all because it is a
   // text area on a form and someone will eventually paste a book into it.
@@ -360,12 +323,6 @@ function validate(patch) {
     const verdict = validateCategories(patch.categories);
     if (!verdict.ok) return verdict;
     out.categories = verdict.categories;
-  }
-
-  if (Array.isArray(patch.safeDetails)) {
-    const verdict = validateSafeDetails(patch.safeDetails);
-    if (!verdict.ok) return verdict;
-    out.safeDetails = verdict.safeDetails;
   }
 
   if (patch.theme !== undefined) {
@@ -401,116 +358,10 @@ function checkLength(value, max, label) {
     : null;
 }
 
-/* --------------------------------------------------------- the context doc */
-
-// Long enough for a couple of paragraphs about who comes here and what they
-// mention; short enough that it is not most of the prompt. It is sent on every
-// generation, and the business pays for it by the token.
-const MAX_CONTEXT_DOC = 2000;
+/* ------------------------------------------------------- the pasted source */
 
 /** Room for a Facebook About page, an opening-hours block and a menu. */
 const MAX_SOURCE_TEXT = 12000;
-
-/**
- * The business's own AI context document.
- *
- * Free text, unlike the details list — it steers tone and subject matter rather
- * than supplying facts a review may assert, and the prompt says so explicitly.
- * That is why numbers are allowed here and banned there: a number in a detail
- * gets stated as fact in every review, while a number in the background material
- * is something the writer is told not to repeat.
- *
- * Superlatives are still refused. "Our award-winning kitchen" in here comes back
- * out in the reviews whatever the framing says, and a listing full of the word
- * "award-winning" is one of the tells the generic context document is about.
- *
- * @returns {{ok: false, error: string}|null} null when the value is fine
- */
-function checkContextDoc(value) {
-  if (typeof value !== 'string' || !value.trim()) return null;
-
-  const doc = value.trim();
-
-  if (doc.length > MAX_CONTEXT_DOC) {
-    return {
-      ok: false,
-      error: `That context is ${doc.length} characters, and ${MAX_CONTEXT_DOC} is the limit. It goes into every review, so keep it to the essentials.`,
-    };
-  }
-
-  const hit = bannedWord(doc);
-  if (hit) {
-    return {
-      ok: false,
-      error: `Take "${hit}" out of the context. Words like that end up in the reviews, and a listing full of them is exactly what looks manufactured.`,
-    };
-  }
-
-  return null;
-}
-
-/* ----------------------------------------------------------- safe details */
-
-// The prompt asks for six to ten; ten is where a list stops steering the writer
-// and starts being a menu it picks from at random.
-const MAX_SAFE_DETAILS = 10;
-const MAX_DETAIL = 180;
-const MAX_KIND = 120;
-const MAX_PLACE = 160;
-
-/**
- * The details a review may draw on — the load-bearing part of the
- * no-fabrication guarantee. A wrong one here is repeated in *every* review from
- * then on, not just one, so the same screens seeding applies to a model's
- * output apply to a human's typing: no numbers, no unverifiable claims.
- *
- * Unlike seeding, which silently drops what fails, this reports the problem —
- * someone editing the list by hand should be told why their line vanished.
- *
- * @returns {{ok: true, safeDetails: string[]}|{ok: false, error: string}}
- */
-function validateSafeDetails(value) {
-  if (!Array.isArray(value)) {
-    return { ok: false, error: 'Details must be a list.' };
-  }
-  if (value.length > MAX_SAFE_DETAILS) {
-    return {
-      ok: false,
-      error: `That is more than ${MAX_SAFE_DETAILS} details. Trim the list.`,
-    };
-  }
-
-  const out = [];
-
-  for (const item of value) {
-    const detail = text(item, MAX_DETAIL + 1);
-    if (!detail) continue; // a blank row is a row the user deleted
-
-    if (detail.length > MAX_DETAIL) {
-      return {
-        ok: false,
-        error: `"${detail.slice(0, 30)}…" is too long for a detail.`,
-      };
-    }
-    if (/\d/.test(detail)) {
-      return {
-        ok: false,
-        error: `"${detail.slice(0, 30)}…" has a number in it. Numbers get repeated in every review — take it out.`,
-      };
-    }
-    const hit = bannedWord(detail);
-    if (hit) {
-      return {
-        ok: false,
-        error: `"${detail.slice(0, 30)}…" claims something a guest cannot check ("${hit}"). Rephrase it.`,
-      };
-    }
-
-    out.push(detail);
-  }
-
-  return { ok: true, safeDetails: out };
-}
 
 /* ------------------------------------------------- topics (aka categories) */
 
@@ -534,7 +385,16 @@ function validateSafeDetails(value) {
  */
 const MAX_TOPICS = 50;
 const MAX_LABEL = 40;
-const MAX_FOCUS = 200;
+
+/**
+ * How long a topic's description may run.
+ *
+ * This is now the only thing the writer is told about the business, so it has
+ * to hold a paragraph rather than a steer. Every *selected* topic's description
+ * goes into the prompt, so three chosen topics cost three of these — which is
+ * why it is 600 and not the 2,000 the old About box allowed.
+ */
+const MAX_DESCRIPTION = 600;
 const ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /**
@@ -581,9 +441,45 @@ function validateCategories(value) {
       ID_RE.test(given) && !taken.has(given) ? given : idFrom(label, taken);
     taken.add(id);
 
-    // No focus of their own: the label alone steers the prompt, which reads
-    // fine — "write one review about Rooms".
-    out.push({ id, label, focus: text(item?.focus, MAX_FOCUS) || label });
+    const focus = text(item?.focus, MAX_DESCRIPTION + 1);
+
+    if (focus) {
+      if (focus.length > MAX_DESCRIPTION) {
+        return {
+          ok: false,
+          error: `The description for "${label}" is ${focus.length} characters, and ${MAX_DESCRIPTION} is the limit. Every topic a guest picks goes into the prompt, so keep it to a paragraph.`,
+        };
+      }
+
+      // Reported rather than silently dropped. These used to be a short steer a
+      // model wrote; they are now prose an owner types, and prose that vanishes
+      // on save with no explanation is worse than a refusal that says why.
+      //
+      // Numbers, because the writer is told to use none and a number sitting in
+      // front of it is an invitation. Superlatives, because "our award-winning
+      // kitchen" comes back out in the reviews whatever the framing says, and a
+      // listing full of that phrase is one of the tells the generic document is
+      // about.
+      if (/\d/.test(focus)) {
+        return {
+          ok: false,
+          error: `The description for "${label}" has a number in it. Reviews are written without numbers, so take it out.`,
+        };
+      }
+
+      const hit = bannedWord(focus);
+      if (hit) {
+        return {
+          ok: false,
+          error: `Take "${hit}" out of the description for "${label}". Words like that end up in the reviews, and a listing full of them is exactly what looks manufactured.`,
+        };
+      }
+    }
+
+    // No description of its own: the label alone steers the prompt, which reads
+    // fine — "write one review about Rooms" — and is what a topic typed by hand
+    // in a hurry will be.
+    out.push({ id, label, focus: focus || label });
   }
 
   return { ok: true, categories: out };
@@ -631,10 +527,8 @@ module.exports = {
   BUILT_IN,
   MODEL,
   MAX_TOPICS,
-  MAX_SAFE_DETAILS,
-  MAX_CONTEXT_DOC,
+  MAX_DESCRIPTION,
   MAX_SOURCE_TEXT,
-  validateSafeDetails,
   clean,
   fromEnv,
   resolve,

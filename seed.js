@@ -1,15 +1,21 @@
 'use strict';
 
 /**
- * Seeding: read a venue's own website and propose the venue details the review
- * writer is allowed to draw on.
+ * Drafting: read a business's own website and propose what a review may be
+ * written from.
  *
- * The whole no-fabrication guarantee rests on those details being true — a bad
- * one is repeated in every review from then on, not just once. So the prompt is
- * constrained harder than the writing prompt, every proposed detail has to
- * quote the page text it came from, and `screen()` below independently drops
- * anything that slips through. The output is a draft for a human to approve,
- * never something to apply unseen.
+ * That used to be three separate things — a list of verified details, a prose
+ * background document, and a set of topic buttons. It is one thing now. A topic
+ * carries its own description, and that description is the entire boundary of
+ * what a review about it may claim, so this file's job is to fill those
+ * descriptions from evidence and to refuse to fill them from anything else.
+ *
+ * The no-fabrication guarantee rests on them being true: a bad description is
+ * repeated in every review written under that button, not once. So the prompt is
+ * constrained harder than the writing prompt, and `parseTopics` independently
+ * drops a description carrying a number or a superlative rather than trusting
+ * the prompt to have been obeyed. What comes out is a draft for a human to
+ * approve, never something applied unseen.
  */
 
 const BANNED_WORDS = [
@@ -32,58 +38,6 @@ const BANNED_WORDS = [
   'rated',
   'star',
 ];
-
-/**
- * Not "a hospitality business" any more, and no category list.
- *
- * The prompt used to say hospitality and to close with a fixed set of ids —
- * restaurant, bar, rooms, common — which is a lodge's floor plan. Asked to
- * describe a dental practice it either forced the practice into those four or
- * had every id dropped by the filter. Topics are drafted by their own prompt
- * now, from evidence, with no fixed vocabulary; this one extracts facts and
- * nothing else.
- */
-const SEED_SYSTEM = `You read a business's own website and extract only facts a customer could verify with their own eyes.
-
-Return a single JSON object of this shape:
-{
-  "name": "the business name",
-  "kind": "a short description, e.g. a small lodge, a dental clinic, a bike shop",
-  "place": "town, region, country",
-  "safeDetails": [
-    { "detail": "phrased plainly, as a customer would say it", "source": "the sentence on the page this came from" }
-  ]
-}
-
-Rules for safeDetails. Every detail you list may be repeated in a public review of this business, so a detail that is not true becomes a fabricated review:
-- Physical, checkable, sensory facts only: the setting, the premises, what is offered, what it is like to be there, what is nearby.
-- No awards, ratings, rankings, or prizes of any kind.
-- No superlatives the business uses about itself.
-- No numbers: no prices, no counts, no star ratings, no years, no distances.
-- No staff names, no product or dish names, no brand names.
-- Phrase each one the way a customer would say it, not the way the website says it.
-- Between 6 and 10 items. Fewer is fine if the page is thin. Do not pad.
-- Every item must quote the page text it came from in "source". If you cannot quote it, leave the item out.
-
-Output only the JSON object. Nothing before it, nothing after it.`;
-
-/**
- * @param {object} args
- * @param {string} args.url - the business's website
- */
-function buildSeedMessages({ url, text }) {
-  return [
-    { role: 'system', content: SEED_SYSTEM },
-    {
-      role: 'user',
-      content: opening(
-        { url, text },
-        'extract the details. Fetch the page before answering — do not infer anything from the domain name alone. If a page section is marketing copy with no checkable facts in it, skip that section rather than rephrasing it.',
-        'Extract the details from what the owner of this business has pasted below. Marketing copy with no checkable fact in it gets skipped rather than rephrased. The "source" for each detail is the sentence in this text it came from.'
-      ),
-    },
-  ];
-}
 
 /**
  * How a drafting request opens, given whatever source we actually have.
@@ -146,72 +100,6 @@ function extractJson(raw) {
   }
 }
 
-/**
- * Independent check on the model's output. The prompt already forbids these,
- * but the prompt is a request and this is a filter — a detail that reaches
- * `safeDetails` gets repeated indefinitely, so it is worth checking twice.
- *
- * @returns {{kept: object[], dropped: {detail: string, reason: string}[]}}
- */
-function screen(items) {
-  const kept = [];
-  const dropped = [];
-
-  for (const item of Array.isArray(items) ? items : []) {
-    const detail =
-      typeof item?.detail === 'string' ? item.detail.trim() : '';
-    const source = typeof item?.source === 'string' ? item.source.trim() : '';
-
-    if (!detail) continue;
-
-    if (!source) {
-      dropped.push({ detail, reason: 'no source quote from the page' });
-      continue;
-    }
-    if (/\d/.test(detail)) {
-      dropped.push({ detail, reason: 'contains a number' });
-      continue;
-    }
-    const hit = bannedWord(detail);
-    if (hit) {
-      dropped.push({ detail, reason: `unverifiable claim ("${hit}")` });
-      continue;
-    }
-    if (detail.length > 180) {
-      dropped.push({ detail, reason: 'too long to read as a guest detail' });
-      continue;
-    }
-
-    kept.push({ detail, source: source.slice(0, 300) });
-    if (kept.length === 10) break;
-  }
-
-  return { kept, dropped };
-}
-
-/**
- * @returns {{proposal: object, dropped: object[]}|null} null when unparseable
- */
-function parseProposal(raw) {
-  const data = extractJson(raw);
-  if (!data) return null;
-
-  const str = (v, max) =>
-    typeof v === 'string' ? v.trim().slice(0, max) : '';
-
-  const { kept, dropped } = screen(data.safeDetails);
-
-  return {
-    proposal: {
-      name: str(data.name, 120),
-      kind: str(data.kind, 120),
-      place: str(data.place, 160),
-      safeDetails: kept,
-    },
-    dropped,
-  };
-}
-
 /* ---------------------------------------------------------- the topic set */
 
 /**
@@ -250,7 +138,10 @@ function topicSystem(max) {
 Return a single JSON object of this shape:
 {
   "topics": [
-    { "label": "Rooms", "focus": "the room itself — comfort, bed, bathroom, the view or outlook" }
+    {
+      "label": "Rooms",
+      "description": "The rooms look out over the garden and the hills behind it. Each one has its own balcony, and the bathrooms were rebuilt with walk-in showers. Mornings are quiet enough to hear the birds, and the beds are made up with cotton rather than polyester."
+    }
   ]
 }
 
@@ -270,9 +161,18 @@ Rules:
 - At most ${max} topics.
 - Order them the way a customer would scan them: the most obvious and most specific first, the general ones last.
 - "label" is what a customer taps: one to three words, title case, no punctuation, no emoji.
-- "focus" tells the review writer what that review should be about, as a sentence fragment it can follow. No superlatives, no awards, no ratings, no numbers, no staff names.
-- A named thing from the first kind may of course appear in its own label and focus — that is the whole point of it. Describe it plainly, the way a customer would ("the pad thai", not "our legendary pad thai").
+- "description" is a short paragraph about that one thing, two to four sentences, and never more than 600 characters.
+- A named thing from the first kind may of course appear in its own label and description — that is the whole point of it. Describe it plainly, the way the business would explain it to someone who asked ("the pad thai is made to the owner's mother's recipe", not "our legendary pad thai").
 - No two topics may be the same thing worded differently. Two dishes are two topics; "The Staff" and "The Service" are one.
+
+The description matters more than it looks. It is the *only* thing the review writer will ever be told about this business — there is no other document, no list of facts, nothing else. A review about this topic can say what its description says and nothing more, so:
+
+- Everything in it must come off the page you read. If the page does not support a sentence, leave the sentence out. An empty-handed description is recoverable; an invented one is published under a real customer's name.
+- Write what a customer would actually notice and mention, not what a brochure would lead with.
+- No superlatives, no awards, no ratings, no rankings.
+- No numbers of any kind — no prices, no counts, no years, no distances, no opening hours.
+- No staff names, and nobody identifiable.
+- A topic of the third kind — the welcome, the wait, being looked after — often has nothing on the page behind it. Describe what that part of a visit is, plainly and briefly, and say nothing specific about this business that you cannot support.
 
 Output only the JSON object. Nothing before it, nothing after it.`;
 }
@@ -301,7 +201,7 @@ function buildTopicMessages({ url, text, max = 30 }) {
  * @param {number} args.max - the stored cap, so the draft cannot exceed it
  * @returns {object[]|null} up to `max` {label, focus}, or null when nothing usable
  */
-function parseTopics(raw, { max = 30 } = {}) {
+function parseTopics(raw, { max = 30, maxChars = 600 } = {}) {
   const data = extractJson(raw);
   if (!data) return null;
 
@@ -325,10 +225,17 @@ function parseTopics(raw, { max = 30 } = {}) {
     if (seen.has(key)) continue;
     seen.add(key);
 
-    // A focus goes into every review written under that button, so an
-    // unverifiable steer there is worth more than one bad review. Drop the
-    // steer and keep the button — the label alone still works.
-    let focus = text(item?.focus, 200);
+    // The description is now the whole of what a review may claim about this
+    // topic, so a bad one is worse than none: it is repeated in every review
+    // written under that button. Dropped rather than reported, unlike the same
+    // check on the settings form — this is a model's output and the owner has
+    // not seen it yet, so the button survives with its label alone and they can
+    // write the paragraph themselves.
+    //
+    // Either key. The prompt asks for "description"; models that have seen the
+    // older prompt still answer with "focus", and accepting both costs a line
+    // and saves a wasted page read.
+    let focus = text(item?.description ?? item?.focus, maxChars);
     if (focus && (/\d/.test(focus) || bannedWord(focus))) focus = '';
 
     out.push({ label, focus });
@@ -336,136 +243,6 @@ function parseTopics(raw, { max = 30 } = {}) {
   }
 
   return out.length ? out : null;
-}
-
-/* -------------------------------------------------- the context document */
-
-/**
- * A business's own AI context document, drafted from what it publishes.
- *
- * Different in kind from everything else in this file. safeDetails and topics are
- * structured and load-bearing — a wrong entry becomes a false claim in every
- * review — so both are screened hard and quote their source. This is background
- * prose: who comes here, what they notice, how their reviews would sound. It
- * asserts nothing, and the prompt tells the writer it asserts nothing.
- *
- * It reads the review listings as well as the website when there are any, because
- * the most useful thing on this subject is how that business's real customers
- * already write. Often the listing will not be readable — Google renders its
- * reviews in the browser, so a fetch gets a shell — and the prompt is explicit
- * that saying nothing is correct when there is nothing to see. An invented
- * description of reviews nobody read is worse than no description.
- */
-const CONTEXT_SYSTEM = `You read what a business publishes about itself and write a detailed background note for a review-writing assistant.
-
-The note is not shown to customers and is not a fact sheet. It exists so the assistant writes in the right register about the right things. Someone who has never heard of this business should be able to read it and know exactly how its customers talk.
-
-Return a single JSON object of this shape:
-{ "contextDoc": "four to six paragraphs" }
-
-Cover, in plain prose and in this order:
-- What kind of business it is and who its customers are — who actually walks in, on what sort of occasion, and what they came for. Distinguish the regulars from the one-off visitors if the page gives you anything to go on.
-- Where it sits, and what is around it. Name the neighbourhood or district, the nearest recognisable landmarks, what a customer would have walked or driven past to get there, and what else people are in the area to do. This is the part customers reach for when they explain why they went, so be specific: a street, a park, a station, a beach, a market, a well known building nearby.
-- What those customers are most likely to notice and mention afterwards. Be concrete about subjects, not about claims. Cover the ordinary things as well as the obvious ones — waiting, parking, being greeted, how long it took.
-- What they would never bother saying, and what would sound wrong coming from them.
-- How a real review of a place like this reads: how long, how warm, how much detail, what a customer opens with.
-- If, and only if, you can actually see real customer reviews on one of the pages: a sentence or two on how they read. If you cannot see any, say nothing about them at all. Do not describe reviews you have not read.
-
-Rules:
-- Aim for 1,700 to 1,900 characters. There is a hard ceiling of 2,000 and anything past it is cut off mid-sentence, so stay under it — but a short note wastes the room. Use what you have. Specific and long beats general and short.
-- Detail means detail about *this* business. Do not pad with generalities to reach the length: if you genuinely run out of things the pages support, stop rather than invent.
-- No superlatives, no awards, no ratings, no rankings, no marketing language of any kind. Describe the business the way a researcher would, not the way it describes itself.
-- No staff names, no dish names, no prices, no figures.
-- Do not list facilities. A separate list already records what a review may claim; this is about register and subject matter.
-- Write about this business specifically. A paragraph that would fit any business of the kind is worth nothing here.
-
-Output only the JSON object. Nothing before it, nothing after it.`;
-
-/**
- * @param {object} args
- * @param {string} args.url - the business's website
- * @param {string[]} [args.listings] - its review-platform links, if it set any
- */
-function buildContextMessages({ url, text, listings = [] }) {
-  const also = listings.length
-    ? ` Then look at ${listings.join(' and ')} — if you can see real customer reviews there, note how they read; if the page comes back without any, ignore it and say nothing about reviews.`
-    : '';
-
-  return [
-    { role: 'system', content: CONTEXT_SYSTEM },
-    {
-      role: 'user',
-      content: opening(
-        { url, text },
-        `write the background note.${also} Fetch the pages before answering — do not infer anything from a domain name.`,
-        'Write the background note from what the owner of this business has pasted below. It is likely shorter than a website, so lean on what it does tell you — who comes here and what they came for — rather than padding the rest.'
-      ),
-    },
-  ];
-}
-
-/**
- * Independent screen, as everywhere else here: the prompt forbids superlatives
- * and this drops them anyway.
- *
- * Dropped by the sentence rather than by the whole draft. One "award-winning" in
- * the second paragraph should not cost the customer another page read and
- * another minute of waiting — and if it dropped nothing the customer would only
- * meet the same refusal from the validator on Save, with no idea which word did
- * it.
- *
- * @param {object} [options]
- * @param {number} [options.maxChars] - the stored cap, from settings.js
- * @returns {{contextDoc: string, dropped: string[]}|null} null when unparseable
- */
-function parseContextDoc(raw, { maxChars = 2000 } = {}) {
-  const data = extractJson(raw);
-  if (!data) return null;
-
-  const doc = typeof data.contextDoc === 'string' ? data.contextDoc.trim() : '';
-  if (!doc) return null;
-
-  const dropped = [];
-  const kept = [];
-
-  // Blank lines are paragraph breaks and worth keeping, so each paragraph is
-  // screened on its own and rejoined.
-  for (const paragraph of doc.split(/\n\s*\n/)) {
-    // Split after a full stop, question or exclamation mark followed by a space.
-    // Crude, and fine here: a misplaced break costs a sentence fragment on its
-    // own line in a draft a human is about to edit.
-    const sentences = paragraph.split(/(?<=[.!?])\s+/);
-    const good = [];
-
-    for (const sentence of sentences) {
-      const hit = bannedWord(sentence);
-      if (hit) dropped.push(sentence.trim());
-      else if (sentence.trim()) good.push(sentence.trim());
-    }
-
-    if (good.length) kept.push(good.join(' '));
-  }
-
-  // Cut at a sentence rather than mid-word. The prompt now asks for a note close
-  // to the ceiling, so a draft that overruns is the normal case rather than a
-  // strange one — and a note ending "the nearest station is abo" reads as a bug.
-  let contextDoc = kept.join('\n\n').trim();
-
-  if (contextDoc.length > maxChars) {
-    const clipped = contextDoc.slice(0, maxChars);
-    const lastStop = Math.max(
-      clipped.lastIndexOf('. '),
-      clipped.lastIndexOf('.\n'),
-      clipped.lastIndexOf('! '),
-      clipped.lastIndexOf('? ')
-    );
-    // Only when a sentence ends somewhere near the cut. A single enormous
-    // paragraph would otherwise lose most of itself to this.
-    contextDoc = (
-      lastStop > maxChars * 0.6 ? clipped.slice(0, lastStop + 1) : clipped.replace(/\s+\S*$/, '')
-    ).trim();
-  }
-  return contextDoc ? { contextDoc, dropped } : null;
 }
 
 /* ------------------------------------------------------------- the theme */
@@ -634,15 +411,9 @@ function parseTheme(raw) {
 
 module.exports = {
   bannedWord,
-  buildSeedMessages,
   buildThemeMessages,
   parseTheme,
   themeSystem,
-  parseProposal,
   buildTopicMessages,
   parseTopics,
-  buildContextMessages,
-  parseContextDoc,
-  SEED_SYSTEM,
-  CONTEXT_SYSTEM,
 };
