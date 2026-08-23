@@ -405,7 +405,14 @@ router.get(
   requireOwnVenue,
   async (req, res, next) => {
     try {
-      res.json({ reviews: await events.recent(req.venue.id, LATEST_REVIEWS) });
+      // Together, because they answer one question between them: what is on
+      // the listing, and what was written and went nowhere.
+      const [reviews, notTaken] = await Promise.all([
+        events.recent(req.venue.id, LATEST_REVIEWS),
+        events.notTaken(req.venue.id),
+      ]);
+
+      res.json({ reviews, notTaken });
     } catch (err) {
       next(err);
     }

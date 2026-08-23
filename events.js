@@ -130,6 +130,28 @@ async function recent(subscriberId, limit = 20) {
   );
 }
 
+/**
+ * Written, and never taken to a listing.
+ *
+ * The counter of the list above, and the reason the two numbers on the
+ * dashboard disagree: the stat cards count every generation, because that is
+ * what the tokens were spent on and what the month's allowance is measured in,
+ * while the list holds only what a guest carried away.
+ *
+ * Both are true and neither is the other, so the page now says the difference
+ * out loud instead of leaving an owner to subtract and wonder.
+ */
+async function notTaken(subscriberId) {
+  const row = await one(
+    `SELECT COUNT(*)::int AS n
+       FROM review_events
+      WHERE subscriber_id = $1 AND review_text IS NOT NULL
+        AND proceeded_at IS NULL`,
+    [subscriberId]
+  );
+  return row?.n ?? 0;
+}
+
 /** The rated reviews, newest first — for a filtered view of the same list. */
 async function rated(subscriberId, limit = 50) {
   return all(
@@ -311,6 +333,7 @@ async function lifetime(subscriberId) {
 
 module.exports = {
   markProceeded,
+  notTaken,
   record,
   recent,
   setFeedback,
