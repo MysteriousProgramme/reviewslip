@@ -754,17 +754,199 @@ body {
   background: var(--paper);
 }
 
-/* --------------------------------------------------------------- missing -- */
+/* ----------------------------------------------------------------- 404 -- */
 
-/* Only 404.html uses this. It is here rather than in a stylesheet of its own
-   because that page shares everything else with the guest page, and a second
-   file for one rule is a second file to keep in step. */
-.missing-list {
-  margin: 0;
-  padding-left: 1.1rem;
+/* The page a mistyped address lands on.
+
+   It shares this stylesheet with the guest page, so it inherits the palette,
+   the two typefaces and the garden-at-dusk background without restating any of
+   them — which also means a change to the theme reaches this page rather than
+   leaving one screen behind on last season's colours.
+
+   Everything below is layout for one screen: a numeral centred in the viewport,
+   the explanation under it, and one way out. */
+
+.error {
+  min-height: 100svh;
   display: grid;
-  gap: 0.6rem;
+  place-items: center;
+  padding: clamp(1.5rem, 6vw, 3rem);
+  padding-bottom: calc(clamp(1.5rem, 6vw, 3rem) + env(safe-area-inset-bottom));
+  text-align: center;
+}
+
+.error-inner {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
+  max-width: 32rem;
+}
+
+/* The glow behind the numeral. Sized in ems so it tracks the digits as they
+   scale, and pushed behind everything so the text sits on top of its own
+   light rather than beside it. */
+.error-inner::before {
+  content: '';
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: 22rem;
+  height: 22rem;
+  max-width: 120vw;
+  max-height: 120vw;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--glow-strong) 0%,
+    var(--glow-faint) 45%,
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: -1;
+  animation: error-breathe 7s var(--ease) infinite;
+}
+
+.error-eyebrow {
+  margin: 0 0 0.75rem;
+  font-size: 0.688rem;
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--jade-dim);
+}
+
+/* The numeral. Optical size rather than a fixed one: it is the whole design at
+   this size, and on a narrow phone it has to give way to the words under it. */
+.error-code {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: clamp(6rem, 34vw, 13rem);
+  line-height: 0.9;
+  letter-spacing: -0.04em;
+  color: var(--paper);
+  /* The same warmth the background carries, so the digits sit in the scene
+     rather than on top of it. */
+  text-shadow: 0 0 60px rgba(233, 160, 59, 0.18);
+}
+
+/* Marigold is spent once on this page, exactly as it is on the guest page —
+   there, the button that opens the listing; here, the nought in the middle. */
+.error-code span {
+  color: var(--marigold);
+}
+
+.error-title {
+  margin: 0.9rem 0 0;
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: clamp(1.5rem, 6vw, 2rem);
+  line-height: 1.15;
+  color: var(--paper);
+}
+
+.error-lede {
+  margin: 0.75rem 0 0;
+  max-width: 30rem;
   font-size: 0.938rem;
-  line-height: 1.55;
+  line-height: 1.6;
   color: var(--jade);
+}
+
+/* The address that failed, in the typeface a machine would set it in — it is a
+   string to check character by character, not prose to read. */
+.error-host {
+  margin: 1.25rem 0 0;
+  padding: 0.45rem 0.85rem;
+  border: 1px solid var(--jade-line);
+  border-radius: 999px;
+  background: var(--jade-wash);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.813rem;
+  /* Full jade, not the dimmed one. This is the string somebody has to compare
+     against what is printed on their table, character by character, and the
+     dimmed jade sits at 2.9:1 — under the 4.5 every other piece of text in this
+     product is held to. Its subordinate place is made by the border and the
+     size, which cost nothing in legibility. */
+  color: var(--jade);
+  word-break: break-all;
+}
+
+.error-actions {
+  margin-top: 1.75rem;
+}
+
+/* The only anchor styled as a button on the platform. `.btn` was written for
+   <button>, which has no underline to clear; an <a> brings one with it. */
+.error-actions .btn {
+  display: inline-block;
+  text-decoration: none;
+}
+
+.error-note {
+  margin: 1.5rem 0 0;
+  font-size: 0.813rem;
+  line-height: 1.6;
+  /* Same reasoning as the address above: this is a sentence to read, not a
+     label to glance at. The eyebrow keeps the dimmed jade because it is a
+     wordmark the title repeats, and because every other screen sets it that
+     way. */
+  color: var(--jade);
+}
+
+/* Each part arrives just after the one above it. Small distances and a short
+   duration: this is a page somebody reached by accident, and it should be
+   settled by the time they have focused on it. */
+.error-inner > * {
+  animation: error-rise 0.5s var(--ease) both;
+}
+
+.error-inner > *:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.error-inner > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.error-inner > *:nth-child(4) {
+  animation-delay: 0.18s;
+}
+.error-inner > *:nth-child(5) {
+  animation-delay: 0.24s;
+}
+.error-inner > *:nth-child(6) {
+  animation-delay: 0.3s;
+}
+
+@keyframes error-rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes error-breathe {
+  0%,
+  100% {
+    opacity: 0.75;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+}
+
+/* Motion is decoration here and nothing depends on it, so it comes off
+   entirely rather than being slowed down. */
+@media (prefers-reduced-motion: reduce) {
+  .error-inner > *,
+  .error-inner::before {
+    animation: none;
+  }
 }
