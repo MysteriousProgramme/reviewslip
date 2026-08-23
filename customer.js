@@ -11,6 +11,8 @@ const { publicUrl } = require('./tenant');
 const { readWebsite } = require('./reader');
 const {
   buildTopicMessages,
+  buildDescribeMessages,
+  parseDescription,
   parseTopics,
   buildThemeMessages,
   parseTheme,
@@ -491,7 +493,7 @@ function sourceHint(field) {
   return `That is your ${SOURCE_LABELS[field] ?? 'listing'}, and those often refuse to be read by anything that is not a signed-in browser — Facebook most of all, which shows a sign-in wall rather than the page. If it keeps coming back empty, the topics and their descriptions can be written by hand below, which is the only route that always works.`;
 }
 
-function readable(venue, res) {
+function readable(venue, res, { requireSource = true } = {}) {
   const resolved = subscribers.settingsFor(venue);
 
   if (!resolved.apiKey) {
@@ -507,17 +509,87 @@ function readable(venue, res) {
   // that.
   const field = SOURCE_ORDER.find((name) => resolved[name]);
   if (!field) {
-    res.status(400).json({
-      error:
-        'Nothing to read yet. Add a website address — or your Facebook page as the Facebook link — then save.',
-    });
-    return null;
+    // Most readers have nothing to do without a page and say so. The one that
+    // writes a single description does have something to do — the ordinary
+    // parts of a visit need no website behind them — so it opts out of this.
+    if (requireSource) {
+      res.status(400).json({
+        error:
+          'Nothing to read yet. Add a website address — or your Facebook page as the Facebook link — then save.',
+      });
+      return null;
+    }
+    return { ...resolved, sourceUrl: '', sourceField: '' };
   }
 
   // `sourceUrl` is what the readers actually fetch. `websiteUrl` stays what it
   // always was, so nothing else in the app changes meaning.
   return { ...resolved, sourceUrl: resolved[field], sourceField: field };
 }
+
+/**
+ * One topic's description, written to order.
+ *
+ * The bulk generator is the right shape for setting a business up and the wrong
+ * one for changing your mind about a single button: it replaces all fifty. This
+ * writes one, and the dashboard drops it into that row alone.
+ *
+ * Unlike every other reader here, this one works without a page. A description
+ * for "The Welcome" needs no website — the prompt is told to describe what that
+ * part of a visit is and claim nothing specific — so refusing for want of an
+ * address would block the one case that needs no address at all.
+ */
+router.post(
+  '/businesses/:slug/topics/describe',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const resolved = readable(req.venue, res, { requireSource: false });
+      if (!resolved) return;
+
+      const label = String(req.body?.label ?? '').trim().slice(0, 40);
+      if (!label) {
+        return res.status(400).json({ error: 'Name the topic first.' });
+      }
+
+      // Whatever is already in the box. Capped at the stored limit because it
+      // is going into a prompt, not because anything stores it.
+      const hint = String(req.body?.hint ?? '')
+        .trim()
+        .slice(0, settingsRules.MAX_DESCRIPTION);
+
+      const answer = await readWebsite(req.venue, resolved, {
+        messages: buildDescribeMessages({
+          url: resolved.sourceUrl,
+          label,
+          hint,
+        }),
+        maxTokens: 800,
+      });
+      if (!answer.ok) {
+        return res.status(answer.status).json({ error: answer.error });
+      }
+
+      const description = parseDescription(answer.content, {
+        maxChars: settingsRules.MAX_DESCRIPTION,
+      });
+      if (!description) {
+        console.error(
+          'Topic description produced nothing usable:',
+          String(answer.content).slice(0, 500)
+        );
+        return res.status(502).json({
+          error: `Nothing usable came back for "${label}". Try again, or put a word or two in the box first to steer it.`,
+        });
+      }
+
+      res.json({ description });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /**
  * The topic set, drafted from the website.

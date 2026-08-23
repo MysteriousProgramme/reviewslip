@@ -217,6 +217,89 @@ function parseTopics(raw, { max = 30, maxChars = 600 } = {}) {
   return out.length ? out : null;
 }
 
+/* ------------------------------------------------- one topic's description */
+
+/**
+ * A description for a single topic, written to order.
+ *
+ * The bulk generator reads a website and proposes fifty topics at once, which
+ * is the right shape for setting a business up and the wrong one for changing
+ * your mind about one button. This is that: the owner has a topic — often one
+ * they typed themselves, so there is no description at all — and wants a
+ * paragraph for it without disturbing the other forty-nine.
+ *
+ * Two ways in, and they are the same call. The name alone is enough ("Sunday
+ * Roast" tells the model what it is looking for on the page). A hint is
+ * whatever the owner has already typed into the box, which may be a keyword, a
+ * half-written sentence, or a note to themselves — and it is the strongest
+ * signal there is about what they want said, so it outranks whatever the page
+ * suggests would be interesting.
+ *
+ * The page is still read, and still the only source of specifics. That is what
+ * separates this from a machine for inventing plausible business copy: the name
+ * says which thing to write about, and the page says what may be said about it.
+ */
+const DESCRIBE_SYSTEM = `You write one short description of one thing a business offers, for a review-writing assistant to work from.
+
+Return a single JSON object of this shape:
+{ "description": "The rooms look out over the garden. Each has its own balcony, and the bathrooms were rebuilt with walk-in showers." }
+
+What you write is the whole of what a review about this topic will ever be able to claim. There is no other document about this business. A review may say what your description says, and may say how the visit felt, and nothing else — so a sentence you invent here is a sentence published under a real customer's name.
+
+Rules:
+- Two to four sentences. Never more than 600 characters.
+- Everything specific must come off the page you were given. If the page does not support a sentence, leave the sentence out.
+- Write what a customer would notice and mention, not what a brochure would lead with. Plainly, in the business's own voice: "the pad thai is made to the owner's mother's recipe", not "our legendary pad thai".
+- No superlatives, no awards, no ratings, no rankings.
+- No numbers of any kind — no prices, no counts, no years, no distances, no opening hours.
+- No staff names, and nobody identifiable.
+- If the page says nothing about this topic — which is normal for the ordinary parts of a visit, like the welcome or the wait — describe what that part of a visit is, plainly and briefly, and claim nothing specific about this business. That is a good answer, not a failure.
+- If the page will not load, or shows a sign-in wall, do the same: describe the topic in general terms and claim nothing specific. Never describe a business you could not read.
+
+Output only the JSON object. Nothing before it, nothing after it.`;
+
+/**
+ * @param {object} args
+ * @param {string} args.url - the page to read, if this business has one
+ * @param {string} args.label - the topic's name, which is what to write about
+ * @param {string} [args.hint] - whatever is already in the box: a keyword, a
+ *   fragment, a note. Optional, and load-bearing when it is there.
+ */
+function buildDescribeMessages({ url, label, hint = '' }) {
+  const steer = hint
+    ? `\n\nThe owner has already written this much, and it is the best signal you have about what they want said. Build on it rather than replacing it, and keep anything in it that is true:\n\n${hint}`
+    : '';
+
+  const source = url
+    ? `Read ${url} first, and follow its own links if what you need is on another page — a menu, a treatment list, a room type.`
+    : `There is no page to read for this business, so claim nothing specific about it. Describe what this part of a visit is, plainly, and stop.`;
+
+  return [
+    { role: 'system', content: DESCRIBE_SYSTEM },
+    {
+      role: 'user',
+      content: `Write the description for one topic: "${label}".\n\n${source}${steer}`,
+    },
+  ];
+}
+
+/**
+ * @returns {string|null} the description, screened, or null when nothing usable
+ *   came back. Screened rather than trusted for the same reason parseTopics
+ *   screens: the prompt is a request, and this text is repeated in every review
+ *   written under that button.
+ */
+function parseDescription(raw, { maxChars = 600 } = {}) {
+  const data = extractJson(raw);
+  if (!data) return null;
+
+  const description = text(data.description ?? data.focus, maxChars);
+  if (!description) return null;
+  if (/[0-9]/.test(description) || bannedWord(description)) return null;
+
+  return description;
+}
+
 /* ------------------------------------------------------------- the theme */
 
 /**
@@ -383,6 +466,8 @@ function parseTheme(raw) {
 
 module.exports = {
   bannedWord,
+  buildDescribeMessages,
+  parseDescription,
   buildThemeMessages,
   parseTheme,
   themeSystem,
