@@ -383,6 +383,31 @@ const MIGRATIONS = [
     // missing — which is the whole invalidation story, and needs no timestamps.
     await c.query('ALTER TABLE subscribers ADD COLUMN topic_labels text');
   },
+
+  async (c) => {
+    // When the guest took this one to a listing.
+    //
+    // A row is written for every generation, because that is what meters the
+    // tokens the business is billed for. But most of those are drafts nobody
+    // used: a guest regenerates until they like one, and the nine they passed
+    // over are not reviews. Only the one they carried to Google is.
+    //
+    // So the corpus — the dashboard's list, the five-star examples fed back
+    // into the prompt, the sample written away from — reads only rows with
+    // this set, while the usage meter keeps reading all of them.
+    await c.query('ALTER TABLE review_events ADD COLUMN proceeded_at timestamptz');
+
+    // Everything already stored predates the distinction, and was shown as a
+    // review for months. Backfilled rather than orphaned: a dashboard that
+    // empties itself on deploy is a bug report, not a migration.
+    await c.query('UPDATE review_events SET proceeded_at = created_at');
+
+    await c.query(
+      `CREATE INDEX IF NOT EXISTS review_events_proceeded_idx
+         ON review_events (subscriber_id, proceeded_at DESC)
+         WHERE proceeded_at IS NOT NULL`
+    );
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

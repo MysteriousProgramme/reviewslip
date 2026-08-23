@@ -81,6 +81,35 @@ async function setFeedback({ subscriberId, id, rating }) {
 }
 
 /**
+ * Marks one review as taken to a listing.
+ *
+ * This is what turns a draft into a review. Every generation writes a row,
+ * because that is what meters the tokens; only the one the guest actually
+ * carried away is something the business wrote. Everything that reads the
+ * corpus — the list below, the examples fed back into the prompt, the sample
+ * written away from — requires this to be set.
+ *
+ * Scoped to the business as well as the row, like the rating is, so a guest on
+ * one page cannot mark another business's rows by guessing numbers.
+ *
+ * Set once. A guest who taps Google and then Facebook has published once as far
+ * as this is concerned, and the second tap must not move the timestamp — the
+ * dashboard orders by it, and a review would climb the list every time somebody
+ * pressed a second button.
+ *
+ * @returns {Promise<boolean>} whether a row was actually marked
+ */
+async function markProceeded({ subscriberId, id }) {
+  const result = await query(
+    `UPDATE review_events
+        SET proceeded_at = now()
+      WHERE id = $1 AND subscriber_id = $2 AND proceeded_at IS NULL`,
+    [Number(id), subscriberId]
+  );
+  return result.rowCount > 0;
+}
+
+/**
  * The latest reviews, newest first, rated or not — what the dashboard list
  * shows so the owner can work through them.
  *
@@ -94,6 +123,7 @@ async function recent(subscriberId, limit = 20) {
               language, length
        FROM review_events
       WHERE subscriber_id = $1 AND review_text IS NOT NULL
+        AND proceeded_at IS NOT NULL
       ORDER BY created_at DESC
       LIMIT $2`,
     [subscriberId, Math.min(Number(limit) || 20, 100)]
@@ -107,6 +137,7 @@ async function rated(subscriberId, limit = 50) {
               language, length
        FROM review_events
       WHERE subscriber_id = $1 AND rating IS NOT NULL
+        AND proceeded_at IS NOT NULL
       ORDER BY rated_at DESC
       LIMIT $2`,
     [subscriberId, Math.min(Number(limit) || 50, 200)]
@@ -134,6 +165,7 @@ async function topRated(subscriberId, limit = 5) {
     `SELECT review_text
        FROM review_events
       WHERE subscriber_id = $1 AND rating = 5 AND review_text IS NOT NULL
+        AND proceeded_at IS NOT NULL
       ORDER BY rated_at DESC
       LIMIT $2`,
     [subscriberId, Math.min(Number(limit) || 5, 20)]
@@ -156,6 +188,7 @@ async function poorlyRated(subscriberId, limit = 3) {
     `SELECT review_text
        FROM review_events
       WHERE subscriber_id = $1 AND rating <= 2 AND review_text IS NOT NULL
+        AND proceeded_at IS NOT NULL
       ORDER BY rating ASC, rated_at DESC
       LIMIT $2`,
     [subscriberId, Math.min(Number(limit) || 3, 10)]
@@ -178,6 +211,7 @@ async function spread(subscriberId, take = 8, pool = 100) {
          SELECT review_text
            FROM review_events
           WHERE subscriber_id = $1 AND review_text IS NOT NULL
+            AND proceeded_at IS NOT NULL
           ORDER BY created_at DESC
           LIMIT $3
        ) AS recent
@@ -276,6 +310,7 @@ async function lifetime(subscriberId) {
 }
 
 module.exports = {
+  markProceeded,
   record,
   recent,
   setFeedback,

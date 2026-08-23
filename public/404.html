@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0C1F19" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="robots" content="noindex" />
+    <title>Nothing at this address</title>
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- The shipped pair. No venue has been resolved here, so there is no theme
+         to serve and /theme.css would be empty anyway. -->
+    <link href="/fonts.css" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="masthead">
+        <p class="eyebrow">Reviewslip</p>
+        <h1 class="title">
+          Nothing here<span class="title-dot">.</span>
+        </h1>
+        <p class="lede">
+          There is no business at this address. It may have been closed, renamed,
+          or typed slightly wrong — the address is part of the QR code, so a
+          letter out of place lands here.
+        </p>
+      </header>
+
+      <section class="picker">
+        <p class="label">What to do</p>
+        <ul class="missing-list">
+          <li>Scan the code again rather than typing the address by hand.</li>
+          <li>
+            If you got here from a printed code, tell whoever put it up — they
+            can check the address on their end.
+          </li>
+        </ul>
+      </section>
+
+      <div class="actions">
+        <div class="destinations">
+          <div class="destination">
+            <a class="btn btn-go" href="https://reviewslip.com">Go to Reviewslip</a>
+          </div>
+        </div>
+        <p class="hint" id="host"></p>
+      </div>
+    </main>
+
+    <script>
+      // The address that failed, said back to them. Written by script rather
+      // than served per-host so this page stays a static file that any 404 can
+      // return — and escaped through textContent, because the hostname is
+      // attacker-controlled input on a wildcard domain.
+      document.getElementById('host').textContent = location.hostname;
+    </script>
+  </body>
+</html>

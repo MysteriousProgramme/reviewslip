@@ -160,7 +160,8 @@ Rules:
 - At most ${max} topics.
 - Order them the way a customer would scan them: the most obvious and most specific first, the general ones last.
 - "label" is what a customer taps: one to three words, title case, no punctuation, no emoji.
-- "description" is a list of bullet points, not a paragraph. Between two and five of them, never one. Each bullet is a single line starting with "- ", separated by a newline, and the whole list is never more than 600 characters.
+- "description" is a list of bullet points, not a paragraph. Each bullet is a single line starting with "- ", separated by a newline, and the whole list is never more than 600 characters.
+- How many bullets depends on the topic, not on a quota. Take as many as the thing genuinely has and stop: a signature dish the page describes at length might carry five or six; "Parking" might carry two. Never one — a single bullet is a paragraph wearing a dash — and never a line invented to reach a number.
 - Every bullet says what a customer gets out of it, not what it is. A bullet that restates the label in other words tells the review writer nothing.
 
   NEVER write a description like this:
@@ -289,7 +290,8 @@ Return a single JSON object of this shape:
 What you write is the whole of what a review about this topic will ever be able to claim. There is no other document about this business. A review may say what your description says, and may say how the visit felt, and nothing else — so a sentence you invent here is a sentence published under a real customer's name.
 
 Rules:
-- A list of bullet points, not a paragraph. Between two and five of them, never one. Each bullet is a single line starting with "- ", separated by a newline, and the whole list is never more than 600 characters.
+- A list of bullet points, not a paragraph. Each bullet is a single line starting with "- ", separated by a newline, and the whole list is never more than 600 characters.
+- How many bullets depends on the topic you were given, not on a quota. Take as many as it genuinely has and stop: a named dish the page describes at length might carry five or six; "Parking" might carry two. Never one — a single bullet is a paragraph wearing a dash — and never a line invented to reach a number.
 - One bullet per thing. Do not put two ideas in one line joined by "and" — split them.
 - Everything specific must come off the page you were given. If the page does not support a sentence, leave the sentence out.
 - Every bullet says what a customer gets out of it, not what it is. Restating the name in other words tells the review writer nothing.

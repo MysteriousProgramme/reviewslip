@@ -1265,9 +1265,12 @@ test('both prompts ask for several bullets rather than a paragraph', () => {
     seed.buildTopicMessages({ url: 'https://x.example', max: 50 })[0].content,
   ]) {
     assert.match(prompt, /bullet points, not a paragraph/);
-    // "Never one" is the load-bearing half: a single bullet is a paragraph
-    // wearing a dash.
-    assert.match(prompt, /between two and five of them, never one/i);
+    // How many is the topic's business, not a quota — a quota is answered with
+    // filler. "Never one" is the only fixed end of it, because a single bullet
+    // is a paragraph wearing a dash.
+    assert.match(prompt, /depends on the topic/i);
+    assert.match(prompt, /Never one/);
+    assert.match(prompt, /never a line invented to reach a number/);
     assert.match(prompt, /One bullet per thing/);
   }
 });

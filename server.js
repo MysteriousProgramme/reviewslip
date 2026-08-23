@@ -77,6 +77,27 @@ app.get('/i18n.js', (req, res) => {
   res.send(strings.SCRIPT);
 });
 
+/**
+ * The guest page, or a plain page saying there is nothing here.
+ *
+ * Before express.static, which would otherwise serve index.html to every
+ * hostname on the wildcard and leave the page to discover for itself, one
+ * request later, that no business exists — a spinner, then an error notice, on
+ * what is usually a mistyped address off a printed QR code.
+ *
+ * Only the document is treated this way. The stylesheet, the script and the
+ * fonts are the same files whichever host asked for them, and 404.html needs
+ * them to render at all.
+ */
+app.get('/', resolveTenant, (req, res, next) => {
+  const usable = req.subscriber && req.subscriber.status === 'active';
+  if (usable) return next();
+
+  res.status(404).sendFile(path.join(__dirname, 'public', '404.html'), (err) => {
+    if (err) next(err);
+  });
+});
+
 app.use(express.static(path.join(__dirname, 'public'), { etag: true }));
 
 // Admin first, and outside tenant resolution: creating the first subscriber
@@ -555,6 +576,44 @@ app.post('/api/review', requireTenant, async (req, res) => {
         ? 'The writer took too long. Try again.'
         : 'Could not reach the writer. Check the connection and try again.',
     });
+  }
+});
+
+/**
+ * The guest is taking this review to a listing.
+ *
+ * The moment a draft becomes a review. A row is written for every generation,
+ * because that is what meters the tokens — but a guest regenerates until they
+ * like one, and the nine they passed over were never reviews. Only the one they
+ * carried away is, and only that one belongs in the dashboard's list or in the
+ * samples fed back into the prompt.
+ *
+ * Best effort, deliberately. It is sent as the listing opens in another tab, so
+ * failing it must not cost the guest the trip they were making — a review that
+ * goes unrecorded is a gap in a list, while a blocked navigation is a customer
+ * who does not post at all.
+ *
+ * Open, like the rest of the guest path. The row has to belong to this
+ * business, so the worst anyone can do by guessing ids is mark reviews on a page
+ * they could already open.
+ */
+app.post('/api/proceeded', requireTenant, async (req, res) => {
+  const { reviewId } = req.body || {};
+  if (!Number.isInteger(reviewId)) {
+    return res.status(400).json({ error: 'Bad request.' });
+  }
+
+  try {
+    await events.markProceeded({
+      subscriberId: req.subscriber.id,
+      id: reviewId,
+    });
+    // 204 either way. Marking one that was already marked is what a guest who
+    // taps Google and then Facebook does, and it is not an error.
+    res.status(204).end();
+  } catch (err) {
+    console.error('Could not mark the review as proceeded:', err);
+    res.status(500).json({ error: 'Could not save that.' });
   }
 });
 

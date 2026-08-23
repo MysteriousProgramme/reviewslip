@@ -753,3 +753,18 @@ body {
   /* Plain and light, which is what every one of these guidelines asks for. */
   background: var(--paper);
 }
+
+/* --------------------------------------------------------------- missing -- */
+
+/* Only 404.html uses this. It is here rather than in a stylesheet of its own
+   because that page shares everything else with the guest page, and a second
+   file for one rule is a second file to keep in step. */
+.missing-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.6rem;
+  font-size: 0.938rem;
+  line-height: 1.55;
+  color: var(--jade);
+}

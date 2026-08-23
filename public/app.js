@@ -82,6 +82,7 @@ const state = {
   categoryIds: [],
   destinations: [], // {id, label, hex, path, url} for each link that is set
 
+  reviewId: null, // the row behind what is on screen, for rating and proceeding
   recent: [], // last few generations, so the next one reads differently
   venue: '', // the business's name, kept for the document title
   language: 'en',
@@ -700,6 +701,7 @@ async function generate() {
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 
     el.review.value = data.review;
+    state.reviewId = Number.isInteger(data.reviewId) ? data.reviewId : null;
     state.recent = [...state.recent, data.review].slice(-3);
 
     if (state.left === 0) {
@@ -766,9 +768,34 @@ async function onCopy() {
 async function onProceed(url, where) {
   if (!url) return;
 
+  // The draft becomes a review here, not when it was written. Sent before the
+  // copy and never awaited: the listing opens either way, and a guest whose
+  // trip is delayed by a request nobody is waiting for is a guest who posts
+  // nothing.
+  markProceeded();
+
   const copied = await copyReview();
   say(t(copied ? 'pasteCopied' : 'pasteManual', { place: where }));
   window.open(url, '_blank', 'noopener');
+}
+
+/**
+ * Tells the server the guest took this one to a listing.
+ *
+ * Best effort by design. `keepalive` so it survives the page going into the
+ * background behind the listing that just opened, and every failure is
+ * swallowed — an unrecorded review is a gap in a list, while an error thrown
+ * here would be one in front of somebody halfway out the door.
+ */
+function markProceeded() {
+  if (!Number.isInteger(state.reviewId)) return;
+
+  fetch('/api/proceeded', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reviewId: state.reviewId }),
+    keepalive: true,
+  }).catch(() => {});
 }
 
 async function copyReview() {
