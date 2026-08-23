@@ -235,7 +235,7 @@ function renderDestinations() {
     // rest are outlined, however many there are.
     button.className = `btn btn-go${index ? ' btn-go-second' : ''}`;
     button.textContent = t('proceed', { place: place.label });
-    button.addEventListener('click', () => onProceed(place.url, place.label));
+    button.addEventListener('click', () => onProceed(place));
 
     row.append(button);
     el.destinations.append(row);
@@ -784,18 +784,33 @@ async function onCopy() {
  * @param {string} url
  * @param {string} where - the listing's name, for the notice
  */
-async function onProceed(url, where) {
-  if (!url) return;
+function onProceed(place) {
+  if (!place.url) return;
 
-  // The draft becomes a review here, not when it was written. Sent before the
-  // copy and never awaited: the listing opens either way, and a guest whose
-  // trip is delayed by a request nobody is waiting for is a guest who posts
-  // nothing.
-  markProceeded();
+  // Everything that needs the tap happens inside the tap.
+  //
+  // This used to await the clipboard write before opening the listing, and that
+  // await is what broke it on a phone. A browser only treats a navigation as
+  // user-initiated for a short window after the gesture, and awaiting spends
+  // it — so the open arrived unactivated. On Android and iOS that is the
+  // difference between Facebook's app opening on the business's page and the
+  // app opening on the user's own feed, because app links are only honoured for
+  // activated navigations.
+  //
+  // So the copy is started and not waited for, the listing is opened in the
+  // same task as the click, and the notice is written when the copy settles —
+  // by which time the guest is looking at Facebook anyway.
+  const copying = copyReview();
 
-  const copied = await copyReview();
-  say(t(copied ? 'pasteCopied' : 'pasteManual', { place: where }));
-  window.open(url, '_blank', 'noopener');
+  // The draft becomes a review here, not when it was written, and it records
+  // which of the business's listings it went to.
+  markProceeded(place.id);
+
+  window.open(place.url, '_blank', 'noopener');
+
+  copying.then((copied) => {
+    say(t(copied ? 'pasteCopied' : 'pasteManual', { place: place.label }));
+  });
 }
 
 /**
@@ -806,13 +821,13 @@ async function onProceed(url, where) {
  * swallowed — an unrecorded review is a gap in a list, while an error thrown
  * here would be one in front of somebody halfway out the door.
  */
-function markProceeded() {
+function markProceeded(platform) {
   if (!Number.isInteger(state.reviewId)) return;
 
   fetch('/api/proceeded', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reviewId: state.reviewId }),
+    body: JSON.stringify({ reviewId: state.reviewId, platform }),
     keepalive: true,
   }).catch(() => {});
 }

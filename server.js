@@ -598,15 +598,21 @@ app.post('/api/review', requireTenant, async (req, res) => {
  * they could already open.
  */
 app.post('/api/proceeded', requireTenant, async (req, res) => {
-  const { reviewId } = req.body || {};
+  const { reviewId, platform } = req.body || {};
   if (!Number.isInteger(reviewId)) {
     return res.status(400).json({ error: 'Bad request.' });
   }
+
+  // Checked against the list rather than stored as sent. This is an open route
+  // on a public page, and the value is shown back to the owner — an unchecked
+  // string from a guest is one they would be reading in their dashboard.
+  const to = PLATFORMS.some((p) => p.id === platform) ? platform : null;
 
   try {
     await events.markProceeded({
       subscriberId: req.subscriber.id,
       id: reviewId,
+      platform: to,
     });
     // 204 either way. Marking one that was already marked is what a guest who
     // taps Google and then Facebook does, and it is not an error.

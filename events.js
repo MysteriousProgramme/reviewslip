@@ -99,12 +99,12 @@ async function setFeedback({ subscriberId, id, rating }) {
  *
  * @returns {Promise<boolean>} whether a row was actually marked
  */
-async function markProceeded({ subscriberId, id }) {
+async function markProceeded({ subscriberId, id, platform = null }) {
   const result = await query(
     `UPDATE review_events
-        SET proceeded_at = now()
+        SET proceeded_at = now(), proceeded_to = $3
       WHERE id = $1 AND subscriber_id = $2 AND proceeded_at IS NULL`,
-    [Number(id), subscriberId]
+    [Number(id), subscriberId, platform]
   );
   return result.rowCount > 0;
 }
@@ -120,7 +120,7 @@ async function markProceeded({ subscriberId, id }) {
 async function recent(subscriberId, limit = 20) {
   return all(
     `SELECT id, review_text, category_id, rating, rated_at, created_at,
-              language, length
+              language, length, proceeded_to
        FROM review_events
       WHERE subscriber_id = $1 AND review_text IS NOT NULL
         AND proceeded_at IS NOT NULL
@@ -134,7 +134,7 @@ async function recent(subscriberId, limit = 20) {
 async function rated(subscriberId, limit = 50) {
   return all(
     `SELECT id, review_text, category_id, rating, rated_at, created_at,
-              language, length
+              language, length, proceeded_to
        FROM review_events
       WHERE subscriber_id = $1 AND rating IS NOT NULL
         AND proceeded_at IS NOT NULL

@@ -396,6 +396,10 @@ const MIGRATIONS = [
     // into the prompt, the sample written away from — reads only rows with
     // this set, while the usage meter keeps reading all of them.
     await c.query('ALTER TABLE review_events ADD COLUMN proceeded_at timestamptz');
+    // Which listing it was taken to. Beside the timestamp rather than derived
+    // from it, because a business with four links has four answers and the
+    // owner's first question about any review is where it ended up.
+    await c.query('ALTER TABLE review_events ADD COLUMN proceeded_to text');
 
     // Everything already stored predates the distinction, and was shown as a
     // review for months. Backfilled rather than orphaned: a dashboard that
