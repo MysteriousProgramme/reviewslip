@@ -229,15 +229,36 @@ function renderDestinations() {
 
     row.append(tile);
 
-    const button = document.createElement('button');
-    button.type = 'button';
+    // An anchor, not a button.
+     //
+     // This is the whole reason the Facebook app was opening on the user's own
+     // feed instead of the business's page. Android App Links and iOS Universal
+     // Links are honoured for a link the person tapped; a navigation started by
+     // window.open from script is a weaker signal, and on iOS it is documented
+     // not to trigger a universal link at all. So the app received a plain web
+     // URL, opened itself, and had nowhere to go.
+     //
+     // Which is also the honest shape of it: a control whose job is to go
+     // somewhere should be a link. It gets the platform's own handling — long
+     // press, open in new tab, copy address — none of which a button offers.
+    const link = document.createElement('a');
+    link.href = place.url;
+    // A new context, so the guest still has their review when they come back.
+    // noreferrer as well as noopener: the listing has no business knowing which
+    // page sent them, and it costs nothing here.
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
     // Marigold is spent once, as a fill. The first listing keeps it and the
     // rest are outlined, however many there are.
-    button.className = `btn btn-go${index ? ' btn-go-second' : ''}`;
-    button.textContent = t('proceed', { place: place.label });
-    button.addEventListener('click', () => onProceed(place));
+    link.className = `btn btn-go${index ? ' btn-go-second' : ''}`;
+    link.textContent = t('proceed', { place: place.label });
 
-    row.append(button);
+    // No preventDefault anywhere in here. The browser does the navigating, and
+    // everything this handler does has to be the kind of thing that survives
+    // the page being left behind.
+    link.addEventListener('click', () => onProceed(place));
+
+    row.append(link);
     el.destinations.append(row);
   }
 
@@ -784,29 +805,21 @@ async function onCopy() {
  * @param {string} url
  * @param {string} where - the listing's name, for the notice
  */
+/**
+ * Everything that has to happen as the guest leaves for the listing.
+ *
+ * Not the navigation itself — the anchor does that, and taking it away from the
+ * browser is what stopped the Facebook app routing. This only does the two
+ * things that go alongside it, and neither may delay or cancel the trip: a
+ * review that goes unrecorded is a gap in a list, while a customer who does not
+ * arrive is one who does not post.
+ */
 function onProceed(place) {
-  if (!place.url) return;
-
-  // Everything that needs the tap happens inside the tap.
-  //
-  // This used to await the clipboard write before opening the listing, and that
-  // await is what broke it on a phone. A browser only treats a navigation as
-  // user-initiated for a short window after the gesture, and awaiting spends
-  // it — so the open arrived unactivated. On Android and iOS that is the
-  // difference between Facebook's app opening on the business's page and the
-  // app opening on the user's own feed, because app links are only honoured for
-  // activated navigations.
-  //
-  // So the copy is started and not waited for, the listing is opened in the
-  // same task as the click, and the notice is written when the copy settles —
-  // by which time the guest is looking at Facebook anyway.
   const copying = copyReview();
 
   // The draft becomes a review here, not when it was written, and it records
   // which of the business's listings it went to.
   markProceeded(place.id);
-
-  window.open(place.url, '_blank', 'noopener');
 
   copying.then((copied) => {
     say(t(copied ? 'pasteCopied' : 'pasteManual', { place: place.label }));

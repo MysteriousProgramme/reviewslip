@@ -740,8 +740,15 @@ body {
   gap: 0.6rem;
 }
 
+/* Each listing is an anchor rather than a button, because a control whose job
+   is to go somewhere should be a link — see renderDestinations for why that
+   turned out to matter. `.btn` was written for <button>, which brings neither
+   an underline nor a block layout with it, so both are set here. */
 .destination .btn {
   flex: 1;
+  display: block;
+  text-align: center;
+  text-decoration: none;
 }
 
 .destination-mark {
