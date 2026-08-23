@@ -125,17 +125,22 @@ test('the generic context is context.md, and every section of it', () => {
   // what stops that being a way to lose one: the document's whole body is what
   // goes into the prompt, and each named section has to be inside it.
   const doc = fs.readFileSync(path.join(__dirname, '..', 'context.md'), 'utf8');
-  const body = doc.replace(/^<!--[\s\S]*?-->\s*/, '').trim();
 
+  // The whole file, with nothing held back and nothing added. The loader still
+  // strips a leading HTML comment, so this does too — a note put back at the
+  // top of the document would be for whoever edits it, not for the model.
+  const body = doc.replace(/^<!--[\s\S]*?-->\s*/, '').trim();
   assert.equal(context.GENERIC_CONTEXT, body);
 
   for (const section of [context.COMPLIANCE, context.CRAFT, context.TELLS, context.REGISTER]) {
     assert.ok(context.GENERIC_CONTEXT.includes(section));
   }
 
-  // The note to whoever edits the file is for them, not for the model.
+  // A business can download this. It has to open as the document rather than
+  // as a note to ourselves about how to maintain it — that now lives in
+  // context.js, next to the code the constraints are about.
+  assert.match(doc, /^# How to write a review/);
   assert.doesNotMatch(context.GENERIC_CONTEXT, /context\.js/);
-  assert.match(doc, /^<!--/);
 });
 
 test('a context.md missing a section refuses to load', () => {

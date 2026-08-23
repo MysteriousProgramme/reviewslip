@@ -27,6 +27,24 @@ const path = require('path');
  *
  * It is folded into the system prompt on every single generation, which the
  * business pays for by the token. So it earns its length or it comes out.
+ *
+ * Three things about that file are load-bearing, and none of them are visible
+ * from reading it. They used to be a comment at the top of the document; they
+ * live here now, because what a business downloads should open as the document
+ * rather than as a note to ourselves about it.
+ *
+ *   - The four headings named in SECTIONS below are looked up by name. Rename
+ *     one and this module throws on require, which is deliberate. Everything
+ *     else in the document is free — the ### headings, the last ## section —
+ *     because the prompt is built from the whole file, so anything added there
+ *     reaches the model without a code change.
+ *   - The "- " bullets under "Rules you must not break" are extracted into
+ *     COMPLIANCE_RULES and asserted one by one by the test suite. Reformatting
+ *     that block must not be able to drop one silently.
+ *   - The clauses quoted at the end come from the published Terms and Privacy
+ *     Policy, and the rules above cite them by number. If those documents
+ *     change, the quotes change with them: a citation to text that no longer
+ *     says that is worse than no citation at all.
  */
 
 const DOC = path.join(__dirname, 'context.md');

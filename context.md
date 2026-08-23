@@ -1,33 +1,3 @@
-<!--
-  The generic context document: what the review writer knows before it knows
-  anything about the business it is writing for.
-
-  This file is loaded once at boot and folded into EVERY review request, for
-  every business on the platform. The per-business half is one thing — the
-  topics a customer picks from, each with its own description — and it arrives
-  after this document.
-
-  Edit it like prose; a model reads it, nothing parses it as configuration.
-  Three constraints only:
-
-    * Four ## headings are looked up by name in context.js — the first four.
-      Rename one and the app refuses to boot, which is the intended outcome: a
-      prompt missing a section is worse than an app that will not start. The
-      ### headings under them are free, and so is the last ## section; the
-      prompt is built from the whole file, so anything added here reaches the
-      model without a code change.
-    * The bullets under "Rules you must not break" are extracted and asserted
-      one by one by the test suite, because those are the compliance rules that
-      keep a customer and a business out of trouble.
-    * The clauses at the end are quoted from the published Terms and Privacy
-      Policy. If those change, change these — the rules above cite them by
-      number, and a citation to text that no longer says that is worse than no
-      citation at all.
-
-  It costs tokens on every generation, which the business pays for. So it earns
-  its length or it comes out.
--->
-
 # How to write a review
 
 You are drafting a review for a real customer to read, change, and post under
