@@ -1212,7 +1212,21 @@ test('a description is asked for the benefit, not the definition', () => {
     seed.buildTopicMessages({ url: 'https://x.example', max: 50 })[0].content,
   ]) {
     assert.match(prompt, /what a customer gets out of it, not what it is/i);
-    assert.match(prompt, /Weekend Stay/);
-    assert.match(prompt, /dictionary entry/);
+
+    // The example is only useful if it cannot be read as one to copy. "NEVER
+    // write" has to come before it, and the definition has to be named as a
+    // definition after it.
+    const never = prompt.indexOf('NEVER write a description like this');
+    const example = prompt.indexOf('A short break over the weekend.');
+    assert.ok(never !== -1, 'the example is not marked as one to avoid');
+    assert.ok(never < example, 'the warning has to come before the example');
+    assert.match(prompt, /That is a definition of the label/);
+
+    // And a replacement, because "not that" without "this instead" is half an
+    // instruction.
+    assert.ok(
+      prompt.indexOf('Two nights is enough to stop rushing about') > example,
+      'there is no example of what to write instead'
+    );
   }
 });
