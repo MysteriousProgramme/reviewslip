@@ -171,7 +171,12 @@ async function init() {
   }
 
   renderDestinations();
-  generate();
+
+  // Nothing is written until somebody asks for it. The page used to draft on
+  // load, which spent a model call — and one of the guest's ten — on everyone
+  // who scanned the code out of curiosity and put the phone away, before they
+  // had picked a topic or a length. The box says what to press.
+  setBusy(false);
 }
 
 /**

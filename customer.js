@@ -385,14 +385,27 @@ router.delete(
   }
 );
 
-/** The latest reviews, for the list beside the stats. */
+/**
+ * The latest reviews, for the list beside the stats.
+ *
+ * Fifty rather than the twenty it was. Twenty is about a fortnight for a busy
+ * venue, and the list is where an owner works through what has been written and
+ * rates it — a cap that quietly hides half of what they have is a cap that
+ * makes the page look broken rather than paginated, because nothing on it says
+ * there is more.
+ *
+ * `events.recent` holds its own ceiling of a hundred, so this cannot be talked
+ * into fetching the whole table by a query string.
+ */
+const LATEST_REVIEWS = 50;
+
 router.get(
   '/businesses/:slug/reviews',
   requireAccount,
   requireOwnVenue,
   async (req, res, next) => {
     try {
-      res.json({ reviews: await events.recent(req.venue.id, 20) });
+      res.json({ reviews: await events.recent(req.venue.id, LATEST_REVIEWS) });
     } catch (err) {
       next(err);
     }
