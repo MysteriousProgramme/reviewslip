@@ -256,13 +256,117 @@ function renderDestinations() {
     // No preventDefault anywhere in here. The browser does the navigating, and
     // everything this handler does has to be the kind of thing that survives
     // the page being left behind.
-    link.addEventListener('click', () => onProceed(place));
+    link.addEventListener('click', (event) => {
+      onProceed(place);
+
+      // Facebook only, and only on a phone. Everywhere else the anchor's own
+      // href is followed, which is what a link is for — this is the one
+      // platform whose app takes the link and then loses it.
+      if (place.id !== 'facebook' || !onAPhone()) return;
+
+      const cleaned = facebookUrl(place.url);
+      if (!cleaned) return;
+
+      // The browser is not going to do better than this, so take it over —
+      // but only having decided we have somewhere specific to send them.
+      event.preventDefault();
+      openInFacebookApp(cleaned);
+    });
 
     row.append(link);
     el.destinations.append(row);
   }
 
   el.hint.textContent = state.destinations.length ? t('hint') : t('noLink');
+}
+
+/* ------------------------------------------------------- the Facebook app */
+
+/**
+ * Whether this is a phone. Not a feature test — there is nothing to test for.
+ *
+ * The app scheme below is only worth attempting where an app could exist. On a
+ * desktop browser `fb://` resolves to nothing at all, and the https link
+ * already works, so the whole path is skipped there.
+ */
+function onAPhone() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+/**
+ * The business's own Facebook address, tidied into the form the app will route.
+ *
+ * The app is fussy in ways the website is not. It routes to a page on
+ * www.facebook.com and shrugs at the mobile host; it follows a path and ignores
+ * the tracking parameters that get attached when somebody copies a link out of
+ * the app itself. A URL it cannot make sense of opens the app on the user's own
+ * feed, which is where this whole problem started.
+ *
+ * @returns {string} the cleaned https URL, or '' if this is not Facebook at all
+ */
+function facebookUrl(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return '';
+  }
+
+  if (!/(^|\.)facebook\.com$/i.test(url.hostname) && !/(^|\.)fb\.com$/i.test(url.hostname)) {
+    return '';
+  }
+
+  // m. and web. are the same page to a browser and a different one to the app.
+  url.hostname = 'www.facebook.com';
+  url.protocol = 'https:';
+
+  // Everything a share button adds. None of it identifies the page, and the
+  // app has been observed to give up rather than ignore it.
+  for (const junk of ['fbclid', 'mibextid', 'rdid', 'share_url', '_rdr']) {
+    url.searchParams.delete(junk);
+  }
+
+  return url.toString();
+}
+
+/**
+ * Opens a Facebook page in the app, falling back to the browser.
+ *
+ * `fb://facewebmodal/f?href=` is the app's own instruction to open a given
+ * facebook.com address inside itself. It is the only mechanism that works with
+ * a page's vanity name rather than its numeric id, which is what a business
+ * actually pastes into Settings.
+ *
+ * It is also undocumented, and Facebook has broken it before — so nothing here
+ * depends on it. If the app does not take over, the page is still here a moment
+ * later and the ordinary https link is followed instead. The two ways to tell
+ * are the tab being hidden and the page losing focus; either means something
+ * else is in front of the guest and we must not navigate underneath it.
+ *
+ * The clipboard already holds the review by the time this runs, so even the
+ * worst case — the fallback replacing this page — costs the guest nothing they
+ * were carrying.
+ */
+function openInFacebookApp(url) {
+  let left = false;
+  const leaving = () => {
+    left = true;
+  };
+
+  document.addEventListener('visibilitychange', leaving, { once: true });
+  window.addEventListener('pagehide', leaving, { once: true });
+  window.addEventListener('blur', leaving, { once: true });
+
+  window.location.href = `fb://facewebmodal/f?href=${encodeURIComponent(url)}`;
+
+  window.setTimeout(() => {
+    document.removeEventListener('visibilitychange', leaving);
+    window.removeEventListener('pagehide', leaving);
+    window.removeEventListener('blur', leaving);
+
+    if (left || document.visibilityState === 'hidden') return;
+    window.location.href = url;
+  }, 1400);
 }
 
 /* ---------------------------------------------------------------- topics */
