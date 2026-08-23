@@ -16,7 +16,7 @@
  * for the merge, so this file stays testable with a plain object.
  */
 
-const { bannedWord } = require('./seed');
+const { bannedWord, bullets } = require('./seed');
 const themes = require('./theme');
 const assets = require('./assets');
 
@@ -420,7 +420,10 @@ function validateCategories(value) {
       ID_RE.test(given) && !taken.has(given) ? given : idFrom(label, taken);
     taken.add(id);
 
-    const focus = text(item?.focus, MAX_DESCRIPTION + 1);
+    // `bullets`, not `text`: a description is a list, and `text` collapses the
+    // line breaks that make it one. Typed by hand here rather than generated,
+    // so it also tidies whatever someone pasted in.
+    const focus = bullets(item?.focus, MAX_DESCRIPTION + 1);
 
     if (focus) {
       if (focus.length > MAX_DESCRIPTION) {

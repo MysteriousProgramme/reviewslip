@@ -1230,3 +1230,44 @@ test('a description is asked for the benefit, not the definition', () => {
     );
   }
 });
+
+test('a description keeps its bullets through drafting and through a save', () => {
+  const list = '- Two nights is enough to stop rushing\n- The kitchen is open late';
+
+  // The bug this exists for: `text` collapses every run of whitespace, which is
+  // right for a label and turns a list into one long line. Both paths that
+  // touch a description have to use the other one.
+  const drafted = seed.parseDescription(JSON.stringify({ description: list }));
+  assert.equal(drafted, list);
+
+  const { categories } = settings.validateCategories([
+    { label: 'Weekend Stay', focus: list },
+  ]);
+  assert.equal(categories[0].focus, list);
+});
+
+test('a pasted list is tidied into the one shape everything downstream expects', () => {
+  // Nobody typing into a textarea should have to know which bullet character
+  // this wants, or that a blank line between bullets will be dropped.
+  assert.equal(
+    seed.bullets('  • First\r\n\r\n*  Second\n\n\n– Third   thing  ', 600),
+    '- First\n- Second\n- Third thing'
+  );
+
+  // A description written before any of this is still a description.
+  assert.equal(seed.bullets('One plain  sentence.', 600), 'One plain sentence.');
+  assert.equal(seed.bullets(null, 600), '');
+});
+
+test('both prompts ask for several bullets rather than a paragraph', () => {
+  for (const prompt of [
+    seed.buildDescribeMessages({ url: 'https://x.example', label: 'Weekend Stay' })[0].content,
+    seed.buildTopicMessages({ url: 'https://x.example', max: 50 })[0].content,
+  ]) {
+    assert.match(prompt, /bullet points, not a paragraph/);
+    // "Never one" is the load-bearing half: a single bullet is a paragraph
+    // wearing a dash.
+    assert.match(prompt, /between two and five of them, never one/i);
+    assert.match(prompt, /One bullet per thing/);
+  }
+});

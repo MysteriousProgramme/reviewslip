@@ -52,6 +52,36 @@ function text(value, max) {
     : '';
 }
 
+/**
+ * The same, for a description — which is a list now, not a sentence.
+ *
+ * `text` above collapses every run of whitespace into one space. That is right
+ * for a label and destroys a description: the line breaks between bullets are
+ * the shape of it. Its own function rather than a flag on `text`, because the
+ * two want opposite things and a boolean at the call site would say neither.
+ *
+ * Tidies each line and drops the blank ones, so a model that double-spaces its
+ * bullets and a person who pastes out of a document end up with the same thing.
+ * Common bullet glyphs become "- ": nobody typing into a textarea should have
+ * to know which character this expects.
+ */
+function bullets(value, max) {
+  if (typeof value !== 'string') return '';
+
+  return value
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) =>
+      line
+        .trim()
+        .replace(/[ \t]+/g, ' ')
+        .replace(/^[•*–—]\s*/, '- ')
+    )
+    .filter(Boolean)
+    .join('\n')
+    .slice(0, max);
+}
+
 /** Pull the JSON object out of a completion that may be fenced or padded. */
 function extractJson(raw) {
   const text = String(raw || '').trim();
@@ -109,7 +139,7 @@ Return a single JSON object of this shape:
   "topics": [
     {
       "label": "Rooms",
-      "description": "The rooms look out over the garden and the hills behind it. Each one has its own balcony, and the bathrooms were rebuilt with walk-in showers. Mornings are quiet enough to hear the birds, and the beds are made up with cotton rather than polyester."
+      "description": "- Every room looks over the garden, with the hills behind it\n- Your own balcony, which is where most people end up in the evening\n- Rebuilt bathrooms with walk-in showers rather than a tub you step into\n- Quiet enough in the morning to hear the birds"
     }
   ]
 }
@@ -130,18 +160,19 @@ Rules:
 - At most ${max} topics.
 - Order them the way a customer would scan them: the most obvious and most specific first, the general ones last.
 - "label" is what a customer taps: one to three words, title case, no punctuation, no emoji.
-- "description" is a short paragraph about that one thing, two to four sentences, and never more than 600 characters.
-- Say what a customer gets out of it, not what it is. A description that restates the label in other words tells the review writer nothing.
+- "description" is a list of bullet points, not a paragraph. Between two and five of them, never one. Each bullet is a single line starting with "- ", separated by a newline, and the whole list is never more than 600 characters.
+- Every bullet says what a customer gets out of it, not what it is. A bullet that restates the label in other words tells the review writer nothing.
 
   NEVER write a description like this:
     label: "Weekend Stay"
     description: "A short break over the weekend."
-  That is a definition of the label. It adds nothing the label did not already say, and a review written from it can only repeat the name back.
+  That is a definition of the label. It adds nothing the label did not already say, it is one bullet where there should be several, and a review written from it can only repeat the name back.
 
   Write one like this instead:
     label: "Weekend Stay"
-    description: "Two nights is enough to stop rushing about. Checkout is late enough on a Sunday to have another swim before leaving, and the kitchen is still open if you get back after dark."
-  That says what is worth having about it, which is what a customer would actually mention.
+    description: "- Two nights is enough to stop rushing about\n- Checkout is late enough on a Sunday for another swim before you go\n- The kitchen is still open if you get back after dark\n- Quiet enough that a lie-in is actually possible"
+  Each of those is something worth having, and something a customer would actually mention. That is what the list is for.
+- One bullet per thing. Do not put two ideas in one line joined by "and" — split them.
 - A named thing from the first kind may of course appear in its own label and description — that is the whole point of it. Describe it plainly, the way the business would explain it to someone who asked ("the pad thai is made to the owner's mother's recipe", not "our legendary pad thai").
 - No two topics may be the same thing worded differently. Two dishes are two topics; "The Staff" and "The Service" are one.
 
@@ -218,7 +249,7 @@ function parseTopics(raw, { max = 30, maxChars = 600 } = {}) {
     // Either key. The prompt asks for "description"; models that have seen the
     // older prompt still answer with "focus", and accepting both costs a line
     // and saves a wasted page read.
-    let focus = text(item?.description ?? item?.focus, maxChars);
+    let focus = bullets(item?.description ?? item?.focus, maxChars);
     if (focus && (/\d/.test(focus) || bannedWord(focus))) focus = '';
 
     out.push({ label, focus });
@@ -253,18 +284,19 @@ function parseTopics(raw, { max = 30, maxChars = 600 } = {}) {
 const DESCRIBE_SYSTEM = `You write one short description of one thing a business offers, for a review-writing assistant to work from.
 
 Return a single JSON object of this shape:
-{ "description": "The rooms look out over the garden. Each has its own balcony, and the bathrooms were rebuilt with walk-in showers." }
+{ "description": "- Every room looks over the garden\n- Your own balcony, which is where most people end up in the evening\n- Walk-in showers rather than a tub you step into" }
 
 What you write is the whole of what a review about this topic will ever be able to claim. There is no other document about this business. A review may say what your description says, and may say how the visit felt, and nothing else — so a sentence you invent here is a sentence published under a real customer's name.
 
 Rules:
-- Two to four sentences. Never more than 600 characters.
+- A list of bullet points, not a paragraph. Between two and five of them, never one. Each bullet is a single line starting with "- ", separated by a newline, and the whole list is never more than 600 characters.
+- One bullet per thing. Do not put two ideas in one line joined by "and" — split them.
 - Everything specific must come off the page you were given. If the page does not support a sentence, leave the sentence out.
-- Say what a customer gets out of it, not what it is. Restating the name in other words tells the review writer nothing.
+- Every bullet says what a customer gets out of it, not what it is. Restating the name in other words tells the review writer nothing.
 
-  NEVER write a description like this — for the label "Weekend Stay", the description "A short break over the weekend." That is a definition of the label. It adds nothing the label did not already say.
+  NEVER write a description like this — for the label "Weekend Stay", the description "A short break over the weekend." That is a definition of the label. It adds nothing the label did not already say, and it is one bullet where there should be several.
 
-  Write this instead: "Two nights is enough to stop rushing about. Checkout is late enough on a Sunday to have another swim before leaving, and the kitchen is still open if you get back after dark." Ask what is worth having about this one, and answer that.
+  Write this instead: "- Two nights is enough to stop rushing about\n- Checkout is late enough on a Sunday for another swim before you go\n- The kitchen is still open if you get back after dark". Ask what is worth having about this one, and answer with a line for each.
 - Write what a customer would notice and mention, not what a brochure would lead with. Plainly, in the business's own voice: "the pad thai is made to the owner's mother's recipe", not "our legendary pad thai".
 - No superlatives, no awards, no ratings, no rankings.
 - No numbers of any kind — no prices, no counts, no years, no distances, no opening hours.
@@ -309,7 +341,7 @@ function parseDescription(raw, { maxChars = 600 } = {}) {
   const data = extractJson(raw);
   if (!data) return null;
 
-  const description = text(data.description ?? data.focus, maxChars);
+  const description = bullets(data.description ?? data.focus, maxChars);
   if (!description) return null;
   if (/[0-9]/.test(description) || bannedWord(description)) return null;
 
@@ -482,6 +514,7 @@ function parseTheme(raw) {
 
 module.exports = {
   bannedWord,
+  bullets,
   buildDescribeMessages,
   parseDescription,
   buildThemeMessages,
