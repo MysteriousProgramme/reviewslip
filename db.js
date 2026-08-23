@@ -396,10 +396,6 @@ const MIGRATIONS = [
     // into the prompt, the sample written away from — reads only rows with
     // this set, while the usage meter keeps reading all of them.
     await c.query('ALTER TABLE review_events ADD COLUMN proceeded_at timestamptz');
-    // Which listing it was taken to. Beside the timestamp rather than derived
-    // from it, because a business with four links has four answers and the
-    // owner's first question about any review is where it ended up.
-    await c.query('ALTER TABLE review_events ADD COLUMN proceeded_to text');
 
     // Everything already stored predates the distinction, and was shown as a
     // review for months. Backfilled rather than orphaned: a dashboard that
@@ -410,6 +406,24 @@ const MIGRATIONS = [
       `CREATE INDEX IF NOT EXISTS review_events_proceeded_idx
          ON review_events (subscriber_id, proceeded_at DESC)
          WHERE proceeded_at IS NOT NULL`
+    );
+  },
+
+  async (c) => {
+    // Which listing the review was taken to. A business with four links has
+    // four answers, and where a review ended up is the owner's first question
+    // about it.
+    //
+    // Its own step, and not folded into the one above, because that one had
+    // already run. Migrations are recorded by index: editing an applied one
+    // changes what a fresh database gets and nothing at all on a live box —
+    // which is how this column came to be missing on the server while the code
+    // that selects it shipped. Append only. There is no exception to this.
+    // IF NOT EXISTS because the history is genuinely ambiguous: a database
+    // created while the column was still inside the step above already has it,
+    // and one created before that does not. Both must survive this.
+    await c.query(
+      'ALTER TABLE review_events ADD COLUMN IF NOT EXISTS proceeded_to text'
     );
   },
 ];
