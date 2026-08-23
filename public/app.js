@@ -190,15 +190,20 @@ function renderDestinations() {
     // for these logos ask for clear space and a plain background — Google's is
     // four colours, and dropping it onto a marigold fill breaches both. Outside
     // it also stays legible when the button is outlined rather than filled.
-    if (place.path) {
-      const tile = document.createElement('span');
-      tile.className = 'destination-mark';
+    //
+    // Always a tile, even for a platform with no mark to put in it. This used
+    // to be skipped, which left that one button starting where the others' text
+    // starts and running the full width of the row — a row that reads as
+    // broken rather than as a platform without a logo.
+    const tile = document.createElement('span');
+    tile.className = 'destination-mark';
+    tile.setAttribute('aria-hidden', 'true');
 
+    if (place.path) {
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
       svg.setAttribute('viewBox', '0 0 24 24');
       svg.setAttribute('width', '20');
       svg.setAttribute('height', '20');
-      svg.setAttribute('aria-hidden', 'true');
       // Never recoloured. A mark tinted to match its surroundings has stopped
       // being that company's mark, and every one of these guidelines says so.
       svg.setAttribute('fill', place.hex);
@@ -207,8 +212,17 @@ function renderDestinations() {
       path.setAttribute('d', place.path);
       svg.append(path);
       tile.append(svg);
-      row.append(tile);
+    } else {
+      // Wongnai is not in the icon set, and a hand-drawn approximation of a
+      // trademark is worse than an honest initial. The same fallback the
+      // dashboard already uses: the letter in white on the brand colour, which
+      // reads as a deliberate chip rather than a logo that failed to load.
+      tile.classList.add('destination-initial');
+      tile.style.background = place.hex;
+      tile.textContent = place.label.slice(0, 1);
     }
+
+    row.append(tile);
 
     const button = document.createElement('button');
     button.type = 'button';

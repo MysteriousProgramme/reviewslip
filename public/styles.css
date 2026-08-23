@@ -754,6 +754,22 @@ body {
   background: var(--paper);
 }
 
+/* The stand-in for a platform with no mark in the icon set. Its background is
+   set inline, from that platform's own brand colour.
+
+   White on purpose, and not a theme property. The tile is that company's colour
+   whatever palette the business chose, exactly as the real marks are never
+   recoloured — a letter tinted to match the page has stopped standing in for
+   the same thing. At this size and weight it clears the 3:1 that large text
+   asks for against every brand colour on the list. */
+.destination-initial {
+  color: #fff;
+  font-family: var(--ui);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
 /* ----------------------------------------------------------------- 404 -- */
 
 /* The page a mistyped address lands on.
