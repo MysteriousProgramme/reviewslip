@@ -1,5 +1,8 @@
 'use strict';
 
+const fs = require('fs');
+const path = require('path');
+
 /**
  * Drafting: read a business's own website and propose what a review may be
  * written from.
@@ -102,91 +105,49 @@ function extractJson(raw) {
 /* ---------------------------------------------------------- the topic set */
 
 /**
- * Topics, drafted from the website — the deep version of the category
- * suggestion above.
+ * The topic-drafting instructions, in context_topic.md next door.
  *
- * The old suggestion proposed five buttons, all of which the guest saw. The page
- * now samples ten from a set of up to fifty, so the job changed: the model is
- * being asked for *breadth*, and breadth is exactly where a model pads.
+ * Out of this file for the same reason context.md is out of config.js: it is
+ * prose a model reads, it is the thing most worth editing when the topics come
+ * back wrong, and a person editing it should not have to open a .js file and
+ * work inside a template literal to do it. A diff then shows the argument
+ * changing rather than a string literal changing.
  *
- * It is asked to aim for close to the cap, which is the instruction models
- * answer with filler — so the prompt spends most of its length on *how* to get
- * there honestly rather than on the number. Three kinds, worked in order:
+ * Read once at require time and cached. It is the same for every business, so
+ * re-reading it per draft would put a disk hit in front of a call that already
+ * takes twenty seconds, to support an edit nobody makes without deploying.
  *
- *   1. Named things the business is known for. A menu or a product range is
- *      worth twenty on its own, and these are what customers want to talk
- *      about. Every one has to be printed on the page.
- *   2. Specific but unnamed — a room type, a space, a facility.
- *   3. Common to any visit. This is the deep well and the reason the number is
- *      reachable at all: two dozen of them are true of every business by
- *      definition, so none can be an invention. The prompt lists them.
- *
- * Then the escape hatch, stated plainly, because it is the only thing standing
- * between a target and a fabricated bar: a genuinely small business lands well
- * short and that is the correct answer for it. Falling short is fine. Inventing
- * is not.
- *
- * There is no "Any" catch-all any more. It was pinned first out of five, which
- * does not survive sampling — it would show up in two guests out of three — and
- * it was never needed: a guest who taps nothing already gets a review about the
- * visit overall, which is what "Any" meant.
+ * Throws rather than degrades. A topic prompt reduced to "propose some topics"
+ * would still return topics — plausible ones, for a business nobody read — and
+ * that failure is invisible until a customer notices their menu is fiction.
+ * Refusing to start is the louder and cheaper outcome.
+ */
+const TOPIC_DOC = (() => {
+  const file = path.join(__dirname, 'context_topic.md');
+
+  let raw;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    throw new Error(
+      `Could not read ${file}: ${err.message}. The topic drafting instructions ` +
+        'are required.'
+    );
+  }
+
+  const body = raw.replace(/^<!--[\s\S]*?-->\s*/, '').trim();
+  if (!body) throw new Error(`${file} is empty.`);
+
+  return body;
+})();
+
+/**
+ * @param {number} max - how many topics may be stored, from settings.js
  */
 function topicSystem(max) {
-  return `You read a business's own website and propose the topics a departing customer picks from before writing a review.
-
-Return a single JSON object of this shape:
-{
-  "topics": [
-    {
-      "label": "Rooms",
-      "description": "- Every room looks over the garden, with the hills behind it\n- Your own balcony, which is where most people end up in the evening\n- Rebuilt bathrooms with walk-in showers rather than a tub you step into\n- Quiet enough in the morning to hear the birds"
-    }
-  ]
-}
-
-There are three kinds of topic, and a full set uses all three:
-
-1. Named things this business is known for — a signature dish, a house speciality, a flagship product, a treatment or service it is identified with. Take the actual name off the page: "The Pad Thai", "The Sunday Roast", "The Oat Flat White", "The Handmade Frames". These are the topics customers most want to talk about. Take every one the page gives you: a menu or a product range is worth twenty or more on its own.
-2. Specific to this business but not named — a room type, a space, a facility, an area, somewhere nearby. A business with no bar does not get a bar topic.
-3. Common to any visit — true of every business by definition, so always safe and never invented. There are far more of these than people first think: the welcome, being greeted, how you were treated, booking, arriving, finding the place, parking, how long you waited, being looked after without being hovered over, how it felt to be there, how it looked, how clean it was, the quiet or the buzz, being remembered, being helped with something awkward, how easy it was to pay, leaving, whether you would come back, whether you would send a friend, the first visit, coming back again, going as a couple, going with family, going alone.
-
-Aim for close to ${max} topics, and reach it in that order: exhaust the named things first, then the specific ones, then work down the third kind until you are near the number. The third kind is what gets you there — it is a deep well and every one of it is true.
-
-What you must not do to reach the number: invent a dish, a product, a treatment, a room or a facility the page does not show; split one thing into three; or list the same thing twice in different words. If a business is genuinely small — a clinic with four treatments and one room — you will land well short of ${max}, and that is the correct answer for that business. Falling short is fine. Inventing is not.
-
-Only take a name that is actually printed on the page. Never guess at one a business of this kind usually has.
-
-Rules:
-- At most ${max} topics.
-- Order them the way a customer would scan them: the most obvious and most specific first, the general ones last.
-- "label" is what a customer taps: one to three words, title case, no punctuation, no emoji.
-- "description" is a list of bullet points, not a paragraph. Each bullet is a single line starting with "- ", separated by a newline, and the whole list is never more than 600 characters.
-- How many bullets depends on the topic, not on a quota. Take as many as the thing genuinely has and stop: a signature dish the page describes at length might carry five or six; "Parking" might carry two. Never one — a single bullet is a paragraph wearing a dash — and never a line invented to reach a number.
-- Every bullet says what a customer gets out of it, not what it is. A bullet that restates the label in other words tells the review writer nothing.
-
-  NEVER write a description like this:
-    label: "Weekend Stay"
-    description: "A short break over the weekend."
-  That is a definition of the label. It adds nothing the label did not already say, it is one bullet where there should be several, and a review written from it can only repeat the name back.
-
-  Write one like this instead:
-    label: "Weekend Stay"
-    description: "- Two nights is enough to stop rushing about\n- Checkout is late enough on a Sunday for another swim before you go\n- The kitchen is still open if you get back after dark\n- Quiet enough that a lie-in is actually possible"
-  Each of those is something worth having, and something a customer would actually mention. That is what the list is for.
-- One bullet per thing. Do not put two ideas in one line joined by "and" — split them.
-- A named thing from the first kind may of course appear in its own label and description — that is the whole point of it. Describe it plainly, the way the business would explain it to someone who asked ("the pad thai is made to the owner's mother's recipe", not "our legendary pad thai").
-- No two topics may be the same thing worded differently. Two dishes are two topics; "The Staff" and "The Service" are one.
-
-The description matters more than it looks. It is the *only* thing the review writer will ever be told about this business — there is no other document, no list of facts, nothing else. A review about this topic can say what its description says and nothing more, so:
-
-- Everything in it must come off the page you read. If the page does not support a sentence, leave the sentence out. An empty-handed description is recoverable; an invented one is published under a real customer's name.
-- Write what a customer would actually notice and mention, not what a brochure would lead with.
-- No superlatives, no awards, no ratings, no rankings.
-- No numbers of any kind — no prices, no counts, no years, no distances, no opening hours.
-- No staff names, and nobody identifiable.
-- A topic of the third kind — the welcome, the wait, being looked after — often has nothing on the page behind it. Describe what that part of a visit is, plainly and briefly, and say nothing specific about this business that you cannot support.
-
-Output only the JSON object. Nothing before it, nothing after it.`;
+  // One placeholder, filled everywhere it appears. The document says so about
+  // itself, so a reader is not left wondering what {max} is.
+  return TOPIC_DOC.split('{max}').join(String(max));
 }
 
 /**
@@ -197,16 +158,30 @@ Output only the JSON object. Nothing before it, nothing after it.`;
  *   sign-in wall is not a different kind of source needing different words; it
  *   is a page that came back with nothing on it, and the honest response to
  *   that is the one already asked for — leave it out rather than assume.
+ * @param {string[]} [args.listings] - the business's review pages, when it has
+ *   set any. Its own site says what it offers; these say which of it customers
+ *   actually talk about, and in whose words. The document sets out how far each
+ *   source may be trusted, because that is the distinction with consequences:
+ *   what reviewers say is evidence of what matters, never of what is true.
  * @param {number} args.max - how many topics may be stored, from settings.js
  */
-function buildTopicMessages({ url, max = 30 }) {
+function buildTopicMessages({ url, listings = [], max = 30 }) {
+  // Deduplicated, because the source URL is chosen out of the same set: a
+  // business whose only address is its Facebook page would otherwise be asked
+  // to read that page twice, once as the site and once as a listing.
+  const others = listings.filter(Boolean).filter((link) => link !== url);
+
+  const reviews = others.length
+    ? `\n\nThen read the reviews this business already has:\n${others.map((link) => `- ${link}`).join('\n')}\n\nRead the good ones, and take two things from them: which subjects come up again and again, and what words customers use for them. A subject nobody has ever mentioned in a review is one nobody will pick off a button. Remember what the reviews may and may not be used for — they tell you what matters, never what is true, and none of them may be quoted or reworded.`
+    : '';
+
   return [
     { role: 'system', content: topicSystem(max) },
     {
       role: 'user',
-      content: `Read ${url} and propose the review topics. Fetch the page before answering — do not guess from the domain name or from the business's name. Follow the site's own links to the menu, the product range, the treatment list, the rooms: that is where most of the topics are, and the front page rarely has them. Work through what you find item by item rather than summarising it.
+      content: `Read ${url} and propose the review topics. Fetch the page before answering — do not guess from the domain name or from the business's name. Follow the site's own links to the menu, the product range, the treatment list, the rooms: that is where most of the topics are, and the front page rarely has them. Work through what you find item by item rather than summarising it.${reviews}
 
-If the page will not load, or shows a sign-in wall, or carries nothing about the business, say so plainly and return only the topics of the third kind — the ones true of any visit. Do not describe a business you could not read.`,
+If a page will not load, or shows a sign-in wall, or carries nothing about the business, say so plainly and carry on with whatever did load. If none of them loaded, return only the topics of the third kind — the ones true of any visit. Do not describe a business you could not read.`,
     },
   ];
 }

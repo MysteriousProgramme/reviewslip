@@ -343,9 +343,7 @@ router.patch(
         status: patch.status,
         googleUrl: patch.googleUrl,
         tripadvisorUrl: patch.tripadvisorUrl,
-        lineUrl: patch.lineUrl,
         facebookUrl: patch.facebookUrl,
-        xiaohongshuUrl: patch.xiaohongshuUrl,
         wongnaiUrl: patch.wongnaiUrl,
         websiteUrl: patch.websiteUrl,
         categories: patch.categories,
@@ -473,8 +471,6 @@ const SOURCE_LABELS = {
   facebookUrl: 'Facebook page',
   googleUrl: 'Google listing',
   tripadvisorUrl: 'Tripadvisor listing',
-  lineUrl: 'LINE page',
-  xiaohongshuUrl: 'Xiaohongshu page',
   wongnaiUrl: 'Wongnai listing',
 };
 
@@ -607,9 +603,16 @@ router.post(
       const resolved = readable(req.venue, res);
       if (!resolved) return;
 
+      // Every listing this business has set, whichever one was chosen as the
+      // page to read. What its own site says it offers and what its customers
+      // actually talk about are different lists, and the second is the one the
+      // buttons want to be.
+      const listings = PLATFORMS.map((p) => resolved[`${p.id}Url`]).filter(Boolean);
+
       const answer = await readWebsite(req.venue, resolved, {
         messages: buildTopicMessages({
-          ...{ url: resolved.sourceUrl },
+          url: resolved.sourceUrl,
+          listings,
           max: settingsRules.MAX_TOPICS,
         }),
         // Fifty topics with a focus line each is a long answer; 3000 truncated

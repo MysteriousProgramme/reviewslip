@@ -833,6 +833,7 @@ verified. A failed or skipped run then alerts by *not* arriving.
 | File | What it holds |
 | --- | --- |
 | `context.md` | The generic context document — the prose every review is written from. |
+| `context_topic.md` | The topic-drafting instructions, in prose for the same reason. |
 | `context.js` | Loads it, checks its sections are all there, and refuses to start if not. |
 | `theme.js` | Four colours to a palette, with every text pair held to a contrast ratio, plus the typeface allowlist. |
 | `assets.js` | Downloading a logo or a font from an address a third party controls, safely. |

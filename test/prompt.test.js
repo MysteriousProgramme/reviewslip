@@ -25,6 +25,7 @@ const config = require('../config');
 const seed = require('../seed');
 const settings = require('../settings');
 const strings = require('../strings');
+const platforms = require('../platforms');
 const quota = require('../quota');
 const translate = require('../translate');
 const theme = require('../theme');
@@ -52,6 +53,17 @@ const TOPICS = [
 
 /** Picks index 0 of every pool, so a drawn phrasing is assertable. */
 const first = () => 0;
+
+/**
+ * A prompt with its line breaks flattened, for asserting on what it says.
+ *
+ * The topic instructions live in context_topic.md and are wrapped as prose, so
+ * a sentence there is split across lines at whatever column it reached. A test
+ * matching contiguous text fails the first time somebody reflows a paragraph —
+ * which is a test failing for the document being edited the way it was meant to
+ * be. The words are what matter here, not where they wrap.
+ */
+const flat = (prompt) => prompt.replace(/\s+/g, ' ');
 
 /* --------------------------------------------------------- generic context */
 
@@ -237,8 +249,27 @@ test('the length ceiling moves with the length choice', () => {
 });
 
 test('the platform note reaches the rules when there is one destination', () => {
-  const prompt = config.buildSystemPrompt(CLINIC, { platformIds: ['xiaohongshu'] });
-  assert.match(prompt, /Xiaohongshu/);
+  const prompt = config.buildSystemPrompt(CLINIC, { platformIds: ['wongnai'] });
+  assert.match(prompt, /Wongnai/);
+});
+
+test('every platform on offer has a note, and nothing else does', () => {
+  // The two lists have to agree: a platform with no note loses the one line
+  // that tells the writer what genre it is writing in, and a note for a
+  // platform nobody can pick is dead weight nobody will think to delete.
+  for (const { id, label } of platforms.PLATFORMS) {
+    assert.match(
+      context.platformNote([id]),
+      new RegExp(label),
+      `no platform note mentions ${label}`
+    );
+  }
+
+  // And the ones that were taken off the list are gone from both.
+  for (const id of ['line', 'xiaohongshu']) {
+    assert.equal(context.platformNote([id]), '');
+    assert.ok(!platforms.PLATFORMS.some((p) => p.id === id));
+  }
 });
 
 /* ------------------------------------------------------------- the request */
@@ -407,19 +438,20 @@ test('the topic prompt aims at the cap but licenses falling short', () => {
   // target but the two things either side of it: a deep well of topics that are
   // true of every business by definition, and permission to land short.
   const [system] = seed.buildTopicMessages({ url: 'https://x.example', max: 50 });
+  const said = flat(system.content);
 
-  assert.match(system.content, /Aim for close to 50 topics/);
-  assert.match(system.content, /Falling short is fine\. Inventing is not\./);
+  assert.match(said, /Aim for close to 50 topics/);
+  assert.match(said, /Falling short is fine\. Inventing is not\./);
 
   // The third kind is the well. If it stops being listed, the number can only
   // be reached by making things up.
   for (const universal of ['the welcome', 'how long you waited', 'whether you would come back']) {
-    assert.ok(system.content.includes(universal), `the well lost "${universal}"`);
+    assert.ok(said.includes(universal), `the well lost "${universal}"`);
   }
 
   // And the ban on the ways a model would otherwise pad.
-  assert.match(system.content, /split one thing into three/);
-  assert.match(system.content, /never invent|not do to reach the number/i);
+  assert.match(said, /split one thing into three/);
+  assert.match(said, /never invent|not do to reach the number/i);
 });
 
 test('the topic cap is one number, in the prompt and in the store', () => {
@@ -1210,7 +1242,7 @@ test('a description is asked for the benefit, not the definition', () => {
   for (const prompt of [
     seed.buildDescribeMessages({ url: 'https://x.example', label: 'Weekend Stay' })[0].content,
     seed.buildTopicMessages({ url: 'https://x.example', max: 50 })[0].content,
-  ]) {
+  ].map(flat)) {
     assert.match(prompt, /what a customer gets out of it, not what it is/i);
 
     // The example is only useful if it cannot be read as one to copy. "NEVER
@@ -1263,7 +1295,7 @@ test('both prompts ask for several bullets rather than a paragraph', () => {
   for (const prompt of [
     seed.buildDescribeMessages({ url: 'https://x.example', label: 'Weekend Stay' })[0].content,
     seed.buildTopicMessages({ url: 'https://x.example', max: 50 })[0].content,
-  ]) {
+  ].map(flat)) {
     assert.match(prompt, /bullet points, not a paragraph/);
     // How many is the topic's business, not a quota — a quota is answered with
     // filler. "Never one" is the only fixed end of it, because a single bullet
@@ -1273,4 +1305,65 @@ test('both prompts ask for several bullets rather than a paragraph', () => {
     assert.match(prompt, /never a line invented to reach a number/);
     assert.match(prompt, /One bullet per thing/);
   }
+});
+
+test('the topic instructions come from context_topic.md, whole', () => {
+  // Same contract as context.md: the words live in a markdown file so they can
+  // be edited as prose, and this is what stops that being a way to lose half of
+  // them. The document's whole body is what the model is sent.
+  const doc = fs
+    .readFileSync(path.join(__dirname, '..', 'context_topic.md'), 'utf8')
+    .replace(/^<!--[\s\S]*?-->\s*/, '')
+    .trim();
+
+  const [system] = seed.buildTopicMessages({ url: 'https://x.example', max: 50 });
+  assert.equal(system.content, doc.split('{max}').join('50'));
+
+  // Every placeholder filled. One left behind would reach the model as the
+  // literal "{max}", which reads as an instruction to output a placeholder.
+  assert.doesNotMatch(system.content, /\{max\}/);
+  assert.ok(doc.includes('{max}'), 'the document no longer takes the cap');
+});
+
+test('the topic prompt reads the review listings, and says what for', () => {
+  const [, user] = seed.buildTopicMessages({
+    url: 'https://riverside.example',
+    listings: [
+      'https://riverside.example',
+      'https://maps.google.com/riverside',
+      'https://tripadvisor.com/riverside',
+    ],
+    max: 50,
+  });
+
+  assert.match(user.content, /Then read the reviews this business already has/);
+  assert.match(user.content, /maps\.google\.com\/riverside/);
+  assert.match(user.content, /tripadvisor\.com\/riverside/);
+
+  // The source page is not asked for twice. A business whose only address is
+  // its Facebook page has that address in both lists.
+  assert.equal(user.content.match(/riverside\.example/g).length, 1);
+
+  // The distinction with consequences, stated where the listings are handed
+  // over rather than only in the document.
+  assert.match(user.content, /what matters, never what is true/);
+  assert.match(user.content, /quoted or reworded/);
+});
+
+test('a business with no listings is asked to read one page, and told nothing about reviews', () => {
+  const [, user] = seed.buildTopicMessages({ url: 'https://x.example', max: 50 });
+  assert.doesNotMatch(user.content, /Then read the reviews/);
+  assert.doesNotMatch(user.content, /undefined/);
+});
+
+test('the document keeps a claim and a review apart', () => {
+  const [system] = seed.buildTopicMessages({ url: 'https://x.example', max: 50 });
+  const said = flat(system.content);
+
+  // This is the rule that stops the listings becoming a second source of
+  // facts. Reviews say what is worth writing about; only the business's own
+  // pages say what is true about it.
+  assert.match(said, /A \*\*claim\*\* may only come from the business's own pages/);
+  assert.match(said, /Never quote or paraphrase a review/);
+  assert.match(said, /one person's experience/);
 });

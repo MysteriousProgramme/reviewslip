@@ -137,12 +137,8 @@ const PLATFORM_NOTES = {
     'This is going on a Google listing, where reviews are plain, unstructured and often very short.',
   tripadvisor:
     'This is going on Tripadvisor, where reviewers write a little more, and often mention how it compared with somewhere else they went.',
-  line:
-    'This is going through LINE, where the tone sits closer to a message than to a review: short and conversational.',
   facebook:
     'This is going on Facebook, where a review reads like a post to friends and is the most casual of any platform.',
-  xiaohongshu:
-    'This is going on Xiaohongshu, where posts are personal and written to other people looking for somewhere to go, rather than about the business.',
   wongnai:
     'This is going on Wongnai, where reviewers are direct about the food and get to the point quickly.',
 };

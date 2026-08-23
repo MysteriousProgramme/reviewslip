@@ -34,9 +34,7 @@ const FIELDS = [
   'apiKey',
   'googleUrl',
   'tripadvisorUrl',
-  'lineUrl',
   'facebookUrl',
-  'xiaohongshuUrl',
   'wongnaiUrl',
   'websiteUrl',
 ];
@@ -49,9 +47,7 @@ const BUILT_IN = {
   // drops that button rather than sending someone to a stranger's listing.
   googleUrl: '',
   tripadvisorUrl: '',
-  lineUrl: '',
   facebookUrl: '',
-  xiaohongshuUrl: '',
   wongnaiUrl: '',
   // The venue's own site. Read during seeding to draft the venue details;
   // nothing else uses it, and it is never shown to guests.
@@ -204,9 +200,7 @@ function describe(own) {
       source: source.tripadvisorUrl,
     },
     websiteUrl: { value: values.websiteUrl, source: source.websiteUrl },
-    lineUrl: { value: values.lineUrl, source: source.lineUrl },
     facebookUrl: { value: values.facebookUrl, source: source.facebookUrl },
-    xiaohongshuUrl: { value: values.xiaohongshuUrl, source: source.xiaohongshuUrl },
     wongnaiUrl: { value: values.wongnaiUrl, source: source.wongnaiUrl },
     categories: { value: values.categories, source: source.categories },
     // The four chosen colours, plus what they derive to and anything the
@@ -290,9 +284,7 @@ function validate(patch) {
   if (websiteUrl) return websiteUrl;
 
   for (const [field, label] of [
-    ['lineUrl', 'LINE link'],
     ['facebookUrl', 'Facebook link'],
-    ['xiaohongshuUrl', 'Xiaohongshu link'],
     ['wongnaiUrl', 'Wongnai link'],
   ]) {
     const bad = checkWebUrl(patch[field], label);
