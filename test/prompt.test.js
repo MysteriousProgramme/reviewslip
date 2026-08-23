@@ -1214,9 +1214,16 @@ test('the label prompt names the language and refuses to rename a dish', () => {
   assert.match(user.content, /into Thai/);
   assert.match(user.content, /roast: Sunday Roast/);
 
-  // The rule that stops "Sunday Roast" becoming a Thai phrase nobody can find
-  // on the menu when they get to the restaurant.
-  assert.match(system.content, /A proper name stays as it is/);
+  // The rule this exists for. Leaving a named thing alone put "Family Junior
+  // Suite" on a Thai page in Latin script — unreadable to the guest it was
+  // shown to, which is the whole failure the selector is meant to fix.
+  assert.match(system.content, /written in the script of the language you were asked for/);
+  assert.match(system.content, /Family Junior Suite/);
+  assert.match(system.content, /never in Latin ones/);
+
+  // And the case where leaving it alone is right, because the reader can
+  // already read it.
+  assert.match(system.content, /same script as the label already/);
   assert.match(system.content, /never longer than four words/);
 });
 
@@ -1366,4 +1373,30 @@ test('the document keeps a claim and a review apart', () => {
   assert.match(said, /A \*\*claim\*\* may only come from the business's own pages/);
   assert.match(said, /Never quote or paraphrase a review/);
   assert.match(said, /one person's experience/);
+});
+
+test('a prompt change re-translates what it invalidated', () => {
+  const topics = [{ id: 'suite', label: 'Family Junior Suite' }];
+
+  // What the first version stored: the label left in Latin script, which is
+  // what put unreadable buttons on a Thai page.
+  const old = { suite: { label: 'Family Junior Suite', of: 'Family Junior Suite' } };
+
+  // Stale despite the label being unchanged. Without this, a rule that fixes
+  // bad output fixes it for businesses set up afterwards and for nobody else.
+  assert.deepEqual(translate.missing(old, topics).map((t) => t.id), ['suite']);
+
+  // Shown in the meantime, though. An out-of-date translation still beats a
+  // Latin button on a Thai page, and a better one has already been asked for.
+  assert.deepEqual(translate.apply(old, topics), [
+    { id: 'suite', label: 'Family Junior Suite' },
+  ]);
+
+  const fresh = translate.merge(old, { suite: 'ห้องแฟมิลี่จูเนียร์สวีท' }, topics);
+  assert.equal(fresh.suite.v, translate.VERSION);
+  assert.deepEqual(translate.missing(fresh, topics), []);
+
+  // An entry from the older prompt is not carried forward by a call that
+  // failed to replace it.
+  assert.deepEqual(translate.merge(old, {}, topics), {});
 });

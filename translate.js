@@ -24,6 +24,21 @@
 
 const { languageFor } = require('./config');
 
+/**
+ * Bumped whenever the prompt above changes in a way that should re-translate
+ * what is already stored.
+ *
+ * Without this, a stored table is invalidated only by its own label changing —
+ * so a rule that fixes bad output fixes it for businesses set up afterwards and
+ * for nobody else. The first version left names in their original script, which
+ * put Latin buttons on a Thai page; a business that had already been translated
+ * would have kept them forever.
+ *
+ * The cost of a bump is one model call per language per business, the next time
+ * a guest asks for it. That is the same cost as the first guest ever paid.
+ */
+const VERSION = 2;
+
 /** Sent once per language per business, so it can afford to be exact. */
 const SYSTEM = `You translate the labels on a row of buttons. Each one is the name of something a customer might write a review about — a dish, a room type, a service, or an ordinary part of a visit.
 
@@ -33,7 +48,9 @@ Return a single JSON object mapping each id to its translation, and nothing else
 Rules:
 - These are buttons on a phone. Keep each translation as short as the original, and never longer than four words.
 - Translate what the label means to a customer choosing a subject, not word by word.
-- A proper name stays as it is. The name of a dish, a product, a brand or a room type that the business has named is not translated — a Thai customer looking for the Sunday Roast is looking for "Sunday Roast". If you are unsure whether something is a name, leave it alone.
+- Every label comes back written in the script of the language you were asked for. A label left in the original script is one the customer cannot read, and a button they cannot read is one they will not press.
+- A name is rendered, not kept. A dish, a room type, a product or a service the business has named still has to be readable: translate the ordinary words in it and write the rest the way it sounds in the target script. "Family Junior Suite" asked for in Thai comes back in Thai characters, never in Latin ones.
+- The exception is a language written in the same script as the label already. Spanish, French, German, Italian, Portuguese and Dutch readers can read "Sunday Roast" as it stands, so leave a name alone in those rather than inventing a translation of it.
 - No punctuation at the end, no quotation marks, no emoji, no explanation.
 - Return every id you were given, even the ones you left unchanged.
 
@@ -91,7 +108,10 @@ function parseLabels(raw) {
  * @param {{id: string, label: string}[]} topics
  */
 function missing(table, topics) {
-  return topics.filter((t) => table?.[t.id]?.of !== t.label);
+  return topics.filter((t) => {
+    const held = table?.[t.id];
+    return !held || held.of !== t.label || held.v !== VERSION;
+  });
 }
 
 /**
@@ -106,8 +126,13 @@ function merge(table, fresh, topics) {
   for (const topic of topics) {
     const label = fresh[topic.id];
     if (label) {
-      out[topic.id] = { label, of: topic.label };
-    } else if (table?.[topic.id]?.of === topic.label) {
+      out[topic.id] = { label, of: topic.label, v: VERSION };
+    } else if (
+      table?.[topic.id]?.of === topic.label &&
+      table[topic.id].v === VERSION
+    ) {
+      // Kept only if it is still current in both senses. An entry from an older
+      // prompt is carried no further than the call that failed to replace it.
       out[topic.id] = table[topic.id];
     }
   }
@@ -122,11 +147,23 @@ function merge(table, fresh, topics) {
  * untranslated one only if the gaps are blank.
  */
 function apply(table, topics) {
-  return topics.map((topic) =>
-    table?.[topic.id]?.of === topic.label
-      ? { ...topic, label: table[topic.id].label }
-      : topic
-  );
+  return topics.map((topic) => {
+    const held = table?.[topic.id];
+    // Shown even when it is from an older prompt: a translation that is merely
+    // out of date beats a Latin button on a Thai page, and `missing` has
+    // already asked for a better one.
+    return held && held.of === topic.label
+      ? { ...topic, label: held.label }
+      : topic;
+  });
 }
 
-module.exports = { buildLabelMessages, parseLabels, missing, merge, apply, SYSTEM };
+module.exports = {
+  buildLabelMessages,
+  parseLabels,
+  missing,
+  merge,
+  apply,
+  SYSTEM,
+  VERSION,
+};
