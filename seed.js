@@ -131,6 +131,7 @@ Rules:
 - Order them the way a customer would scan them: the most obvious and most specific first, the general ones last.
 - "label" is what a customer taps: one to three words, title case, no punctuation, no emoji.
 - "description" is a short paragraph about that one thing, two to four sentences, and never more than 600 characters.
+- Say what a customer gets out of it, not what it is. A description that restates the label in other words tells the review writer nothing: "Weekend Stay — a short break over the weekend" is a dictionary entry. What is worth having about a weekend stay here? Two nights is enough to stop rushing; checkout is late enough on a Sunday to have another swim; the kitchen is still open when you get back. Those are things a customer would actually mention.
 - A named thing from the first kind may of course appear in its own label and description — that is the whole point of it. Describe it plainly, the way the business would explain it to someone who asked ("the pad thai is made to the owner's mother's recipe", not "our legendary pad thai").
 - No two topics may be the same thing worded differently. Two dishes are two topics; "The Staff" and "The Service" are one.
 
@@ -249,6 +250,7 @@ What you write is the whole of what a review about this topic will ever be able 
 Rules:
 - Two to four sentences. Never more than 600 characters.
 - Everything specific must come off the page you were given. If the page does not support a sentence, leave the sentence out.
+- Say what a customer gets out of it, not what it is. Restating the name in other words tells the review writer nothing: "Weekend Stay — a short break over the weekend" is a dictionary entry, not something a review can be written from. Ask what is worth having about this one, and answer that.
 - Write what a customer would notice and mention, not what a brochure would lead with. Plainly, in the business's own voice: "the pad thai is made to the owner's mother's recipe", not "our legendary pad thai".
 - No superlatives, no awards, no ratings, no rankings.
 - No numbers of any kind — no prices, no counts, no years, no distances, no opening hours.

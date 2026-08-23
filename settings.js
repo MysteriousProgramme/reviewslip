@@ -455,10 +455,15 @@ function validateCategories(value) {
       }
     }
 
+    // Locked topics survive a re-generation, which otherwise replaces the whole
+    // set. Stored only when true: a `locked: false` on every one of fifty rows
+    // is noise in a column that is read on every guest page load.
+    const locked = item?.locked === true;
+
     // No description of its own: the label alone steers the prompt, which reads
     // fine — "write one review about Rooms" — and is what a topic typed by hand
     // in a hurry will be.
-    out.push({ id, label, focus: focus || label });
+    out.push({ id, label, focus: focus || label, ...(locked && { locked }) });
   }
 
   return { ok: true, categories: out };

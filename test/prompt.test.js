@@ -1187,3 +1187,32 @@ test('the label prompt names the language and refuses to rename a dish', () => {
   assert.match(system.content, /A proper name stays as it is/);
   assert.match(system.content, /never longer than four words/);
 });
+
+test('a locked topic keeps its lock, and only a real one counts', () => {
+  const { categories } = settings.validateCategories([
+    { label: 'Rooms', focus: 'What the rooms get you.', locked: true },
+    { label: 'Bar', focus: '' },
+    // Anything other than the boolean is not a lock. This arrives from a form,
+    // where "false" and "0" are both truthy strings.
+    { label: 'Spa', focus: '', locked: 'false' },
+  ]);
+
+  assert.equal(categories[0].locked, true);
+  // Absent rather than false: a `locked: false` on every one of fifty rows is
+  // weight in a column read on every guest page load.
+  assert.ok(!('locked' in categories[1]));
+  assert.ok(!('locked' in categories[2]));
+});
+
+test('a description is asked for the benefit, not the definition', () => {
+  // The failure this exists for: "Weekend Stay — a short break over the
+  // weekend" restates the label and leaves the writer with nothing.
+  for (const prompt of [
+    seed.buildDescribeMessages({ url: 'https://x.example', label: 'Weekend Stay' })[0].content,
+    seed.buildTopicMessages({ url: 'https://x.example', max: 50 })[0].content,
+  ]) {
+    assert.match(prompt, /what a customer gets out of it, not what it is/i);
+    assert.match(prompt, /Weekend Stay/);
+    assert.match(prompt, /dictionary entry/);
+  }
+});
