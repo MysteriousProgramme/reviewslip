@@ -366,6 +366,23 @@ const MIGRATIONS = [
     // page would, in place of the fetch.
     await c.query('ALTER TABLE subscribers ADD COLUMN source_text text');
   },
+
+  async (c) => {
+    // Topic names in every language the page offers, as JSON:
+    //
+    //   { "th": { "<topic id>": { "label": "ห้องพัก", "of": "Rooms" } } }
+    //
+    // A cache, not a setting. A guest picking Thai on a business whose topics
+    // are English is the case this exists for, and translating fifty short
+    // labels in front of that guest is a model call they would wait for. So the
+    // first guest to pick a language pays for it and everyone after them reads
+    // this column.
+    //
+    // `of` is the English label the translation was made from. A label the
+    // owner has since edited no longer matches, and a mismatch counts as
+    // missing — which is the whole invalidation story, and needs no timestamps.
+    await c.query('ALTER TABLE subscribers ADD COLUMN topic_labels text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

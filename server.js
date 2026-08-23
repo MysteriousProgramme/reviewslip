@@ -7,6 +7,7 @@ const express = require('express');
 
 const {
   LANGUAGES,
+  DEFAULT_LANGUAGE,
   LENGTH_CHOICES,
   languageFor,
   lengthFor,
@@ -18,6 +19,7 @@ const {
 } = require('./seed');
 const settingsRules = require('./settings');
 const strings = require('./strings');
+const translate = require('./translate');
 const { createQuota, MAX_REGENERATIONS } = require('./quota');
 const theme = require('./theme');
 const { ready } = require('./db');
@@ -297,6 +299,89 @@ app.get('/api/config', requireTenant, (req, res) => {
     // glance that they are editing the right venue.
     subscriber: { slug: req.subscriber.slug, name: req.subscriber.name },
   });
+});
+
+/* --------------------------------------------------- translated topic names */
+
+// One translation in flight per business and language, however many guests ask
+// at once. Ten people picking Thai in the same minute is one model call, not
+// ten — and the nine who arrived second wait on the same promise rather than
+// each starting their own.
+const translating = new Map();
+
+/**
+ * The topic names, in the language the guest picked.
+ *
+ * Its own route rather than a parameter on /api/config, because the page needs
+ * it at a different moment: config is fetched once on load, and this is asked
+ * for again every time the selector moves.
+ *
+ * Never fails in a way the page has to handle. A model that is unreachable, a
+ * language nobody has words for, a business with no key — all of them answer
+ * with the topics as they were written. Untranslated buttons are a poor
+ * outcome; no buttons is a broken page.
+ */
+app.get('/api/topics', requireTenant, async (req, res) => {
+  const resolved = subscribers.settingsFor(req.subscriber);
+  const topics = resolved.categories.map(({ id, label }) => ({ id, label }));
+
+  const language = languageFor(String(req.query.lang || '')).code;
+  const plain = () => res.json({ language, categories: topics });
+
+  // English is what these were written in often enough that it is worth not
+  // asking, and a business with no topics has nothing to translate.
+  if (language === DEFAULT_LANGUAGE || !topics.length) return plain();
+
+  const stored = subscribers.topicLabels(req.subscriber);
+  const table = stored[language] || {};
+  const gaps = translate.missing(table, topics);
+
+  if (!gaps.length) {
+    return res.json({ language, categories: translate.apply(table, topics) });
+  }
+
+  const { apiKey, model } = resolved;
+  if (!apiKey) return plain();
+
+  const key = `${req.subscriber.slug}:${language}`;
+  let job = translating.get(key);
+
+  if (!job) {
+    job = (async () => {
+      const upstream = await fetch(openrouter.CHAT, {
+        method: 'POST',
+        headers: openrouterHeaders(apiKey, req.subscriber),
+        body: JSON.stringify({
+          model,
+          messages: translate.buildLabelMessages({ language, topics: gaps }),
+          // Short answers by construction: fifty ids and fifty short names.
+          max_tokens: 2000,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (!upstream.ok) {
+        throw new Error(`OpenRouter ${upstream.status}`);
+      }
+
+      const data = await upstream.json();
+      const fresh = translate.parseLabels(data?.choices?.[0]?.message?.content);
+      const merged = translate.merge(table, fresh, topics);
+
+      await subscribers.saveTopicLabels(req.subscriber.slug, language, merged);
+      return merged;
+    })().finally(() => translating.delete(key));
+
+    translating.set(key, job);
+  }
+
+  try {
+    const merged = await job;
+    res.json({ language, categories: translate.apply(merged, topics) });
+  } catch (err) {
+    console.error(`Topic translation failed for ${key}:`, err.message);
+    plain();
+  }
 });
 
 app.post('/api/review', requireTenant, async (req, res) => {

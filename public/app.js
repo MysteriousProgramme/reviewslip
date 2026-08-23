@@ -158,6 +158,10 @@ async function init() {
     applyStrings();
     renderTopics(config.categories || []);
     renderLengths(config.lengths || []);
+    // Not awaited. The page is usable with the topics as written, and the
+    // first guest to pick a language waits on a model call — behind the review
+    // they came for rather than in front of it.
+    translateTopics();
   } catch (err) {
     setBusy(false);
     say(err.message || t('loadFailed'), 'error');
@@ -325,6 +329,51 @@ function drawTopics() {
   // The button opens a dialog, so it is described by aria-haspopup rather than
   // aria-expanded — nothing expands in place any more.
   el.browse.setAttribute('aria-haspopup', 'dialog');
+}
+
+/**
+ * Swaps the topic names for their translations, when there are any.
+ *
+ * The business writes its topics once, in its own language. A guest who has
+ * switched the page to Thai is otherwise reading Thai chrome and tapping
+ * English buttons, which is the half of the language selector that was still
+ * missing.
+ *
+ * Fire and forget, on purpose. The server answers with the names as written
+ * whenever it cannot do better — no key, no words, a model that will not
+ * answer — so there is no failure here worth showing a guest, and nothing to
+ * wait for before the page works. What arrives late simply redraws.
+ *
+ * Guarded against arriving out of order: two quick taps on the selector can
+ * land their answers in either order, and the one that matters is the language
+ * currently chosen rather than the one asked for first.
+ */
+async function translateTopics() {
+  const asked = state.language;
+  if (!state.topics.length) return;
+
+  try {
+    const res = await fetch(`/api/topics?lang=${encodeURIComponent(asked)}`);
+    if (!res.ok) return;
+
+    const data = await res.json();
+    if (data.language !== state.language) return;
+    if (!Array.isArray(data.categories) || !data.categories.length) return;
+
+    // Labels only. Ids are what the selection and the request are keyed on, so
+    // they are taken from what is already held rather than from the answer.
+    const named = new Map(data.categories.map((c) => [c.id, c.label]));
+    state.topics = state.topics.map((topic) =>
+      named.has(topic.id) ? { ...topic, label: named.get(topic.id) } : topic
+    );
+
+    drawTopics();
+    // The sheet sorts what it is given, so an open one is rebuilt rather than
+    // left holding the old names in the old order.
+    if (el.dialog.open) onBrowse();
+  } catch {
+    // An untranslated button is a working button.
+  }
 }
 
 /**
@@ -614,6 +663,7 @@ function renderLanguages(languages) {
     // of the notice — the guest can see the page moved and needs telling that
     // the paragraph in front of them did not.
     applyStrings();
+    translateTopics();
     say(t('languageChanged'));
   });
 }

@@ -26,6 +26,7 @@ const seed = require('../seed');
 const settings = require('../settings');
 const strings = require('../strings');
 const quota = require('../quota');
+const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
 
@@ -1091,4 +1092,93 @@ test('the count is per guest and per business, and lets go after an hour', () =>
     used: 0,
     left: 10,
   });
+});
+
+/* ------------------------------------------------------- topic translation */
+
+test('a topic is translated once, and again only when its name changes', () => {
+  const topics = [
+    { id: 'rooms', label: 'Rooms' },
+    { id: 'roast', label: 'Sunday Roast' },
+  ];
+
+  // Nothing stored: both need doing.
+  assert.deepEqual(translate.missing({}, topics).map((t) => t.id), ['rooms', 'roast']);
+
+  const table = translate.merge(
+    {},
+    { rooms: 'ห้องพัก', roast: 'Sunday Roast' },
+    topics
+  );
+  assert.deepEqual(translate.missing(table, topics), []);
+
+  // The owner renames one. Only that one is stale — the entry remembers the
+  // label it was made from, which is the whole invalidation story.
+  const renamed = [{ id: 'rooms', label: 'Bedrooms' }, topics[1]];
+  assert.deepEqual(translate.missing(table, renamed).map((t) => t.id), ['rooms']);
+
+  // And the stale one falls back to its own label rather than showing the
+  // translation of a name that is no longer there.
+  assert.deepEqual(translate.apply(table, renamed), [
+    { id: 'rooms', label: 'Bedrooms' },
+    { id: 'roast', label: 'Sunday Roast' },
+  ]);
+});
+
+test('a translation that comes back short or broken leaves the buttons working', () => {
+  const topics = [
+    { id: 'rooms', label: 'Rooms' },
+    { id: 'bar', label: 'The Bar' },
+  ];
+
+  // Half an answer: the missing half keeps its own label, so the list is
+  // never blank and never shows an id.
+  const half = translate.merge({}, translate.parseLabels('{"rooms":"ห้องพัก"}'), topics);
+  assert.deepEqual(translate.apply(half, topics), [
+    { id: 'rooms', label: 'ห้องพัก' },
+    { id: 'bar', label: 'The Bar' },
+  ]);
+
+  // No answer at all.
+  assert.deepEqual(translate.parseLabels('not json'), {});
+  assert.deepEqual(translate.parseLabels(''), {});
+  assert.deepEqual(translate.apply(translate.merge({}, {}, topics), topics), topics);
+
+  // A model that explains itself instead of answering gets that entry dropped
+  // rather than a button that wraps to three lines.
+  const wordy = translate.parseLabels(
+    JSON.stringify({ rooms: 'x'.repeat(200), bar: '  ' })
+  );
+  assert.equal(wordy.rooms.length, 40);
+  assert.ok(!('bar' in wordy));
+});
+
+test('translations of topics that no longer exist are not kept', () => {
+  const before = translate.merge(
+    {},
+    { rooms: 'ห้องพัก', gone: 'หายไป' },
+    [{ id: 'rooms', label: 'Rooms' }, { id: 'gone', label: 'Gone' }]
+  );
+  assert.ok('gone' in before);
+
+  // The business replaces its topic set. Paying to store translations of a
+  // list nobody can pick from any more is a slow leak, not a saving.
+  const after = translate.merge(before, {}, [{ id: 'rooms', label: 'Rooms' }]);
+  assert.deepEqual(Object.keys(after), ['rooms']);
+});
+
+test('the label prompt names the language and refuses to rename a dish', () => {
+  const [system, user] = translate.buildLabelMessages({
+    language: 'th',
+    topics: [{ id: 'roast', label: 'Sunday Roast' }],
+  });
+
+  // The English name of the language, because that is what the model reads.
+  assert.match(user.content, /into Thai/);
+  assert.match(user.content, /roast: Sunday Roast/);
+
+  // The rule that stops "Sunday Roast" becoming a Thai phrase nobody can find
+  // on the menu when they get to the restaurant.
+  assert.match(system.content, /A proper name stays as it is/);
+  assert.match(system.content, /never longer than four words/);
 });

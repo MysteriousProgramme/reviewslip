@@ -382,6 +382,53 @@ async function update(slug, patch = {}) {
   return toRecord(await get(row.slug));
 }
 
+/* ------------------------------------------------------- topic label cache */
+
+/**
+ * The stored translations of this business's topic names, by language.
+ *
+ * Read straight off the row rather than through the settings chain, because it
+ * is not a setting: nobody edits it, it has no default worth inheriting, and
+ * putting it in `describe` would send every language's table to the dashboard
+ * on every settings load for no reason.
+ *
+ * @returns {Record<string, Record<string, {label: string, of: string}>>}
+ */
+function topicLabels(row) {
+  if (!row?.topic_labels) return {};
+  try {
+    const parsed = JSON.parse(row.topic_labels);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    // A corrupt cache is an empty cache. It costs one model call to rebuild,
+    // which is a better outcome than a guest page that will not load.
+    console.error(`Unreadable topic_labels for ${row.slug}`);
+    return {};
+  }
+}
+
+/**
+ * Replaces one language's table.
+ *
+ * A direct write, outside `update`, for the same reason as above: this goes
+ * through no validator and touches nothing a customer set. It also deliberately
+ * does not move `updated_at` — a guest picking a language is not an edit to the
+ * business, and having it show as one would make the dashboard lie about when
+ * the settings last changed.
+ */
+async function saveTopicLabels(slug, language, table) {
+  const row = await get(slug);
+  if (!row) return;
+
+  const all = topicLabels(row);
+  all[language] = table;
+
+  await query('UPDATE subscribers SET topic_labels = $1 WHERE slug = $2', [
+    JSON.stringify(all),
+    row.slug,
+  ]);
+}
+
 async function remove(slug) {
   const result = await query(Q.remove, [
     String(slug || '').trim().toLowerCase(),
@@ -452,6 +499,8 @@ module.exports = {
   countForAccount,
   create,
   update,
+  topicLabels,
+  saveTopicLabels,
   remove,
   rotateToken,
   importLegacyFile,
