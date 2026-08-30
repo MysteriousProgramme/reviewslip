@@ -7,6 +7,7 @@ const subscribers = require('./subscribers');
 const events = require('./events');
 const referrals = require('./referrals');
 const mailer = require('./mailer');
+const staff = require('./staff');
 const plans = require('./plans');
 const openrouter = require('./openrouter');
 const { publicUrl } = require('./tenant');
@@ -210,6 +211,17 @@ router.post('/plan', requireAccount, async (req, res, next) => {
     next(err);
   }
 });
+
+/* ------------------------------------------------------------------ staff */
+
+/**
+ * The staff view, behind the same session as everything else.
+ *
+ * requireAccount first, so staff.js can read req.account; its own requireStaff
+ * then answers 404 to anyone without is_admin — including a signed-in customer,
+ * who must not be able to tell this path apart from one that does not exist.
+ */
+router.use('/admin', requireAccount, staff.router);
 
 /* -------------------------------------------------------------- referrals */
 

@@ -186,6 +186,11 @@ function toRecord(row) {
     username: row.username,
     plan: row.plan,
     status: row.status,
+    // The column has existed since its migration and has never been returned,
+    // so every consumer has seen `isAdmin` as undefined — including the
+    // website's own Account type, which declares it. Anything gating on staff
+    // access needs this to actually arrive.
+    isAdmin: row.is_admin === true,
     createdAt: row.created_at,
   };
 }
