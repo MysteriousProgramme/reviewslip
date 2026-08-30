@@ -86,6 +86,26 @@ async function invite({ referrerId, referrerEmail, email, referrer, signupUrl })
     throw fail(400, 'That is your own address.');
   }
 
+  // Somebody who is already a customer cannot be referred, and the check is on
+  // the account rather than on whether it owns any venues. An account with no
+  // venues is still an account: signing up again is refused for the address, so
+  // claim() can never fire and the invitation would sit at "Invited" for ever,
+  // holding a slot the referrer could have spent on somebody reachable.
+  //
+  // This does tell the caller whether an address is registered. It is the same
+  // thing the public sign-up form already says out loud — creating an account
+  // on a taken address answers "There is already an account with that email" to
+  // anybody at all, signed in or not — so the fact is not being newly exposed
+  // here, and a vaguer message would cost the referrer the one thing that tells
+  // them to stop retyping the address.
+  const existing = await one(
+    'SELECT 1 FROM accounts WHERE lower(email) = lower($1)',
+    [address]
+  );
+  if (existing) {
+    throw fail(409, 'They already have a Reviewslip account.');
+  }
+
   // Retried because the code is random and the column is unique. Three attempts
   // against 850 billion possibilities is not a real loop — it is there so a
   // collision is a retry rather than a 500.
