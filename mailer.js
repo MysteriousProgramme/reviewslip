@@ -20,7 +20,23 @@
  * switch on.
  */
 
-const REGION = String(process.env.AWS_REGION || '').trim();
+/**
+ * The region SES lives in — which is not necessarily the one this box is in.
+ *
+ * MAIL_REGION first, on purpose. This deployment runs in ap-southeast-7 and
+ * sends from eu-west-1, because the WorkMail organisation that owns
+ * info@reviewslip.com is there and the domain is already verified against it.
+ * Calling that `AWS_REGION` would read as a mistake to the next person to look
+ * — the obvious "fix" being to set it to the region the instance reports, which
+ * would point SES at an identity that does not exist there and stop every
+ * invitation with no change to this file to explain it.
+ *
+ * AWS_REGION still works as a fallback, for a deployment where the two are the
+ * same and the distinction does not arise.
+ */
+const REGION = String(
+  process.env.MAIL_REGION || process.env.AWS_REGION || ''
+).trim();
 
 /** e.g. `Reviewslip <info@reviewslip.com>`. Must be an SES-verified identity. */
 const FROM = String(process.env.MAIL_FROM || '').trim();
