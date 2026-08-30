@@ -449,6 +449,45 @@ const MIGRATIONS = [
       'CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals (referrer_id)'
     );
   },
+
+  async (c) => {
+    // A ticket becomes a conversation.
+    //
+    // support_tickets has held one title and one body since it was created,
+    // which is a suggestion box rather than support: nobody could answer. The
+    // header stays as it is — append-only, and its two indexes are already the
+    // right ones — and the messages hang off it.
+    await c.query(`
+      CREATE TABLE ticket_messages (
+        id         integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        ticket_id  integer NOT NULL REFERENCES support_tickets (id) ON DELETE CASCADE,
+        -- SET NULL rather than cascade: a deleted account must not take the
+        -- staff side of the conversation with it, and a thread missing every
+        -- other message is not a record of anything.
+        author_id  integer REFERENCES accounts (id) ON DELETE SET NULL,
+        -- Stored, not derived from the author's is_admin. Derived, every old
+        -- reply would change sides the day somebody stops being staff.
+        from_staff boolean NOT NULL,
+        body       text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    // Every read is one thread in order.
+    await c.query(`
+      CREATE INDEX ticket_messages_thread
+        ON ticket_messages (ticket_id, created_at)
+    `);
+
+    // One active ticket per account, enforced here rather than only in code.
+    // The check in tickets.js is a read followed by a write, and two requests
+    // that interleave between the two would both pass it.
+    await c.query(`
+      CREATE UNIQUE INDEX support_tickets_one_active
+        ON support_tickets (account_id)
+        WHERE status <> 'closed'
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

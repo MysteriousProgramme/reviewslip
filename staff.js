@@ -7,6 +7,9 @@ const plans = require('./plans');
 const rewards = require('./rewards');
 const { publicUrl } = require('./tenant');
 const { one, all } = require('./db');
+const tickets = require('./tickets');
+const mailer = require('./mailer');
+const emails = require('./emails');
 
 /**
  * The staff view: every account, every venue, and what each one is doing.
@@ -17,10 +20,16 @@ const { one, all } = require('./db');
  * and is what admin.reviewslip.com renders. Two different doors because they
  * answer to two different things — a shared secret in an env file, and a person.
  *
- * Read-only on purpose. Nothing here can change an account, a plan or a venue.
- * Everything it shows is either public to the customer already or a count, so
- * the worst a leaked staff session can do is tell somebody what they could have
- * asked us. The moment a write lands here that stops being true.
+ * Read-only about customers: nothing here can change an account, a plan or a
+ * venue. The only writes are on tickets — replying and closing — which is a
+ * conversation the customer is already part of and can read either way.
+ *
+ * That distinction is worth keeping. Everything else this exposes is either
+ * already public to the customer or a count, so a leaked staff session can tell
+ * somebody what they could have asked us for; it cannot change what they are
+ * paying or take a venue away. A write that alters a customer's own data would
+ * end that property, and should be argued for on its own rather than added
+ * because there was already a router here.
  */
 
 const router = express.Router();
@@ -246,5 +255,97 @@ router.get('/venues', async (req, res, next) => {
     next(err);
   }
 });
+
+/* ------------------------------------------------------------------ support */
+
+/** The queue: everything open, oldest first, then answered, then closed. */
+router.get('/tickets', async (req, res, next) => {
+  try {
+    res.json({ tickets: await tickets.queue() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** One ticket, its thread, and who it is from. Unscoped — this is the queue. */
+router.get('/tickets/:id', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(404).json({ error: 'Not found.' });
+    }
+    res.json(await tickets.get({ id }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Answer.
+ *
+ * `scopeToAccount: false` because the ticket belongs to a customer, not to the
+ * person replying. `accountId` is still the staff account — it is who wrote the
+ * message, which is what ticket_messages.author_id records.
+ */
+router.post('/tickets/:id/reply', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(404).json({ error: 'Not found.' });
+    }
+
+    const ticket = await tickets.reply({
+      id,
+      accountId: req.account.id,
+      fromStaff: true,
+      body: req.body?.body,
+      scopeToAccount: false,
+    });
+
+    // The customer gets the reply itself, not a note saying there is one.
+    // Never allowed to fail the reply: it is saved, and a bounced notification
+    // must not read as a failure to answer.
+    try {
+      const { account } = await tickets.get({ id });
+      await mailer.send({
+        to: account.email,
+        ...emails.ticketReplyEmail({
+          title: ticket.title,
+          body: req.body?.body,
+          url: customerTicketUrl(),
+        }),
+      });
+    } catch (err) {
+      console.error('Reply notification failed for ticket %d:', id, err);
+    }
+
+    res.json({ ticket });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/tickets/:id/close', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(404).json({ error: 'Not found.' });
+    }
+    res.json({
+      ticket: await tickets.close({ id, accountId: null, scopeToAccount: false }),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Where a customer reads their own tickets. Empty off a real host. */
+function customerTicketUrl() {
+  const domain = String(process.env.BASE_DOMAIN || '').trim();
+  if (!domain || domain === 'localhost' || domain.endsWith('.localhost')) {
+    return '';
+  }
+  return `https://${domain}/dashboard/support`;
+}
 
 module.exports = { router, requireStaff };

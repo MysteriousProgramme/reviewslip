@@ -44,6 +44,12 @@ const FROM = String(process.env.MAIL_FROM || '').trim();
 /** Where a reply goes. Falls back to the From address. */
 const REPLY_TO = String(process.env.MAIL_REPLY_TO || '').trim() || FROM;
 
+/**
+ * Where support notifications land. Falls back to the From address, which is
+ * the mailbox this all sends as and therefore one somebody already reads.
+ */
+const SUPPORT = String(process.env.MAIL_SUPPORT || '').trim() || FROM;
+
 const configured = Boolean(REGION && FROM);
 
 // undefined = not tried yet, null = tried and cannot.
@@ -115,4 +121,4 @@ async function send({ to, subject, text, html }) {
   }
 }
 
-module.exports = { send, configured, FROM };
+module.exports = { send, configured, FROM, SUPPORT };

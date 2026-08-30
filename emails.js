@@ -79,4 +79,67 @@ function inviteEmail({ referrer, url }) {
   return { subject, text, html };
 }
 
-module.exports = { inviteEmail, clean, escapeHtml };
+/* -------------------------------------------------------------- tickets */
+
+/**
+ * A reply on a customer's ticket, to the customer.
+ *
+ * Carries the reply in full rather than "you have a new message". Somebody
+ * waiting on support should be able to read the answer without signing in, and
+ * a notification that withholds it is a second errand, not a courtesy.
+ */
+function ticketReplyEmail({ title, body, url }) {
+  const subject = `Re: ${clean(title, 100)}`;
+  const reply = String(body ?? '').trim();
+
+  const text = [
+    reply,
+    '',
+    '—',
+    'Reply to this ticket here:',
+    String(url ?? ''),
+    '',
+    '— Reviewslip support',
+  ].join('\n');
+
+  const html = [
+    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">',
+    `<p style="white-space:pre-wrap">${escapeHtml(reply)}</p>`,
+    '<hr style="border:none;border-top:1px solid #d9d2c2;margin:1.5rem 0">',
+    `<p style="font-size:0.9em"><a href="${escapeHtml(String(url ?? ''))}" style="color:#2f5f4c">Reply to this ticket</a></p>`,
+    '<p style="font-size:0.9em;color:#5a6b63">— Reviewslip support</p>',
+    '</div>',
+  ].join('');
+
+  return { subject, text, html };
+}
+
+/**
+ * Something happened on a ticket, to us.
+ *
+ * Plain text only. It goes to one mailbox that one person reads, and the point
+ * is to know quickly — who, which venue, and what they said.
+ */
+function ticketAlertEmail({ opened, from, venue, title, body, url }) {
+  const who = clean(from, 120) || 'A customer';
+  const subject = `${opened ? 'New ticket' : 'Reply'}: ${clean(title, 90)}`;
+
+  const text = [
+    `${who}${venue ? ` (${clean(venue)})` : ''} ${opened ? 'opened a ticket' : 'replied'}:`,
+    '',
+    String(body ?? '').trim(),
+    '',
+    '—',
+    String(url ?? ''),
+  ].join('\n');
+
+  return { subject, text, html: '' };
+}
+
+module.exports = {
+  inviteEmail,
+  ticketReplyEmail,
+  ticketAlertEmail,
+  clean,
+  escapeHtml,
+};

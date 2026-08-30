@@ -30,6 +30,7 @@ const ids = require('../ids');
 const quota = require('../quota');
 const rewards = require('../rewards');
 const emails = require('../emails');
+const ticketrules = require('../ticketrules');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -1575,4 +1576,73 @@ test('a business name cannot inject markup into the message', () => {
 test('a runaway business name is cut before it becomes the subject line', () => {
   const mail = emails.inviteEmail({ referrer: 'A'.repeat(500), url: 'https://x.example' });
   assert.ok(mail.subject.length < 120, mail.subject.length);
+});
+
+
+/* ---------------------------------------------------------------- tickets */
+
+/**
+ * The ticket rules: one active ticket per account, and where a ticket lands
+ * after somebody writes on it. Both are decisions rather than storage, so both
+ * can be checked without a database.
+ */
+
+test('a customer may have one ticket going, and closed ones do not count', () => {
+  assert.equal(ticketrules.canOpen(0), true);
+  assert.equal(ticketrules.canOpen(1), false);
+  assert.equal(ticketrules.canOpen(5), false);
+});
+
+test('the active count is coerced, so a string from COUNT(*) still counts', () => {
+  // The same shape as the bigint bug: this arrives from a count, the driver
+  // hands counts back as strings, and '1' < 1 is false either way you get it
+  // wrong — locking somebody out of their first ticket or letting them past.
+  assert.equal(ticketrules.canOpen('0'), true);
+  assert.equal(ticketrules.canOpen('1'), false);
+
+  // Nonsense is treated as none, so a broken count cannot lock everybody out.
+  for (const bad of [null, undefined, NaN, -2, 'lots', {}]) {
+    assert.equal(ticketrules.canOpen(bad), true);
+  }
+});
+
+test('answered still counts as active, so a second ticket cannot be opened', () => {
+  // The ball is with the customer, but the ticket is not finished. Treating it
+  // as done would let them open a second one to say the thing they were about
+  // to say in this one.
+  assert.equal(ticketrules.isActive('answered'), true);
+  assert.equal(ticketrules.isActive('open'), true);
+  assert.equal(ticketrules.isActive('closed'), false);
+});
+
+test('a staff reply parks the ticket, a customer reply brings it back', () => {
+  assert.equal(ticketrules.nextStatus(true), 'answered');
+  assert.equal(ticketrules.nextStatus(false), 'open');
+});
+
+test('a customer replying to a closed ticket reopens it', () => {
+  // Reopening is not a separate operation. Somebody replying to something we
+  // closed has not been helped, and a new thread would lose the history at the
+  // moment it is most useful.
+  assert.equal(ticketrules.nextStatus(false), ticketrules.OPEN);
+  assert.equal(ticketrules.isActive(ticketrules.nextStatus(false)), true);
+});
+
+test('a ticket has to say something, and not too much of it', () => {
+  assert.equal(ticketrules.checkTitle('').ok, false);
+  assert.equal(ticketrules.checkTitle('   ').ok, false);
+  assert.equal(ticketrules.checkTitle('Reviews not saving').ok, true);
+  assert.equal(ticketrules.checkTitle('x'.repeat(121)).ok, false);
+
+  assert.equal(ticketrules.checkBody('').ok, false);
+  assert.equal(ticketrules.checkBody('It broke.').ok, true);
+  assert.equal(ticketrules.checkBody('x'.repeat(4001)).ok, false);
+});
+
+test('the refusals are sentences, not codes', () => {
+  // These reach a customer who is already having a bad day. Each one has to
+  // say what to do about it.
+  assert.match(ticketrules.checkTitle('').error, /subject/i);
+  assert.match(ticketrules.checkBody('').error, /what is wrong/i);
+  assert.match(ticketrules.checkBody('x'.repeat(4001)).error, /important part/i);
 });

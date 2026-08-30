@@ -8,6 +8,8 @@ const events = require('./events');
 const referrals = require('./referrals');
 const mailer = require('./mailer');
 const staff = require('./staff');
+const tickets = require('./tickets');
+const emails = require('./emails');
 const plans = require('./plans');
 const openrouter = require('./openrouter');
 const { publicUrl } = require('./tenant');
@@ -234,6 +236,15 @@ router.use('/admin', requireAccount, staff.router);
  * worse than one that was never emailed, so invite() sends nothing at all
  * rather than send that.
  */
+/** The dashboard's support page, for a link in an email. Empty off a real host. */
+function supportUrl() {
+  const domain = String(process.env.BASE_DOMAIN || '').trim();
+  if (!domain || domain === 'localhost' || domain.endsWith('.localhost')) {
+    return '';
+  }
+  return `https://${domain}/dashboard/support`;
+}
+
 function signupUrl() {
   const domain = String(process.env.BASE_DOMAIN || '').trim();
   if (!domain || domain === 'localhost' || domain.endsWith('.localhost')) {
@@ -305,6 +316,133 @@ router.delete('/referrals/:id', requireAccount, async (req, res, next) => {
     next(err);
   }
 });
+
+/* ---------------------------------------------------------------- support */
+
+/** This account's tickets, and whether they may start another. */
+router.get('/tickets', requireAccount, async (req, res, next) => {
+  try {
+    res.json(await tickets.listFor(req.account.id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** One ticket with its thread. Scoped, so another account's is simply absent. */
+router.get('/tickets/:id', requireAccount, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(404).json({ error: 'No such ticket.' });
+    }
+    const { ticket, messages } = await tickets.get({
+      id,
+      accountId: req.account.id,
+    });
+    res.json({ ticket, messages });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Open a ticket.
+ *
+ * The venue, if named, is resolved against this account's own — so a slug
+ * belonging to somebody else attaches nothing rather than leaking that it
+ * exists.
+ */
+router.post('/tickets', requireAccount, async (req, res, next) => {
+  try {
+    const { title, body, slug } = req.body || {};
+
+    let venueId = null;
+    if (slug) {
+      const venue = await subscribers.get(String(slug));
+      if (venue && venue.account_id === req.account.id) venueId = venue.id;
+    }
+
+    const ticket = await tickets.open({
+      accountId: req.account.id,
+      title,
+      body,
+      venueId,
+    });
+
+    await alertStaff({ opened: true, req, ticket, body });
+    res.status(201).json({ ticket });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/tickets/:id/reply', requireAccount, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(404).json({ error: 'No such ticket.' });
+    }
+
+    const ticket = await tickets.reply({
+      id,
+      accountId: req.account.id,
+      fromStaff: false,
+      body: req.body?.body,
+    });
+
+    await alertStaff({ opened: false, req, ticket, body: req.body?.body });
+    res.json({ ticket });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/tickets/:id/close', requireAccount, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(404).json({ error: 'No such ticket.' });
+    }
+    res.json({ ticket: await tickets.close({ id, accountId: req.account.id }) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Tell us a ticket moved.
+ *
+ * Never allowed to fail the request that caused it. Somebody who has just
+ * written out a problem must not be told it did not save because our own
+ * notification bounced — the ticket is in the table either way, and the queue
+ * is the thing we actually work from.
+ */
+async function alertStaff({ opened, req, ticket, body }) {
+  try {
+    await mailer.send({
+      to: mailer.SUPPORT,
+      ...emails.ticketAlertEmail({
+        opened,
+        from: req.account.email,
+        venue: ticket.venue?.name,
+        title: ticket.title,
+        body,
+        url: staffTicketUrl(ticket.id),
+      }),
+    });
+  } catch (err) {
+    console.error('Ticket alert failed for ticket %d:', ticket.id, err);
+  }
+}
+
+/** The staff host's view of one ticket. Empty off a real host. */
+function staffTicketUrl(id) {
+  const domain = String(process.env.BASE_DOMAIN || '').trim();
+  if (!domain || domain === 'localhost' || domain.endsWith('.localhost')) {
+    return '';
+  }
+  return `https://admin.${domain}/tickets/${id}`;
+}
 
 /* ------------------------------------------------------------- businesses */
 
