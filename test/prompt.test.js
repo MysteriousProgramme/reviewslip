@@ -26,6 +26,7 @@ const seed = require('../seed');
 const settings = require('../settings');
 const strings = require('../strings');
 const platforms = require('../platforms');
+const ids = require('../ids');
 const quota = require('../quota');
 const translate = require('../translate');
 const theme = require('../theme');
@@ -1399,4 +1400,28 @@ test('a prompt change re-translates what it invalidated', () => {
   // An entry from the older prompt is not carried forward by a call that
   // failed to replace it.
   assert.deepEqual(translate.merge(old, {}, topics), {});
+});
+
+/* ---------------------------------------------------------------- review ids */
+
+test('a review id survives the trip from a bigint column to the browser', () => {
+  // The bug this exists for. review_events.id is a bigint, and node-postgres
+  // hands bigints back as strings — so the id reached the guest page as "47",
+  // every Number.isInteger guard between here and there said no, and the
+  // request marking a review as taken to a listing was never sent. No error on
+  // either side; Proceed simply did nothing, for as long as it had existed.
+  assert.equal(ids.reviewId('47'), 47);
+  assert.equal(ids.reviewId(47), 47);
+
+  // Anything that is not a real row id is null rather than a number that would
+  // go on to address the wrong one.
+  for (const bad of [null, undefined, '', 'abc', 0, -3, 1.5, {}, []]) {
+    assert.equal(ids.reviewId(bad), null, `${JSON.stringify(bad)} became an id`);
+  }
+
+  // Past 2^53 a number cannot hold a bigint exactly. That ceiling is why the
+  // driver uses strings in the first place, and silently landing on a
+  // neighbouring row is worse than refusing.
+  assert.equal(ids.reviewId('9007199254740993'), null);
+  assert.equal(ids.reviewId(String(Number.MAX_SAFE_INTEGER)), Number.MAX_SAFE_INTEGER);
 });

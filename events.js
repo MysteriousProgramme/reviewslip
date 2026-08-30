@@ -1,5 +1,7 @@
 'use strict';
 
+const { reviewId } = require('./ids');
+
 const { query, one, all } = require('./db');
 
 /**
@@ -49,7 +51,9 @@ async function record({
         length || null,
       ]
     );
-    return row?.id ?? null;
+    // Through the coercion above, so what leaves this module is a number and
+     // the wire format is not decided by a driver's choice about bigints.
+    return reviewId(row?.id);
   } catch (err) {
     console.error('Could not record the review event:', err.message);
     return null;

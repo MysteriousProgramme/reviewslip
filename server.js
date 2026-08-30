@@ -21,6 +21,7 @@ const settingsRules = require('./settings');
 const strings = require('./strings');
 const translate = require('./translate');
 const { createQuota, MAX_REGENERATIONS } = require('./quota');
+const { reviewId } = require('./ids');
 const theme = require('./theme');
 const { ready } = require('./db');
 const subscribers = require('./subscribers');
@@ -598,8 +599,13 @@ app.post('/api/review', requireTenant, async (req, res) => {
  * they could already open.
  */
 app.post('/api/proceeded', requireTenant, async (req, res) => {
-  const { reviewId, platform } = req.body || {};
-  if (!Number.isInteger(reviewId)) {
+  const { platform } = req.body || {};
+
+  // Coerced rather than type-checked. This used to demand a number and reject
+  // anything else, which is how a bigint id — a string, as far as the driver
+  // and then JSON are concerned — turned into a silent 400 nobody saw.
+  const id = reviewId(req.body?.reviewId);
+  if (!id) {
     return res.status(400).json({ error: 'Bad request.' });
   }
 
@@ -611,7 +617,7 @@ app.post('/api/proceeded', requireTenant, async (req, res) => {
   try {
     await events.markProceeded({
       subscriberId: req.subscriber.id,
-      id: reviewId,
+      id,
       platform: to,
     });
     // 204 either way. Marking one that was already marked is what a guest who
@@ -632,11 +638,15 @@ app.post('/api/proceeded', requireTenant, async (req, res) => {
  * throttle above covers volume.
  */
 app.post('/api/feedback', requireTenant, async (req, res) => {
-  const { reviewId, rating } = req.body || {};
+  const { rating } = req.body || {};
   const stars = rating === null ? null : Number(rating);
 
+  // Same coercion as above, and for the same reason: this route had the
+  // identical guard and would have failed the identical way.
+  const id = reviewId(req.body?.reviewId);
+
   if (
-    !Number.isInteger(reviewId) ||
+    !id ||
     (stars !== null && !(Number.isInteger(stars) && stars >= 1 && stars <= 5))
   ) {
     return res.status(400).json({ error: 'Bad request.' });
@@ -651,7 +661,7 @@ app.post('/api/feedback', requireTenant, async (req, res) => {
   try {
     const saved = await events.setFeedback({
       subscriberId: req.subscriber.id,
-      id: reviewId,
+      id,
       rating: stars,
     });
     if (!saved) return res.status(404).json({ error: 'No such review.' });

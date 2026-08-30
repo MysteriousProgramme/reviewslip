@@ -845,7 +845,13 @@ async function generate() {
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 
     el.review.value = data.review;
-    state.reviewId = Number.isInteger(data.reviewId) ? data.reviewId : null;
+    // Coerced, not type-checked. The id is a bigint in the database, which
+    // arrives here as a string — and `Number.isInteger` on a string is false,
+    // so this used to set null and markProceeded below would return without
+    // sending anything. Every Proceed press went unrecorded, silently, for as
+    // long as the feature has existed.
+    const id = Number(data.reviewId);
+    state.reviewId = Number.isSafeInteger(id) && id > 0 ? id : null;
     state.recent = [...state.recent, data.review].slice(-3);
 
     if (state.left === 0) {
