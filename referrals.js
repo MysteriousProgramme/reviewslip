@@ -2,6 +2,8 @@
 
 const { query, one, all } = require('./db');
 const rewards = require('./rewards');
+const mailer = require('./mailer');
+const { inviteEmail } = require('./emails');
 
 /**
  * Referrals: who invited whom, and how far along each invitation is.
@@ -60,9 +62,18 @@ function toRecord(row) {
  * named first. With no payment step to lean on, that is the only thing keeping
  * the count meaning anything at all.
  *
- * @param {{referrerId: number, referrerEmail: string, email: string}} input
+ * Sends the invitation if there is anything to send it with, and says whether
+ * it went. When mail is not configured — which is how this shipped, and how it
+ * stays until SES is out of sandbox — `sent` is false and the referrer passes
+ * the link on themselves. The page has to say which of those happened, because
+ * "invitation created" and "invitation delivered" are different promises.
+ *
+ * @param {{referrerId: number, referrerEmail: string, email: string,
+ *          referrer?: string, signupUrl?: string}} input
+ * @param {string} [input.referrer] the business name shown to the recipient
+ * @param {string} [input.signupUrl] the sign-up page, without the code
  */
-async function invite({ referrerId, referrerEmail, email }) {
+async function invite({ referrerId, referrerEmail, email, referrer, signupUrl }) {
   const address = String(email ?? '').trim();
 
   if (!EMAIL_RE.test(address) || address.length > 254) {
@@ -86,7 +97,23 @@ async function invite({ referrerId, referrerEmail, email }) {
          RETURNING *`,
         [referrerId, address, rewards.newCode()]
       );
-      return toRecord(row);
+
+      const referral = toRecord(row);
+
+      // After the row exists, and unable to undo it. A send that fails leaves a
+      // usable invitation and a link the referrer can pass on by hand, which is
+      // strictly better than losing the invitation to a mail problem.
+      let sent = false;
+      if (signupUrl) {
+        const url = `${signupUrl}?ref=${encodeURIComponent(referral.code)}`;
+        const result = await mailer.send({
+          to: address,
+          ...inviteEmail({ referrer, url }),
+        });
+        sent = result.sent;
+      }
+
+      return { ...referral, sent };
     } catch (err) {
       if (err?.code !== '23505') throw err;
 

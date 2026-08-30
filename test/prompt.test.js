@@ -29,6 +29,7 @@ const platforms = require('../platforms');
 const ids = require('../ids');
 const quota = require('../quota');
 const rewards = require('../rewards');
+const emails = require('../emails');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -1505,4 +1506,73 @@ test('a code that is not one comes back null rather than nearly matching', () =>
   for (const bad of ['', null, undefined, 'SHORT', 'WAYTOOLONGCODE', 'ABCD!@#$', 42]) {
     assert.equal(rewards.normaliseCode(bad), null);
   }
+});
+
+
+/* ------------------------------------------------------------ invitations */
+
+/**
+ * An invitation is the only message here that goes to somebody who never gave
+ * us their address — a third party typed it in. So what it says matters more
+ * than usual, and the two things that must be true of it are checkable.
+ */
+
+test('an invitation names the business and never the account behind it', () => {
+  const mail = emails.inviteEmail({
+    referrer: 'Riverside Dental',
+    url: 'https://reviewslip.com/signup?ref=ABCD2345',
+  });
+
+  assert.match(mail.subject, /Riverside Dental/);
+  assert.match(mail.text, /Riverside Dental/);
+  assert.match(mail.html, /Riverside Dental/);
+
+  // The referrer's own email must not travel with it. A stranger receiving
+  // this did not ask for anybody's address, least of all a customer's.
+  for (const part of [mail.subject, mail.text, mail.html]) {
+    assert.doesNotMatch(part, /@(?!reviewslip)/);
+  }
+});
+
+test('an account with no business yet is introduced anonymously', () => {
+  for (const nameless of [undefined, null, '', '   ']) {
+    const mail = emails.inviteEmail({ referrer: nameless, url: 'https://x.example' });
+    assert.match(mail.subject, /^Someone invited you/);
+    assert.doesNotMatch(mail.text, /undefined|null/);
+  }
+});
+
+test('an invitation promises it will not happen again, and says so in both parts', () => {
+  const mail = emails.inviteEmail({ referrer: 'Bistro', url: 'https://x.example' });
+
+  // Not decoration. This is the single message a stranger gets, and a product
+  // that sends a second one loses the domain that its customers' password
+  // resets travel over.
+  assert.match(mail.text, /only message you will get/);
+  assert.match(mail.html, /only message you will get/);
+});
+
+test('the link reaches the reader in both parts, so a dead button is not a dead end', () => {
+  const url = 'https://reviewslip.com/signup?ref=ABCD2345';
+  const mail = emails.inviteEmail({ referrer: 'Bistro', url });
+
+  assert.ok(mail.text.includes(url));
+  // Once as the button, once as text to paste — a mail client that strips the
+  // styled anchor still leaves something usable.
+  assert.ok(mail.html.split(url).length - 1 >= 2);
+});
+
+test('a business name cannot inject markup into the message', () => {
+  const mail = emails.inviteEmail({
+    referrer: '<script>alert(1)</script>',
+    url: 'https://x.example',
+  });
+
+  assert.doesNotMatch(mail.html, /<script>/);
+  assert.match(mail.html, /&lt;script&gt;/);
+});
+
+test('a runaway business name is cut before it becomes the subject line', () => {
+  const mail = emails.inviteEmail({ referrer: 'A'.repeat(500), url: 'https://x.example' });
+  assert.ok(mail.subject.length < 120, mail.subject.length);
 });

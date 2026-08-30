@@ -6,6 +6,7 @@ const accounts = require('./accounts');
 const subscribers = require('./subscribers');
 const events = require('./events');
 const referrals = require('./referrals');
+const mailer = require('./mailer');
 const plans = require('./plans');
 const openrouter = require('./openrouter');
 const { publicUrl } = require('./tenant');
@@ -212,10 +213,35 @@ router.post('/plan', requireAccount, async (req, res, next) => {
 
 /* -------------------------------------------------------------- referrals */
 
-/** The account's invitations, and how close they are to the discount. */
+/**
+ * The sign-up page on the marketing site.
+ *
+ * Built from BASE_DOMAIN, which is the only thing this app is told about where
+ * it lives. Empty on localhost, where BASE_DOMAIN is not a real host and a link
+ * to it would be a link to nowhere — and an invitation carrying a dead link is
+ * worse than one that was never emailed, so invite() sends nothing at all
+ * rather than send that.
+ */
+function signupUrl() {
+  const domain = String(process.env.BASE_DOMAIN || '').trim();
+  if (!domain || domain === 'localhost' || domain.endsWith('.localhost')) {
+    return '';
+  }
+  return `https://${domain}/signup`;
+}
+
+/**
+ * The account's invitations, and how close they are to the discount.
+ *
+ * `mail.enabled` is here so the page can describe what pressing the button will
+ * actually do. Whether this deployment can send is a fact only this side knows,
+ * and a page that says "we will email them" on a box with no SES configured is
+ * lying to a customer about something they cannot check.
+ */
 router.get('/referrals', requireAccount, async (req, res, next) => {
   try {
-    res.json(await referrals.listFor(req.account.id));
+    const data = await referrals.listFor(req.account.id);
+    res.json({ ...data, mail: { enabled: mailer.configured && Boolean(signupUrl()) } });
   } catch (err) {
     next(err);
   }
@@ -224,19 +250,30 @@ router.get('/referrals', requireAccount, async (req, res, next) => {
 /**
  * Invite an address.
  *
- * Returns the invitation rather than sending anything. There is no mail service
- * wired up here yet, and sending to an address its owner never gave us is not a
- * thing to arrange in a hurry — so the referrer gets a link and passes it on
- * themselves, which is also the version nobody can be spammed by.
+ * Sends the invitation when mail is configured, and says in the response
+ * whether it went. Unconfigured, this is what it has always been: an invitation
+ * and a link for the referrer to pass on by hand. Both are real outcomes and
+ * the page shows a different thing for each, because "created" and "delivered"
+ * are not the same promise.
+ *
+ * The recipient is told the business's name, never the account's email. They
+ * are a stranger to us — somebody else typed their address in — and handing
+ * them a customer's address because of that is not ours to do. An account with
+ * no business yet is introduced anonymously instead.
  */
 router.post('/referrals', requireAccount, async (req, res, next) => {
   try {
+    const owned = await subscribers.listForAccount(req.account.id);
+
     const referral = await referrals.invite({
       referrerId: req.account.id,
       referrerEmail: req.account.email,
       email: req.body?.email,
+      referrer: owned[0]?.name,
+      signupUrl: signupUrl(),
     });
-    res.status(201).json({ referral });
+
+    res.status(201).json({ referral, sent: referral.sent });
   } catch (err) {
     next(err);
   }
