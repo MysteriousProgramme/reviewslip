@@ -28,6 +28,7 @@ const strings = require('../strings');
 const platforms = require('../platforms');
 const ids = require('../ids');
 const quota = require('../quota');
+const rewards = require('../rewards');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -1424,4 +1425,84 @@ test('a review id survives the trip from a bigint column to the browser', () => 
   // neighbouring row is worse than refusing.
   assert.equal(ids.reviewId('9007199254740993'), null);
   assert.equal(ids.reviewId(String(Number.MAX_SAFE_INTEGER)), Number.MAX_SAFE_INTEGER);
+});
+
+
+/* -------------------------------------------------------------- referrals */
+
+/**
+ * The reward rule, which is the only part of referrals that is arithmetic
+ * rather than a database. Whether a code was claimed is a question for the
+ * table; whether five of them are worth twenty percent is a question for here.
+ */
+
+test('the discount is earned at five, and not a fraction of it before', () => {
+  for (const count of [0, 1, 4]) {
+    const at = rewards.progress(count);
+    assert.equal(at.earned, false);
+    // The offer is all-or-nothing. A percentage that crept up with each
+    // referral would read as a promise that four had already bought something.
+    assert.equal(at.percent, 0);
+    assert.equal(at.remaining, 5 - count);
+  }
+
+  const five = rewards.progress(5);
+  assert.equal(five.earned, true);
+  assert.equal(five.percent, 20);
+  assert.equal(five.remaining, 0);
+});
+
+test('past five the discount stays at twenty and remaining stops at zero', () => {
+  const lots = rewards.progress(50);
+  assert.equal(lots.percent, 20);
+  assert.equal(lots.remaining, 0);
+  assert.equal(lots.qualified, 50);
+});
+
+test('a count that is not a count is treated as none', () => {
+  for (const bad of [null, undefined, -3, 1.5, NaN, 'lots', {}]) {
+    const at = rewards.progress(bad);
+    assert.equal(at.qualified, 0);
+    assert.equal(at.earned, false);
+    assert.equal(at.remaining, 5);
+  }
+});
+
+test('a count that arrived as a string still counts', () => {
+  // COUNT(*) is a bigint, and node-postgres hands bigints back as text — the
+  // exact shape of the bug that stopped every Proceed press being recorded.
+  // Someone who earned the discount must not be told they have none because
+  // the number came from a query rather than a filter.
+  const at = rewards.progress('5');
+  assert.equal(at.qualified, 5);
+  assert.equal(at.earned, true);
+  assert.equal(at.percent, 20);
+});
+
+test('referral codes avoid the characters people mistype', () => {
+  const codes = Array.from({ length: 200 }, () => rewards.newCode());
+
+  for (const code of codes) {
+    assert.equal(code.length, rewards.CODE_LENGTH);
+    // I, L, O, 0 and 1 are the pairs that turn a working code into a support
+    // email when it is read off one screen and typed into another.
+    assert.match(code, /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]+$/);
+  }
+
+  // Not a randomness test — just that it is not returning a constant.
+  assert.ok(new Set(codes).size > 190);
+});
+
+test('a code survives the way people actually paste it', () => {
+  const code = rewards.newCode();
+
+  for (const typed of [code, ` ${code} `, code.toLowerCase(), `${code.slice(0, 4)}-${code.slice(4)}`]) {
+    assert.equal(rewards.normaliseCode(typed), code);
+  }
+});
+
+test('a code that is not one comes back null rather than nearly matching', () => {
+  for (const bad of ['', null, undefined, 'SHORT', 'WAYTOOLONGCODE', 'ABCD!@#$', 42]) {
+    assert.equal(rewards.normaliseCode(bad), null);
+  }
 });

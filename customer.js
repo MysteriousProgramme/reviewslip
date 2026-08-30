@@ -5,6 +5,7 @@ const express = require('express');
 const accounts = require('./accounts');
 const subscribers = require('./subscribers');
 const events = require('./events');
+const referrals = require('./referrals');
 const plans = require('./plans');
 const openrouter = require('./openrouter');
 const { publicUrl } = require('./tenant');
@@ -204,6 +205,53 @@ router.post('/plan', requireAccount, async (req, res, next) => {
   try {
     const account = await accounts.setPlan(req.account.id, req.body?.plan);
     res.json({ account });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* -------------------------------------------------------------- referrals */
+
+/** The account's invitations, and how close they are to the discount. */
+router.get('/referrals', requireAccount, async (req, res, next) => {
+  try {
+    res.json(await referrals.listFor(req.account.id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Invite an address.
+ *
+ * Returns the invitation rather than sending anything. There is no mail service
+ * wired up here yet, and sending to an address its owner never gave us is not a
+ * thing to arrange in a hurry — so the referrer gets a link and passes it on
+ * themselves, which is also the version nobody can be spammed by.
+ */
+router.post('/referrals', requireAccount, async (req, res, next) => {
+  try {
+    const referral = await referrals.invite({
+      referrerId: req.account.id,
+      referrerEmail: req.account.email,
+      email: req.body?.email,
+    });
+    res.status(201).json({ referral });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Withdraw an invitation nobody has taken up. */
+router.delete('/referrals/:id', requireAccount, async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0) {
+      return res.status(400).json({ error: 'Bad request.' });
+    }
+
+    await referrals.revoke({ referrerId: req.account.id, id });
+    res.status(204).end();
   } catch (err) {
     next(err);
   }

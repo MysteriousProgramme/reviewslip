@@ -5,6 +5,7 @@ const { promisify } = require('util');
 
 const { query, one } = require('./db');
 const plans = require('./plans');
+const referrals = require('./referrals');
 
 /**
  * Customer accounts and their sessions.
@@ -258,6 +259,17 @@ async function create(input = {}) {
     throw err;
   }
 
+  // After the account exists, and never able to prevent it existing. A bad or
+  // spent code costs the referrer a referral; it must not cost us the customer.
+  // See referrals.claim() for why this swallows rather than reports.
+  if (input.referralCode) {
+    try {
+      await referrals.claim({ code: input.referralCode, accountId: row.id });
+    } catch (err) {
+      console.error('Referral claim failed for account %d:', row.id, err);
+    }
+  }
+
   return toRecord(row);
 }
 
@@ -279,6 +291,17 @@ async function login(identifier, password) {
 
   if (!row || !ok) throw fail(401, 'Wrong email, username, or password.');
   if (row.status !== 'active') throw fail(403, 'This account is not active.');
+
+  // A referral comes good the first time its account signs in. Signing up signs
+  // you straight in, so for almost everyone this lands seconds after the claim
+  // — but it is the sign-in that is being counted, and this is where sign-ins
+  // are. Never allowed to fail one: a referral is not worth a locked-out
+  // customer.
+  try {
+    await referrals.qualify(row.id);
+  } catch (err) {
+    console.error('Referral qualify failed for account %d:', row.id, err);
+  }
 
   return { account: toRecord(row), ...(await startSession(row.id)) };
 }

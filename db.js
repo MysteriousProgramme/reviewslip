@@ -426,6 +426,29 @@ const MIGRATIONS = [
       'ALTER TABLE review_events ADD COLUMN IF NOT EXISTS proceeded_to text'
     );
   },
+
+  async (c) => {
+    // One account can be the subject of at most one referral. Without this,
+    // signing up twice through two different codes — or a retried request —
+    // would let two referrers both count the same person towards a discount,
+    // and referrals.claim() leans on the constraint rather than on a check it
+    // would have to do in a separate statement and hope nothing raced.
+    //
+    // Partial, because account_id is null for every invitation not yet taken
+    // up, and a plain unique index would allow exactly one of those to exist.
+    await c.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS referrals_account
+        ON referrals (account_id)
+        WHERE account_id IS NOT NULL
+    `);
+
+    // claim() and qualify() both find rows by these, on every signup and every
+    // sign-in. code is already unique and so already indexed; this is the one
+    // lookup that would otherwise be a sequential scan.
+    await c.query(
+      'CREATE INDEX IF NOT EXISTS referrals_referrer ON referrals (referrer_id)'
+    );
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.
