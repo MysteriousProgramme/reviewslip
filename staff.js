@@ -66,6 +66,51 @@ function count(value) {
   return Number.isSafeInteger(n) && n >= 0 ? n : 0;
 }
 
+/* ------------------------------------------------------------------ overview */
+
+/**
+ * The headline numbers, as one query.
+ *
+ * Scalar subqueries rather than joins: these count five unrelated things, and
+ * joining them would multiply rows against each other for no reason. Postgres
+ * runs each once.
+ *
+ * The month boundary is copied from events.js verbatim. Not shared through an
+ * import because that module is about a venue's own usage and this is a
+ * platform total — but they have to agree, or a customer reading 40 on their
+ * dashboard and staff reading 38 here starts a conversation about which is
+ * lying. If one moves, move both.
+ */
+router.get('/overview', async (req, res, next) => {
+  try {
+    const month = "created_at >= date_trunc('month', now() AT TIME ZONE 'UTC')";
+
+    const row = await one(`
+      SELECT
+        (SELECT count(*) FROM accounts) AS accounts,
+        (SELECT count(*) FROM subscribers) AS venues,
+        (SELECT count(*) FROM subscribers WHERE account_id IS NULL) AS orphans,
+        (SELECT count(*) FROM review_events WHERE ${month}) AS reviews_month,
+        (SELECT count(*) FROM review_events
+          WHERE ${month} AND proceeded_at IS NOT NULL) AS taken_month,
+        (SELECT count(*) FROM support_tickets WHERE status = 'open') AS tickets_open,
+        (SELECT count(*) FROM referrals WHERE qualified_at IS NOT NULL) AS referrals_joined
+    `);
+
+    res.json({
+      accounts: count(row.accounts),
+      venues: count(row.venues),
+      orphans: count(row.orphans),
+      reviewsThisMonth: count(row.reviews_month),
+      takenThisMonth: count(row.taken_month),
+      openTickets: count(row.tickets_open),
+      referralsJoined: count(row.referrals_joined),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /* ------------------------------------------------------------------ accounts */
 
 /**
