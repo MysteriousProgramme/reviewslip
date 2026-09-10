@@ -31,6 +31,7 @@ const quota = require('../quota');
 const rewards = require('../rewards');
 const emails = require('../emails');
 const ticketrules = require('../ticketrules');
+const nights = require('../nights');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -1645,4 +1646,165 @@ test('the refusals are sentences, not codes', () => {
   assert.match(ticketrules.checkTitle('').error, /subject/i);
   assert.match(ticketrules.checkBody('').error, /what is wrong/i);
   assert.match(ticketrules.checkBody('x'.repeat(4001)).error, /important part/i);
+});
+
+
+/* ----------------------------------------------------------------- nights */
+
+/**
+ * The night arithmetic. Every one of these is here because a booking system
+ * that gets it wrong looks like it is working: the calendar renders, the
+ * booking saves, and the only symptom is a guest who could not book a room
+ * that was free.
+ */
+
+test('departure day is not a night', () => {
+  // The whole feature rests on this line. A stay from the 3rd to the 5th is
+  // two nights — the 3rd and the 4th — and the guest is gone on the 5th.
+  assert.deepEqual(nights.nightsBetween('2026-10-03', '2026-10-05'), [
+    '2026-10-03',
+    '2026-10-04',
+  ]);
+  assert.equal(nights.nightCount('2026-10-03', '2026-10-05'), 2);
+});
+
+test('one night is arrival plus one day', () => {
+  assert.deepEqual(nights.nightsBetween('2026-10-03', '2026-10-04'), ['2026-10-03']);
+  assert.equal(nights.nightCount('2026-10-03', '2026-10-04'), 1);
+});
+
+test('a stay that is not a stay occupies nothing', () => {
+  // Same day and backwards both produce no nights rather than a negative
+  // count, so nothing downstream has to defend against a nonsense length.
+  assert.deepEqual(nights.nightsBetween('2026-10-03', '2026-10-03'), []);
+  assert.deepEqual(nights.nightsBetween('2026-10-05', '2026-10-03'), []);
+  assert.equal(nights.nightCount('2026-10-05', '2026-10-03'), 0);
+});
+
+test('nights cross a month and a year without a gap', () => {
+  assert.deepEqual(nights.nightsBetween('2026-10-30', '2026-11-02'), [
+    '2026-10-30',
+    '2026-10-31',
+    '2026-11-01',
+  ]);
+  assert.deepEqual(nights.nightsBetween('2026-12-31', '2027-01-02'), [
+    '2026-12-31',
+    '2027-01-01',
+  ]);
+});
+
+test('a leap day is a night like any other', () => {
+  assert.deepEqual(nights.nightsBetween('2028-02-28', '2028-03-01'), [
+    '2028-02-28',
+    '2028-02-29',
+  ]);
+  // And 2027 is not a leap year, so the same range is one night shorter.
+  assert.deepEqual(nights.nightsBetween('2027-02-28', '2027-03-01'), ['2027-02-28']);
+});
+
+test('a changeover day is not a clash', () => {
+  // One guest leaves on the 5th, the next arrives on the 5th. They share a
+  // date and not a night. Treating that as a conflict would refuse a booking
+  // on every changeover day the property has.
+  assert.equal(
+    nights.overlaps('2026-10-03', '2026-10-05', '2026-10-05', '2026-10-07'),
+    false
+  );
+  assert.equal(
+    nights.overlaps('2026-10-05', '2026-10-07', '2026-10-03', '2026-10-05'),
+    false
+  );
+});
+
+test('a real clash is a clash, whichever way round it is asked', () => {
+  const a = ['2026-10-03', '2026-10-06'];
+  for (const b of [
+    ['2026-10-05', '2026-10-08'], // starts inside
+    ['2026-10-01', '2026-10-04'], // ends inside
+    ['2026-10-04', '2026-10-05'], // wholly inside
+    ['2026-10-01', '2026-10-09'], // wholly around
+    ['2026-10-03', '2026-10-06'], // identical
+  ]) {
+    assert.equal(nights.overlaps(...a, ...b), true, `${b} vs ${a}`);
+    assert.equal(nights.overlaps(...b, ...a), true, `${a} vs ${b}`);
+  }
+});
+
+test('a date that does not exist is refused rather than rolled forward', () => {
+  // new Date('2026-02-30') silently becomes March 2nd. A booking system that
+  // accepts that has quietly moved somebody's arrival.
+  for (const bad of ['2026-02-30', '2026-13-01', '2026-04-31', '2026-00-10']) {
+    assert.equal(nights.parse(bad), null, bad);
+  }
+  assert.notEqual(nights.parse('2028-02-29'), null); // a real leap day
+});
+
+test('only YYYY-MM-DD is a date', () => {
+  for (const bad of [
+    '',
+    null,
+    undefined,
+    '03/10/2026',
+    '2026-10-3',
+    '10-03-2026',
+    '2026-10-03T00:00:00Z',
+    'today',
+    20261003,
+  ]) {
+    assert.equal(nights.parse(bad), null, String(bad));
+  }
+});
+
+test('a stay is checked with a sentence, and the two mistakes read differently', () => {
+  assert.equal(nights.checkStay({ arrival: '2026-10-03', departure: '2026-10-05' }).ok, true);
+
+  // Same day and reversed are different errors because they are different
+  // mistakes, and the person who made one is not helped by the other's wording.
+  assert.match(
+    nights.checkStay({ arrival: '2026-10-03', departure: '2026-10-03' }).error,
+    /at least one night/i
+  );
+  assert.match(
+    nights.checkStay({ arrival: '2026-10-05', departure: '2026-10-03' }).error,
+    /after arrival/i
+  );
+  assert.match(
+    nights.checkStay({ arrival: 'soon', departure: '2026-10-05' }).error,
+    /Arrival/
+  );
+});
+
+test('a mistyped year is caught before it writes a row per night', () => {
+  // The failure this guards: arrival 2026, departure mistyped 2036. Each night
+  // is a row, so one fat-fingered form would write millions of them.
+  const far = nights.checkStay({ arrival: '2026-10-03', departure: '2036-10-03' });
+  assert.equal(far.ok, false);
+  assert.match(far.error, /Check the year/);
+
+  // The boundary itself is allowed, so a genuine long stay is not blocked.
+  assert.equal(
+    nights.checkStay({
+      arrival: '2026-01-01',
+      departure: nights.addDays('2026-01-01', nights.MAX_NIGHTS),
+    }).ok,
+    true
+  );
+});
+
+test('a calendar window is the nights it covers, and is capped', () => {
+  assert.deepEqual(nights.window('2026-10-01', 3), [
+    '2026-10-01',
+    '2026-10-02',
+    '2026-10-03',
+  ]);
+  assert.equal(nights.window('2026-10-01', 100_000).length, nights.MAX_NIGHTS);
+  assert.deepEqual(nights.window('2026-10-01', 0), []);
+  assert.deepEqual(nights.window('nonsense', 5), []);
+});
+
+test('adding days crosses boundaries and rejects nonsense', () => {
+  assert.equal(nights.addDays('2026-10-31', 1), '2026-11-01');
+  assert.equal(nights.addDays('2027-01-01', -1), '2026-12-31');
+  assert.equal(nights.addDays('2028-02-28', 1), '2028-02-29');
+  assert.equal(nights.addDays('nope', 1), null);
 });

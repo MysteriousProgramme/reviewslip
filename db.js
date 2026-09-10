@@ -1,6 +1,21 @@
 'use strict';
 
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
+
+/**
+ * `date` columns come back as strings, not Date objects.
+ *
+ * OID 1082 is `date`. Left alone, node-postgres parses it into a JavaScript
+ * Date at **local midnight** — so '2026-10-03' read on a machine in Bangkok
+ * becomes 2026-10-02T17:00:00Z, and formatting it back through anything
+ * UTC-based gives the 2nd. That is the same off-by-one nights.js exists to
+ * avoid, arriving through the driver instead of the arithmetic.
+ *
+ * A calendar date has no time and no zone, so the honest representation is the
+ * string Postgres already sent. Set once here, at load, because a parser
+ * registered later would apply only to queries made after it.
+ */
+types.setTypeParser(1082, (value) => value);
 
 /**
  * The Postgres pool, plus the schema migrations.
@@ -51,6 +66,40 @@ async function one(text, params) {
 async function all(text, params) {
   const { rows } = await pool.query(text, params);
   return rows;
+}
+
+/**
+ * Run `fn` inside a transaction, on one client.
+ *
+ * The first thing in this codebase to need it. A booking and the room nights it
+ * occupies have to land together: half of that is either a stay holding no
+ * inventory, or inventory held by no stay, and the second is worse — a room
+ * that cannot be sold and has nothing to explain why.
+ *
+ * `fn` is handed a client with the same `query` shape as the pool, so callers
+ * read the same either way. It rolls back on any throw and always releases.
+ *
+ * @param {(client: import('pg').PoolClient) => Promise<any>} fn
+ */
+async function tx(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    // Best effort: if the connection is what failed, the rollback fails too,
+    // and the original error is the one worth reporting.
+    try {
+      await client.query('ROLLBACK');
+    } catch (rollbackErr) {
+      console.error('Rollback failed:', rollbackErr.message);
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /* -------------------------------------------------------------- migrations */
@@ -488,6 +537,162 @@ const MIGRATIONS = [
         WHERE status <> 'closed'
     `);
   },
+
+  async (c) => {
+    // Reservations, slice one.
+    //
+    // Read nights.js before changing anything here: every date in this step is
+    // a `date` and not a `timestamptz`, which disagrees with the rest of this
+    // schema deliberately. A night is a calendar date at the property, not an
+    // instant. `date_trunc('day', now() AT TIME ZONE 'UTC')` rolls over at
+    // 07:00 in Bangkok, so a UTC-derived night is the previous one for seven
+    // hours every morning.
+    //
+    // Which is also why a venue needs to say where it is. Nullable, and the
+    // code falls back to Asia/Bangkok — the market this is built for — so no
+    // existing row needs touching.
+    await c.query("ALTER TABLE subscribers ADD COLUMN timezone text");
+
+    // A room type: what is actually sold, and what an OTA lists. Guests book a
+    // Deluxe Double; which one they sleep in is decided later.
+    await c.query(`
+      CREATE TABLE room_groups (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        name          text NOT NULL,
+        capacity      integer NOT NULL DEFAULT 2,
+        sort          integer NOT NULL DEFAULT 0,
+        -- The channel manager's own id for this type. One column rather than a
+        -- mapping table because a channel manager is a single upstream that
+        -- fans out to the OTAs itself, so there is one id to hold, not one per
+        -- OTA. Nullable until that slice exists; here now so connecting later
+        -- is a write and not a migration.
+        external_ref  text,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    await c.query(`
+      CREATE UNIQUE INDEX room_groups_name
+        ON room_groups (subscriber_id, lower(name))
+    `);
+
+    // Lets `rooms` carry subscriber_id and still be provably consistent with
+    // its group's — see the composite foreign key below.
+    await c.query(`
+      CREATE UNIQUE INDEX room_groups_id_subscriber
+        ON room_groups (id, subscriber_id)
+    `);
+
+    // A physical room. What housekeeping cleans and what a booking is finally
+    // assigned to.
+    await c.query(`
+      CREATE TABLE rooms (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        group_id      integer NOT NULL,
+        name          text NOT NULL,
+        -- 'active' or 'out_of_service'. A room being refurbished should stop
+        -- taking bookings without being deleted and losing its history.
+        status        text NOT NULL DEFAULT 'active',
+        sort          integer NOT NULL DEFAULT 0,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now(),
+        -- subscriber_id is repeated here rather than reached through the group,
+        -- because every availability query scopes by venue and the extra join
+        -- would be on the hottest path in the module. The composite key is what
+        -- makes the duplication safe: a room cannot name a group belonging to
+        -- another venue, so the two columns cannot disagree. Without this it
+        -- would be a denormalisation held together by hope.
+        FOREIGN KEY (group_id, subscriber_id)
+          REFERENCES room_groups (id, subscriber_id) ON DELETE CASCADE
+      )
+    `);
+
+    await c.query(`
+      CREATE UNIQUE INDEX rooms_name
+        ON rooms (subscriber_id, lower(name))
+    `);
+    await c.query('CREATE INDEX rooms_group ON rooms (group_id)');
+
+    // A stay. Held against a group from the moment it arrives; room_id is
+    // filled in when somebody assigns it, which is what the calendar's drag
+    // and drop will do.
+    await c.query(`
+      CREATE TABLE bookings (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        -- RESTRICT, not CASCADE: a room type with bookings against it must not
+        -- be deletable, because that would delete the bookings with it.
+        group_id      integer NOT NULL REFERENCES room_groups (id) ON DELETE RESTRICT,
+        -- SET NULL: deleting a room unassigns its stays rather than destroying
+        -- them. They fall back to the unassigned row on the calendar, which is
+        -- recoverable; a lost booking is not.
+        room_id       integer REFERENCES rooms (id) ON DELETE SET NULL,
+        guest_name    text NOT NULL,
+        guest_email   text,
+        guest_phone   text,
+        adults        integer NOT NULL DEFAULT 1,
+        children      integer NOT NULL DEFAULT 0,
+        arrival       date NOT NULL,
+        departure     date NOT NULL,
+        -- confirmed | in_house | checked_out | cancelled | no_show
+        status        text NOT NULL DEFAULT 'confirmed',
+        -- 'direct' now; the channel the stay came from once there are others.
+        source        text NOT NULL DEFAULT 'direct',
+        notes         text,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now(),
+        -- One night minimum, in the database. Departure day is not a night, so
+        -- departure = arrival is a stay of nothing. See nights.js.
+        CONSTRAINT bookings_at_least_one_night CHECK (departure > arrival)
+      )
+    `);
+
+    // The two questions asked of this table: this venue's arrivals around a
+    // date, and one booking by id.
+    await c.query(`
+      CREATE INDEX bookings_venue_arrival
+        ON bookings (subscriber_id, arrival)
+    `);
+
+    // The room nights master: one row per room per night.
+    //
+    // Rows exist only for an assigned booking. An unassigned one holds no
+    // room, so it holds no nights — it is counted against its group instead,
+    // and shows on the calendar as unassigned.
+    await c.query(`
+      CREATE TABLE room_nights (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        room_id       integer NOT NULL REFERENCES rooms (id) ON DELETE CASCADE,
+        night         date NOT NULL,
+        booking_id    integer NOT NULL REFERENCES bookings (id) ON DELETE CASCADE,
+        created_at    timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    // The constraint the whole module rests on: a room can be sold once per
+    // night. Overbooking is not something application code has to remember to
+    // check — it is refused here, so every path that could cause it fails
+    // loudly, including two requests racing.
+    //
+    // No WHERE clause, because cancelling a booking deletes its nights rather
+    // than leaving them behind with a status. The booking row keeps
+    // status = 'cancelled' as the record; the inventory goes back immediately.
+    await c.query(`
+      CREATE UNIQUE INDEX room_nights_room_night
+        ON room_nights (room_id, night)
+    `);
+
+    // The calendar reads a venue's window of nights in one go.
+    await c.query(`
+      CREATE INDEX room_nights_venue_night
+        ON room_nights (subscriber_id, night)
+    `);
+    await c.query('CREATE INDEX room_nights_booking ON room_nights (booking_id)');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.
@@ -545,4 +750,4 @@ async function migrate() {
  */
 const ready = migrate();
 
-module.exports = { pool, query, one, all, ready };
+module.exports = { pool, query, one, all, tx, ready };
