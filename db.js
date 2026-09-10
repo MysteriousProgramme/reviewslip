@@ -693,6 +693,96 @@ const MIGRATIONS = [
     `);
     await c.query('CREATE INDEX room_nights_booking ON room_nights (booking_id)');
   },
+
+  async (c) => {
+    // Rates, slice three.
+    //
+    // Money is a whole number of the currency's smallest unit — satang for
+    // baht. Never a float and never `money`: 0.1 + 0.2 is not 0.3, and a rate
+    // multiplied over a fortnight in floating point is wrong in the last
+    // decimal place, which is a disagreement with a guest over their bill.
+    // See tariff.js.
+    await c.query("ALTER TABLE subscribers ADD COLUMN currency text");
+
+    // A sellable rate for a room type: Flexible, Non-refundable, Room only.
+    //
+    // The table exists now even though the first version of the UI will show
+    // one plan per type, because plans are what every channel expects to be
+    // handed and retrofitting them would mean moving every rate row onto a new
+    // parent. A column now costs nothing; a migration later costs a weekend.
+    await c.query(`
+      CREATE TABLE rate_plans (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        group_id      integer NOT NULL,
+        name          text NOT NULL,
+        -- What a night costs unless a rate_nights row says otherwise. Nullable
+        -- so a plan can exist before anybody has decided its price; a stay
+        -- against an unpriced plan is refused rather than quoted at zero.
+        base_minor    integer,
+        -- The channel manager's own id, as on room_groups.
+        external_ref  text,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now(),
+        -- The same composite-key trick as rooms: subscriber_id is repeated so
+        -- every rate query scopes by venue without joining through the group,
+        -- and the key is what stops the two disagreeing.
+        FOREIGN KEY (group_id, subscriber_id)
+          REFERENCES room_groups (id, subscriber_id) ON DELETE CASCADE
+      )
+    `);
+
+    await c.query(`
+      CREATE UNIQUE INDEX rate_plans_name
+        ON rate_plans (group_id, lower(name))
+    `);
+    await c.query(
+      'CREATE INDEX rate_plans_venue ON rate_plans (subscriber_id)'
+    );
+
+    // Overrides, one row per plan per night — and only where a night differs
+    // from the plan's base. A property with one price all year has no rows
+    // here at all; one with a high season has rows for the high season. Storing
+    // every night regardless would be 365 rows per plan per year to say
+    // nothing.
+    //
+    // Deliberately mirrors room_nights: same shape, same reasoning, and the
+    // calendar reads both the same way.
+    await c.query(`
+      CREATE TABLE rate_nights (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        plan_id       integer NOT NULL REFERENCES rate_plans (id) ON DELETE CASCADE,
+        night         date NOT NULL,
+        -- All three nullable: a row may set a price, a restriction, or both.
+        -- Null means "whatever the plan says", not "zero" and not "closed".
+        amount_minor  integer,
+        min_nights    integer,
+        closed        boolean,
+        closed_to_arrival boolean,
+        updated_at    timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    // One override per plan per night. Setting a range twice updates rather
+    // than stacking, and the upsert in rates.js leans on this.
+    await c.query(`
+      CREATE UNIQUE INDEX rate_nights_plan_night
+        ON rate_nights (plan_id, night)
+    `);
+    await c.query(`
+      CREATE INDEX rate_nights_venue_night
+        ON rate_nights (subscriber_id, night)
+    `);
+
+    // What a booking was quoted, frozen at the moment it was taken.
+    //
+    // Stored rather than recomputed. A rate changed in March must not silently
+    // reprice a stay somebody booked in January — the quote is what was agreed,
+    // and recomputing it would make every past booking a moving number.
+    await c.query('ALTER TABLE bookings ADD COLUMN rate_plan_id integer REFERENCES rate_plans (id) ON DELETE SET NULL');
+    await c.query('ALTER TABLE bookings ADD COLUMN total_minor integer');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

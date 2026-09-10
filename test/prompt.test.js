@@ -32,6 +32,7 @@ const rewards = require('../rewards');
 const emails = require('../emails');
 const ticketrules = require('../ticketrules');
 const nights = require('../nights');
+const tariff = require('../tariff');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -1807,4 +1808,145 @@ test('adding days crosses boundaries and rejects nonsense', () => {
   assert.equal(nights.addDays('2027-01-01', -1), '2026-12-31');
   assert.equal(nights.addDays('2028-02-28', 1), '2028-02-29');
   assert.equal(nights.addDays('nope', 1), null);
+});
+
+
+/* ----------------------------------------------------------------- money */
+
+/**
+ * Money is an integer count of satang. Every one of these exists because the
+ * float version of it looks right in testing and is wrong on an invoice.
+ */
+
+test('an amount is read the way somebody types it', () => {
+  assert.equal(tariff.parseAmount('1200'), 120_000);
+  assert.equal(tariff.parseAmount('1,200'), 120_000);
+  assert.equal(tariff.parseAmount('1200.50'), 120_050);
+  // One decimal place is tenths, not hundredths: 1200.5 is 1200 baht 50 satang.
+  assert.equal(tariff.parseAmount('1200.5'), 120_050);
+  assert.equal(tariff.parseAmount('  850 '), 85_000);
+  assert.equal(tariff.parseAmount(1200), 120_000);
+  assert.equal(tariff.parseAmount(0), 0);
+});
+
+test('a number that cannot be money is refused, not rounded', () => {
+  // A third decimal place is rejected rather than rounded away. Rounding
+  // somebody's money without telling them is how a price ends up a satang out
+  // on every line of a fortnight's invoice.
+  assert.equal(tariff.parseAmount('1200.555'), null);
+
+  for (const bad of ['', '   ', '-5', 'free', '1,2,3.4.5', null, undefined, {}, NaN, -1, Infinity]) {
+    assert.equal(tariff.parseAmount(bad), null, String(bad));
+  }
+});
+
+test('an extra zero is caught before it reaches a card statement', () => {
+  // A million baht a night is the ceiling: above any real room, and low enough
+  // to catch the mistake it is for.
+  assert.equal(tariff.parseAmount('1000000'), tariff.MAX_AMOUNT);
+  assert.equal(tariff.parseAmount('10000000'), null);
+});
+
+test('a float never touches the arithmetic', () => {
+  // 12.1 * 100 is 1210.0000000000002 in floating point. Going through the
+  // string form is what keeps that out of the total.
+  assert.equal(tariff.parseAmount(12.1), 1210);
+  assert.equal(tariff.parseAmount(0.1) + tariff.parseAmount(0.2), tariff.parseAmount(0.3));
+});
+
+test('an amount reads back as a person would write it', () => {
+  assert.equal(tariff.formatAmount(120_000), '1,200');
+  assert.equal(tariff.formatAmount(120_050), '1,200.50');
+  assert.equal(tariff.formatAmount(120_005), '1,200.05');
+  // Whole baht lose the decimals, because a calendar cell is three centimetres
+  // wide and Thai hotel rates are whole numbers almost always.
+  assert.equal(tariff.formatAmount(85_000), '850');
+  assert.equal(tariff.formatAmount(85_000, { always: true }), '850.00');
+  assert.equal(tariff.formatAmount(-1), '');
+});
+
+test('a stay costs the sum of its nights', () => {
+  assert.deepEqual(tariff.total([120_000, 120_000, 150_000]), {
+    total: 390_000,
+    nights: 3,
+  });
+  assert.deepEqual(tariff.total([85_000]), { total: 85_000, nights: 1 });
+});
+
+test('a night nobody priced makes the whole stay unpriced, not free', () => {
+  // The important half. A missing rate is "we cannot quote this", and
+  // returning zero would quietly sell a room for nothing.
+  assert.equal(tariff.total([120_000, null, 120_000]), null);
+  assert.equal(tariff.total([120_000, undefined]), null);
+  assert.equal(tariff.total([]), null);
+  assert.equal(tariff.total(null), null);
+});
+
+/* ---------------------------------------------------------- restrictions */
+
+test('a night the property is closed on cannot be sold', () => {
+  const check = tariff.checkRestrictions({
+    nights: ['2026-12-30', '2026-12-31', '2027-01-01'],
+    byNight: { '2026-12-31': { closed: true } },
+  });
+  assert.equal(check.ok, false);
+  assert.match(check.error, /2026-12-31/);
+});
+
+test('closed to arrival stops a stay starting, not passing through', () => {
+  const byNight = { '2026-12-31': { closedToArrival: true } };
+
+  // Starting on it: refused.
+  assert.equal(
+    tariff.checkRestrictions({ nights: ['2026-12-31', '2027-01-01'], byNight }).ok,
+    false
+  );
+  // Staying through it: fine. This is the whole distinction — a property full
+  // of New Year stays still wants the ones that started on the 30th.
+  assert.equal(
+    tariff.checkRestrictions({ nights: ['2026-12-30', '2026-12-31'], byNight }).ok,
+    true
+  );
+});
+
+test('a minimum stay is read from the arrival night', () => {
+  // The convention every channel uses: two nights minimum on a Friday means a
+  // stay *beginning* Friday must be two nights, not that every stay touching
+  // Friday must be.
+  const byNight = { '2026-10-02': { minNights: 3 } };
+
+  assert.equal(
+    tariff.checkRestrictions({ nights: ['2026-10-02', '2026-10-03'], byNight }).ok,
+    false
+  );
+  assert.equal(
+    tariff.checkRestrictions({
+      nights: ['2026-10-02', '2026-10-03', '2026-10-04'],
+      byNight,
+    }).ok,
+    true
+  );
+  // Arriving the day before and running through it is unaffected.
+  assert.equal(
+    tariff.checkRestrictions({ nights: ['2026-10-01', '2026-10-02'], byNight }).ok,
+    true
+  );
+});
+
+test('a stay with nothing set against it is sellable', () => {
+  assert.equal(
+    tariff.checkRestrictions({ nights: ['2026-10-02'], byNight: {} }).ok,
+    true
+  );
+  assert.equal(tariff.checkRestrictions({ nights: [] }).ok, false);
+  assert.equal(tariff.checkRestrictions({}).ok, false);
+});
+
+test('a refusal says which night and what to do about it', () => {
+  // These reach somebody at a front desk with a guest in front of them.
+  const min = tariff.checkRestrictions({
+    nights: ['2026-10-02'],
+    byNight: { '2026-10-02': { minNights: 2 } },
+  });
+  assert.match(min.error, /2 nights or more/);
 });

@@ -11,6 +11,7 @@ const staff = require('./staff');
 const tickets = require('./tickets');
 const rooms = require('./rooms');
 const bookings = require('./bookings');
+const rates = require('./rates');
 const emails = require('./emails');
 const plans = require('./plans');
 const openrouter = require('./openrouter');
@@ -547,6 +548,179 @@ router.delete(
   }
 );
 
+/* ------------------------------------------------------------------ rates */
+
+/** Every rate plan at a venue. */
+router.get(
+  '/businesses/:slug/rates',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json({ plans: await rates.listPlans(req.venue.id) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** A window of what each plan charges per night, with the base folded in. */
+router.get(
+  '/businesses/:slug/rate-calendar',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json(
+        await rates.forWindow({
+          subscriberId: req.venue.id,
+          start: String(req.query.start || ''),
+          days: Number(req.query.days) || 14,
+        })
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/businesses/:slug/rates',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const plan = await rates.createPlan({
+        subscriberId: req.venue.id,
+        groupId: Number(req.body?.groupId),
+        name: req.body?.name,
+        base: req.body?.base,
+      });
+      res.status(201).json({ plan });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.patch(
+  '/businesses/:slug/rates/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such rate.' });
+      }
+      const plan = await rates.setPlanBase({
+        subscriberId: req.venue.id,
+        id,
+        base: req.body?.base,
+      });
+      res.json({ plan });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  '/businesses/:slug/rates/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such rate.' });
+      }
+      await rates.deletePlan({ subscriberId: req.venue.id, id });
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Price or restrict a run of nights.
+ *
+ * Only the fields actually sent are written, so raising a price does not clear
+ * a minimum-stay rule set last week. `to` is the last night, inclusive —
+ * unlike a departure date, because somebody setting a high season means the
+ * 31st included.
+ */
+router.post(
+  '/businesses/:slug/rates/:id/nights',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such rate.' });
+      }
+
+      const body = req.body || {};
+      const patch = {
+        subscriberId: req.venue.id,
+        planId: id,
+        from: body.from,
+        to: body.to,
+      };
+      for (const key of ['amount', 'minNights', 'closed', 'closedToArrival']) {
+        if (body[key] !== undefined) patch[key] = body[key];
+      }
+
+      res.json(await rates.setRange(patch));
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** What a stay would cost, and whether it may be sold at all. */
+router.get(
+  '/businesses/:slug/quote',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json(
+        await rates.quote({
+          subscriberId: req.venue.id,
+          planId: Number(req.query.planId),
+          arrival: String(req.query.arrival || ''),
+          departure: String(req.query.departure || ''),
+        })
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** How many rooms of each type are free for a whole stay. */
+router.get(
+  '/businesses/:slug/availability',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json(
+        await rates.availability({
+          subscriberId: req.venue.id,
+          arrival: String(req.query.arrival || ''),
+          departure: String(req.query.departure || ''),
+        })
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 /* ------------------------------------------------------------- the diary */
 
 /**
@@ -616,6 +790,7 @@ router.post(
         arrival: body.arrival,
         departure: body.departure,
         notes: body.notes,
+        ratePlanId: body.ratePlanId ? Number(body.ratePlanId) : null,
       });
       res.status(201).json({ booking });
     } catch (err) {

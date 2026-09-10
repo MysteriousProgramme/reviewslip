@@ -2,6 +2,7 @@
 
 const { one, all, tx } = require('./db');
 const nights = require('./nights');
+const tariff = require('./tariff');
 
 /**
  * Stays, and the nights they hold.
@@ -54,8 +55,51 @@ function toRecord(row) {
     status: row.status,
     source: row.source,
     notes: row.notes,
+    ratePlanId: row.rate_plan_id ?? null,
+    // Null when the stay was taken before there were rates, or on a plan
+    // nobody had priced. Not zero: a booking we cannot price is not free, and
+    // the two have to read differently on an arrivals list.
+    totalMinor: row.total_minor ?? null,
+    total:
+      row.total_minor === null || row.total_minor === undefined
+        ? null
+        : tariff.formatAmount(row.total_minor),
     createdAt: row.created_at,
   };
+}
+
+/**
+ * What a stay costs on a plan, inside a transaction that already holds it.
+ *
+ * A copy of the resolution in rates.quote rather than a call to it, because
+ * this has to run on the transaction's own client — quoting through the pool
+ * mid-transaction would read rates the transaction cannot see and could take a
+ * second connection while holding a row lock.
+ *
+ * Returns null when any night has no price. The caller stores that null; it
+ * means "unpriced", and the alternative is a stay silently recorded as free.
+ */
+async function quoteOn(client, { planId, arrival, departure }) {
+  if (!planId) return null;
+
+  const plan = await client.query(
+    'SELECT base_minor FROM rate_plans WHERE id = $1',
+    [planId]
+  );
+  if (!plan.rows[0]) return null;
+
+  const list = nights.nightsBetween(arrival, departure);
+  const rows = await client.query(
+    `SELECT night, amount_minor FROM rate_nights
+      WHERE plan_id = $1 AND night = ANY($2::date[])`,
+    [planId, list]
+  );
+
+  const byNight = new Map(rows.rows.map((r) => [r.night, r.amount_minor]));
+  const priced = list.map((night) => byNight.get(night) ?? plan.rows[0].base_minor);
+
+  const sum = tariff.total(priced);
+  return sum ? sum.total : null;
 }
 
 /* ---------------------------------------------------------------- creating */
@@ -85,6 +129,7 @@ async function create(input) {
     departure,
     source = 'direct',
     notes = null,
+    ratePlanId = null,
   } = input;
 
   const name = String(guestName ?? '').trim();
@@ -117,12 +162,29 @@ async function create(input) {
     if (!room) throw fail(404, 'No such room in that room type.');
   }
 
+  // The plan has to belong to this venue and to the type being booked. A plan
+  // from another room type would price a Garden Bungalow at Family Suite money.
+  if (ratePlanId) {
+    const plan = await one(
+      'SELECT id FROM rate_plans WHERE id = $1 AND subscriber_id = $2 AND group_id = $3',
+      [ratePlanId, subscriberId, groupId]
+    );
+    if (!plan) throw fail(404, 'No such rate for that room type.');
+  }
+
   return tx(async (client) => {
+    const totalMinor = await quoteOn(client, {
+      planId: ratePlanId,
+      arrival,
+      departure,
+    });
+
     const { rows } = await client.query(
       `INSERT INTO bookings
          (subscriber_id, group_id, room_id, guest_name, guest_email, guest_phone,
-          adults, children, arrival, departure, source, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+          adults, children, arrival, departure, source, notes,
+          rate_plan_id, total_minor)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
         subscriberId,
@@ -137,6 +199,8 @@ async function create(input) {
         departure,
         String(source).slice(0, 40),
         notes ? String(notes).slice(0, NOTE_MAX) : null,
+        ratePlanId ?? null,
+        totalMinor,
       ]
     );
 
@@ -256,11 +320,44 @@ async function update(input) {
 
     await client.query('DELETE FROM room_nights WHERE booking_id = $1', [id]);
 
+    /*
+     * Re-quoted only when the stay itself moved.
+     *
+     * Different dates are a different stay, so a new price is the honest
+     * answer. A rate edited afterwards is not: the quote is what was agreed at
+     * the time, and recomputing it on every save would make every past booking
+     * a moving number that changes whenever somebody adjusts next season.
+     *
+     * A plan moved onto another room type is dropped rather than carried, for
+     * the same reason the room is: it would price this stay at another type's
+     * money.
+     */
+    let ratePlanId = current.rate_plan_id;
+    if (groupId !== current.group_id) {
+      const stillFits = ratePlanId
+        ? await client.query(
+            'SELECT id FROM rate_plans WHERE id = $1 AND group_id = $2',
+            [ratePlanId, groupId]
+          )
+        : { rows: [] };
+      if (!stillFits.rows[0]) ratePlanId = null;
+    }
+
+    const moved =
+      arrival !== current.arrival ||
+      departure !== current.departure ||
+      ratePlanId !== current.rate_plan_id;
+
+    const totalMinor = moved
+      ? await quoteOn(client, { planId: ratePlanId, arrival, departure })
+      : current.total_minor;
+
     const updated = await client.query(
       `UPDATE bookings
           SET group_id = $2, room_id = $3, guest_name = $4, guest_email = $5,
               guest_phone = $6, adults = $7, children = $8,
-              arrival = $9, departure = $10, notes = $11, updated_at = now()
+              arrival = $9, departure = $10, notes = $11,
+              rate_plan_id = $12, total_minor = $13, updated_at = now()
         WHERE id = $1
         RETURNING *`,
       [
@@ -278,6 +375,8 @@ async function update(input) {
           const note = pick('notes', current.notes);
           return note ? String(note).slice(0, NOTE_MAX) : null;
         })(),
+        ratePlanId,
+        totalMinor,
       ]
     );
 
