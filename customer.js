@@ -647,6 +647,38 @@ router.get(
  * `roomId: null` is a deliberate value, not a missing one — it means take this
  * stay out of its room and put it back on the unassigned row.
  */
+/** Correct a booking: dates, guest, headcount, room type. */
+router.patch(
+  '/businesses/:slug/bookings/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such booking.' });
+      }
+
+      const body = req.body || {};
+      // Only what was sent. update() leaves anything absent alone, so
+      // forwarding undefined for a field the form did not include is the
+      // difference between a correction and a blanking.
+      const patch = { subscriberId: req.venue.id, id };
+      for (const key of [
+        'guestName', 'guestEmail', 'guestPhone',
+        'adults', 'children', 'arrival', 'departure', 'notes',
+      ]) {
+        if (body[key] !== undefined) patch[key] = body[key];
+      }
+      if (body.groupId !== undefined) patch.groupId = Number(body.groupId);
+
+      res.json({ booking: await bookings.update(patch) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.post(
   '/businesses/:slug/bookings/:id/assign',
   requireAccount,

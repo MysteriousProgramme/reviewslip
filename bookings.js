@@ -180,6 +180,116 @@ async function holdNights(client, booking) {
   }
 }
 
+/* ---------------------------------------------------------------- editing */
+
+/**
+ * Correct a booking.
+ *
+ * Dates, guest, headcount, and the room type. Every one of those can move the
+ * nights it holds, so all of it goes through the same delete-then-re-hold as
+ * assign, inside one transaction — a stay whose dates were changed but whose
+ * nights were not is a room held on the wrong days and free on the right ones,
+ * and nothing on the calendar would say so.
+ *
+ * Moving to a different room type unassigns the room, because a room belongs to
+ * exactly one type: keeping it would mean a Family Suite booking sitting in a
+ * Garden Bungalow. The stay lands on the unassigned strip, which is visible and
+ * fixable, rather than in a room that contradicts its own type.
+ *
+ * Absent fields are left alone. This is a correction, not a replacement, and
+ * the caller sends what changed.
+ *
+ * @param {{subscriberId: number, id: number}} input
+ */
+async function update(input) {
+  const { subscriberId, id } = input;
+
+  return tx(async (client) => {
+    const { rows } = await client.query(
+      'SELECT * FROM bookings WHERE id = $1 AND subscriber_id = $2 FOR UPDATE',
+      [id, subscriberId]
+    );
+    const current = rows[0];
+    if (!current) throw fail(404, 'No such booking.');
+
+    const pick = (key, fallback) =>
+      input[key] === undefined ? fallback : input[key];
+
+    const arrival = String(pick('arrival', current.arrival));
+    const departure = String(pick('departure', current.departure));
+
+    const stay = nights.checkStay({ arrival, departure });
+    if (!stay.ok) throw fail(400, stay.error);
+
+    const guestName = String(pick('guestName', current.guest_name)).trim();
+    if (!guestName) throw fail(400, 'Whose booking is it? A name is enough.');
+    if (guestName.length > NAME_MAX) throw fail(400, 'That name is too long.');
+
+    const adults = Number(pick('adults', current.adults));
+    const children = Number(pick('children', current.children));
+    if (!Number.isSafeInteger(adults) || adults < 1 || adults > 20) {
+      throw fail(400, 'Adults is a number from 1 to 20.');
+    }
+    if (!Number.isSafeInteger(children) || children < 0 || children > 20) {
+      throw fail(400, 'Children is a number from 0 to 20.');
+    }
+
+    let groupId = Number(pick('groupId', current.group_id));
+    let roomId = current.room_id;
+
+    if (groupId !== current.group_id) {
+      const group = await client.query(
+        'SELECT id FROM room_groups WHERE id = $1 AND subscriber_id = $2',
+        [groupId, subscriberId]
+      );
+      if (!group.rows[0]) throw fail(404, 'No such room type.');
+
+      // The room cannot follow the booking into another type.
+      const stillFits = roomId
+        ? await client.query(
+            'SELECT id FROM rooms WHERE id = $1 AND group_id = $2',
+            [roomId, groupId]
+          )
+        : { rows: [] };
+      if (!stillFits.rows[0]) roomId = null;
+    }
+
+    await client.query('DELETE FROM room_nights WHERE booking_id = $1', [id]);
+
+    const updated = await client.query(
+      `UPDATE bookings
+          SET group_id = $2, room_id = $3, guest_name = $4, guest_email = $5,
+              guest_phone = $6, adults = $7, children = $8,
+              arrival = $9, departure = $10, notes = $11, updated_at = now()
+        WHERE id = $1
+        RETURNING *`,
+      [
+        id,
+        groupId,
+        roomId,
+        guestName,
+        pick('guestEmail', current.guest_email) || null,
+        pick('guestPhone', current.guest_phone) || null,
+        adults,
+        children,
+        arrival,
+        departure,
+        (() => {
+          const note = pick('notes', current.notes);
+          return note ? String(note).slice(0, NOTE_MAX) : null;
+        })(),
+      ]
+    );
+
+    const next = updated.rows[0];
+    if (next.room_id && HOLDS_INVENTORY.includes(next.status)) {
+      await holdNights(client, next);
+    }
+
+    return toRecord(next);
+  });
+}
+
 /* --------------------------------------------------------------- assigning */
 
 /**
@@ -366,6 +476,7 @@ async function onDate({ subscriberId, date }) {
 module.exports = {
   HOLDS_INVENTORY,
   create,
+  update,
   assign,
   setStatus,
   calendar,
