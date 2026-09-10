@@ -9,6 +9,8 @@ const referrals = require('./referrals');
 const mailer = require('./mailer');
 const staff = require('./staff');
 const tickets = require('./tickets');
+const rooms = require('./rooms');
+const bookings = require('./bookings');
 const emails = require('./emails');
 const plans = require('./plans');
 const openrouter = require('./openrouter');
@@ -443,6 +445,258 @@ function staffTicketUrl(id) {
   }
   return `https://admin.${domain}/tickets/${id}`;
 }
+
+/* ----------------------------------------------------------- reservations */
+
+/*
+ * Everything below hangs off a venue the caller owns.
+ *
+ * requireOwnVenue answers 404 for a slug belonging to somebody else, so a
+ * competitor cannot learn which addresses are taken by watching which of them
+ * refuse differently — and every handler here can then treat req.venue as
+ * already proven.
+ */
+
+/** The room types and rooms a venue has. */
+router.get(
+  '/businesses/:slug/rooms',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const [groups, list] = await Promise.all([
+        rooms.listGroups(req.venue.id),
+        rooms.listRooms(req.venue.id),
+      ]);
+      res.json({ groups, rooms: list });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/businesses/:slug/room-groups',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const group = await rooms.createGroup({
+        subscriberId: req.venue.id,
+        name: req.body?.name,
+        capacity: req.body?.capacity ?? 2,
+      });
+      res.status(201).json({ group });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  '/businesses/:slug/room-groups/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such room type.' });
+      }
+      await rooms.deleteGroup({ subscriberId: req.venue.id, id });
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/businesses/:slug/rooms',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const room = await rooms.createRoom({
+        subscriberId: req.venue.id,
+        groupId: Number(req.body?.groupId),
+        name: req.body?.name,
+      });
+      res.status(201).json({ room });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  '/businesses/:slug/rooms/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such room.' });
+      }
+      await rooms.deleteRoom({ subscriberId: req.venue.id, id });
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/* ------------------------------------------------------------- the diary */
+
+/**
+ * The calendar: rooms, the nights that are taken, and stays with no room yet.
+ *
+ * `start` and `days` come off the query string and are handed to nights.window,
+ * which caps and refuses rather than trusting them — a hand-edited URL asking
+ * for a hundred thousand nights gets a screenful.
+ */
+router.get(
+  '/businesses/:slug/calendar',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const start = String(req.query.start || '');
+      const days = Number(req.query.days) || 14;
+
+      const [grid, list] = await Promise.all([
+        bookings.calendar({ subscriberId: req.venue.id, start, days }),
+        rooms.listRooms(req.venue.id),
+      ]);
+
+      res.json({ ...grid, rooms: list });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Arrivals, departures and who is in house on one day. */
+router.get(
+  '/businesses/:slug/day',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const day = await bookings.onDate({
+        subscriberId: req.venue.id,
+        date: String(req.query.date || ''),
+      });
+      res.json(day);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/* ------------------------------------------------------------- bookings */
+
+router.post(
+  '/businesses/:slug/bookings',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const body = req.body || {};
+      const booking = await bookings.create({
+        subscriberId: req.venue.id,
+        groupId: Number(body.groupId),
+        roomId: body.roomId ? Number(body.roomId) : null,
+        guestName: body.guestName,
+        guestEmail: body.guestEmail,
+        guestPhone: body.guestPhone,
+        adults: body.adults ?? 1,
+        children: body.children ?? 0,
+        arrival: body.arrival,
+        departure: body.departure,
+        notes: body.notes,
+      });
+      res.status(201).json({ booking });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  '/businesses/:slug/bookings/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such booking.' });
+      }
+      res.json({ booking: await bookings.get({ subscriberId: req.venue.id, id }) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Assign, move, or unassign. What the calendar's drag and drop calls.
+ *
+ * `roomId: null` is a deliberate value, not a missing one — it means take this
+ * stay out of its room and put it back on the unassigned row.
+ */
+router.post(
+  '/businesses/:slug/bookings/:id/assign',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such booking.' });
+      }
+
+      const raw = req.body?.roomId;
+      const roomId = raw === null || raw === undefined || raw === '' ? null : Number(raw);
+      if (roomId !== null && (!Number.isSafeInteger(roomId) || roomId <= 0)) {
+        return res.status(400).json({ error: 'Bad request.' });
+      }
+
+      const booking = await bookings.assign({
+        subscriberId: req.venue.id,
+        id,
+        roomId,
+      });
+      res.json({ booking });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/businesses/:slug/bookings/:id/status',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such booking.' });
+      }
+      const booking = await bookings.setStatus({
+        subscriberId: req.venue.id,
+        id,
+        status: String(req.body?.status || ''),
+      });
+      res.json({ booking });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /* ------------------------------------------------------------- businesses */
 
