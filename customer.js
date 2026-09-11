@@ -530,6 +530,35 @@ router.post(
   }
 );
 
+/**
+ * Mark a room clean or dirty.
+ *
+ * The only manual direction anybody uses is dirty -> clean, after somebody has
+ * serviced it. The other way happens by itself when a guest checks out; both
+ * are allowed here because a room marked clean by mistake needs putting back.
+ */
+router.post(
+  '/businesses/:slug/rooms/:id/housekeeping',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such room.' });
+      }
+      const room = await rooms.setHousekeeping({
+        subscriberId: req.venue.id,
+        id,
+        state: String(req.body?.state || ''),
+      });
+      res.json({ room });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.delete(
   '/businesses/:slug/rooms/:id',
   requireAccount,

@@ -57,6 +57,9 @@ function toRoom(row) {
     groupName: row.group_name,
     name: row.name,
     status: row.status,
+    // Undefined on the rows that predate the column being selected, which the
+    // dashboard reads as clean — the same default the column carries.
+    housekeeping: row.housekeeping ?? 'clean',
     sort: row.sort,
   };
 }
@@ -196,8 +199,31 @@ async function deleteRoom({ subscriberId, id }) {
   return true;
 }
 
+/**
+ * Mark a room clean or dirty.
+ *
+ * Set by hand on the way in — somebody has cleaned it — and by the system on
+ * the way out, when a guest checks out. Only those two directions, because a
+ * third way to change it is a third place for it to be wrong.
+ */
+async function setHousekeeping({ subscriberId, id, state }) {
+  if (!['clean', 'dirty'].includes(state)) {
+    throw fail(400, 'A room is clean or dirty.');
+  }
+
+  const row = await one(
+    `UPDATE rooms SET housekeeping = $3, updated_at = now()
+      WHERE id = $1 AND subscriber_id = $2
+      RETURNING *`,
+    [id, subscriberId, state]
+  );
+  if (!row) throw fail(404, 'No such room.');
+  return { ...toRoom({ ...row, group_name: null }), housekeeping: row.housekeeping };
+}
+
 module.exports = {
   checkName,
+  setHousekeeping,
   listGroups,
   createGroup,
   deleteGroup,

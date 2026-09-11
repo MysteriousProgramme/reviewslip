@@ -783,6 +783,28 @@ const MIGRATIONS = [
     await c.query('ALTER TABLE bookings ADD COLUMN rate_plan_id integer REFERENCES rate_plans (id) ON DELETE SET NULL');
     await c.query('ALTER TABLE bookings ADD COLUMN total_minor integer');
   },
+
+  async (c) => {
+    // Housekeeping, slice four.
+    //
+    // Current state, not a log. 'clean' or 'dirty' — whether the room can be
+    // given to somebody today. A third state ('inspected', for a supervisor's
+    // sign-off) is what larger hotels use and is a column change away; adding
+    // it now would be a state nobody at a ten-room property ever sets.
+    //
+    // Deliberately separate from rooms.status, which is whether the room exists
+    // to be sold at all. A room being refurbished is out_of_service; a room
+    // somebody left this morning is dirty. Conflating them would mean a room
+    // coming back from maintenance defaults to sellable without anybody having
+    // cleaned it.
+    //
+    // Defaults to clean, because every existing room has been sitting there
+    // unbooked and the alternative is a fresh install where every room needs
+    // ticking off before it can be used.
+    await c.query(
+      "ALTER TABLE rooms ADD COLUMN housekeeping text NOT NULL DEFAULT 'clean'"
+    );
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

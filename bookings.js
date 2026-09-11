@@ -455,6 +455,14 @@ async function setStatus({ subscriberId, id, status }) {
     );
     if (!rows[0]) throw fail(404, 'No such booking.');
 
+    // Nobody can be checked into a room they have not got. An in-house stay
+    // with no room is a guest the property cannot find, cannot clean up after,
+    // and cannot stop somebody else being sold — the one state that has to be
+    // impossible rather than merely discouraged.
+    if (status === 'in_house' && !rows[0].room_id) {
+      throw fail(409, 'Give them a room first — you cannot check in to nowhere.');
+    }
+
     const updated = await client.query(
       'UPDATE bookings SET status = $2, updated_at = now() WHERE id = $1 RETURNING *',
       [id, status]
@@ -464,6 +472,30 @@ async function setStatus({ subscriberId, id, status }) {
     await client.query('DELETE FROM room_nights WHERE booking_id = $1', [id]);
     if (next.room_id && HOLDS_INVENTORY.includes(next.status)) {
       await holdNights(client, next);
+    }
+
+    /*
+     * Checking out dirties the room, in the same transaction.
+     *
+     * The entire value of tracking housekeeping is that it keeps itself. A
+     * state somebody has to remember to set is a state that is wrong by
+     * lunchtime, and a room wrongly marked clean is how a guest is walked into
+     * somebody else's towels.
+     *
+     * Only on the way out. Cancelling and no-show do not dirty a room nobody
+     * slept in, and re-marking a stay that was already checked out does not
+     * dirty a room that has since been cleaned — hence the check against what
+     * the status was before this call.
+     */
+    if (
+      next.room_id &&
+      next.status === 'checked_out' &&
+      rows[0].status !== 'checked_out'
+    ) {
+      await client.query(
+        "UPDATE rooms SET housekeeping = 'dirty', updated_at = now() WHERE id = $1",
+        [next.room_id]
+      );
     }
 
     return toRecord(next);
@@ -563,12 +595,47 @@ async function onDate({ subscriberId, date }) {
 
   const list = rows.map(toRecord);
 
+  // Every room, with what state it is in. The desk needs this beside the
+  // arrivals rather than on another screen: "can I put them in yet" is the
+  // question being asked, and the answer is a property of the room.
+  const roomRows = await all(
+    `SELECT r.id, r.name, r.status, r.housekeeping, g.name AS group_name
+       FROM rooms r
+       JOIN room_groups g ON g.id = r.group_id
+      WHERE r.subscriber_id = $1
+      ORDER BY g.sort, lower(g.name), r.sort, lower(r.name)`,
+    [subscriberId]
+  );
+
+  const arrivals = list.filter((b) => b.arrival === day);
+  const departures = list.filter((b) => b.departure === day);
+  const inHouse = list.filter((b) => b.arrival <= day && b.departure > day);
+
   return {
     date: day,
-    arrivals: list.filter((b) => b.arrival === day),
-    departures: list.filter((b) => b.departure === day),
+    arrivals,
+    departures,
     // Here for the night of `day`: arrived on or before it, leaving after it.
-    inHouse: list.filter((b) => b.arrival <= day && b.departure > day),
+    inHouse,
+    rooms: roomRows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      groupName: row.group_name,
+      status: row.status,
+      housekeeping: row.housekeeping,
+    })),
+    counts: {
+      arrivals: arrivals.length,
+      departures: departures.length,
+      inHouse: inHouse.length,
+      // The two numbers somebody actually chases during a morning.
+      toCheckIn: arrivals.filter((b) => b.status === 'confirmed').length,
+      toCheckOut: departures.filter((b) => b.status === 'in_house').length,
+      dirty: roomRows.filter((r) => r.housekeeping === 'dirty').length,
+      // An arrival with no room is the thing that blocks a check-in, so it is
+      // counted rather than left to be noticed.
+      unassignedArrivals: arrivals.filter((b) => !b.roomId).length,
+    },
   };
 }
 
