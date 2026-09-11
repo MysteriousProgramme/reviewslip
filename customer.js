@@ -12,6 +12,8 @@ const tickets = require('./tickets');
 const rooms = require('./rooms');
 const bookings = require('./bookings');
 const rates = require('./rates');
+const guests = require('./guests');
+const secrets = require('./secrets');
 const emails = require('./emails');
 const plans = require('./plans');
 const openrouter = require('./openrouter');
@@ -571,6 +573,175 @@ router.delete(
       }
       await rooms.deleteRoom({ subscriberId: req.venue.id, id });
       res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/* ----------------------------------------------------------------- guests */
+
+/*
+ * The people on a booking, and Thailand's TM30 notification about them.
+ *
+ * A passport number goes in here and comes back out only through the export,
+ * which is the file somebody uploads to Immigration. Every other response
+ * carries the last four characters and nothing more.
+ */
+
+router.get(
+  '/businesses/:slug/bookings/:id/guests',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such booking.' });
+      }
+      res.json({
+        guests: await guests.listFor({ subscriberId: req.venue.id, bookingId: id }),
+        // So the form can say why the passport field is disabled rather than
+        // letting somebody type one and lose it on save.
+        canStorePassports: secrets.configured,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/businesses/:slug/bookings/:id/guests',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such booking.' });
+      }
+      const guest = await guests.add({
+        subscriberId: req.venue.id,
+        bookingId: id,
+        ...(req.body || {}),
+      });
+      res.status(201).json({ guest });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  '/businesses/:slug/guests/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such guest.' });
+      }
+      await guests.remove({ subscriberId: req.venue.id, id });
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/* ------------------------------------------------------------------- TM30 */
+
+/** Who still needs notifying, for a window of arrivals. */
+router.get(
+  '/businesses/:slug/tm30',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const list = await guests.pending({
+        subscriberId: req.venue.id,
+        from: String(req.query.from || ''),
+        to: String(req.query.to || ''),
+      });
+      res.json({
+        pending: list,
+        ready: list.filter((g) => g.ready).length,
+        incomplete: list.filter((g) => !g.ready).length,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * The file itself.
+ *
+ * Text, not JSON, and sent as a download. This is the only response in the
+ * product that contains passport numbers, so it is deliberately the one route
+ * that is obvious about what it is — a person asked for it, it arrives as a
+ * file, and nothing renders it in a page where it could sit in a browser cache
+ * behind somebody's back.
+ */
+router.get(
+  '/businesses/:slug/tm30.csv',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const { csv } = await guests.forExport({
+        subscriberId: req.venue.id,
+        from: String(req.query.from || ''),
+        to: String(req.query.to || ''),
+      });
+
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Cache-Control', 'no-store');
+      res.set(
+        'Content-Disposition',
+        `attachment; filename="tm30-${req.venue.slug}-${req.query.from}.csv"`
+      );
+      res.send(csv);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Mark people notified, after the upload — not at download. */
+router.post(
+  '/businesses/:slug/tm30/notified',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json(
+        await guests.markNotified({
+          subscriberId: req.venue.id,
+          ids: req.body?.ids,
+        })
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Drop passport numbers for stays that ended long enough ago. */
+router.post(
+  '/businesses/:slug/tm30/forget',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json(
+        await guests.forgetPassports({
+          subscriberId: req.venue.id,
+          days: req.body?.days ?? 365,
+        })
+      );
     } catch (err) {
       next(err);
     }

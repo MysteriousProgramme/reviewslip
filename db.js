@@ -805,6 +805,70 @@ const MIGRATIONS = [
       "ALTER TABLE rooms ADD COLUMN housekeeping text NOT NULL DEFAULT 'clean'"
     );
   },
+
+  async (c) => {
+    // Guests, slice five — the people on a booking, for Thailand's TM30.
+    //
+    // Separate from bookings.guest_name, which is whoever the reservation is
+    // under. A family of four is one booking and four notifiable people, and a
+    // booking made by a company is under a name that never arrives.
+    //
+    // READ THIS BEFORE ADDING A COLUMN. This is the most sensitive table in the
+    // product. It holds identity documents belonging to people who are not our
+    // customers and never agreed anything with us — they handed a passport to a
+    // hotel. The nightly dump in scripts/backup-to-s3.sh carries all of it to
+    // S3, and a passport number, unlike a password, cannot be rotated after a
+    // leak.
+    //
+    // So the number itself is encrypted, by secrets.js, with a key that lives
+    // in the environment and not in the database. The dump on its own decrypts
+    // to nothing. Anything added here that is comparably identifying — a
+    // document image, an ID card number — goes the same way, and anything that
+    // does not need to be here should not be.
+    await c.query(`
+      CREATE TABLE booking_guests (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        booking_id    integer NOT NULL REFERENCES bookings (id) ON DELETE CASCADE,
+
+        family_name   text NOT NULL,
+        first_name    text NOT NULL,
+        middle_name   text,
+        -- As written in the passport, which is what Immigration matches on.
+        nationality   text,
+        date_of_birth date,
+        phone         text,
+        -- When they entered Thailand, off the stamp or the arrival card. Not
+        -- when they reached this property: somebody on a three-week trip checks
+        -- in here on day twelve, and the notification asks for both.
+        arrived_in_thailand date,
+
+        -- iv:tag:ciphertext, from secrets.js. Never the number itself.
+        passport_enc  text,
+        -- The last four, in the clear, so a person at the desk can confirm they
+        -- have the right passport without anything decrypting it. Four
+        -- characters identify nobody.
+        passport_tail text,
+
+        -- When this stay was notified, and by whom. Null means not yet, which
+        -- is what the export selects on.
+        notified_at   timestamptz,
+
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        updated_at    timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    await c.query(
+      'CREATE INDEX booking_guests_booking ON booking_guests (booking_id)'
+    );
+    // The export asks "everybody at this venue arriving between two dates who
+    // has not been notified", which is this index.
+    await c.query(`
+      CREATE INDEX booking_guests_pending
+        ON booking_guests (subscriber_id, notified_at)
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

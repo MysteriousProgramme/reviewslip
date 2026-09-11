@@ -33,6 +33,7 @@ const emails = require('../emails');
 const ticketrules = require('../ticketrules');
 const nights = require('../nights');
 const tariff = require('../tariff');
+const tm30 = require('../tm30');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -1949,4 +1950,187 @@ test('a refusal says which night and what to do about it', () => {
     byNight: { '2026-10-02': { minNights: 2 } },
   });
   assert.match(min.error, /2 nights or more/);
+});
+
+
+/* ------------------------------------------------------------------ TM30 */
+
+/**
+ * The notification Thailand requires within 24 hours of a foreign guest
+ * arriving. There are fines for getting it wrong, so the parts that decide
+ * *who* goes on it and *what* the file looks like are checked here.
+ */
+
+test('Thai nationals are not on a foreigner notification', () => {
+  assert.equal(tm30.reportable({ nationality: 'TH' }), false);
+  assert.equal(tm30.reportable({ nationality: 'thai' }), false);
+  assert.equal(tm30.reportable({ nationality: ' Thailand ' }), false);
+
+  assert.equal(tm30.reportable({ nationality: 'GB' }), true);
+  assert.equal(tm30.reportable({ nationality: 'CN' }), true);
+});
+
+test('a guest with no nationality recorded is reported anyway', () => {
+  // The two failures are not equal. Leaving somebody off who should have been
+  // reported is a fine; putting somebody on who should not be is a line
+  // Immigration ignores. So the doubtful case goes on the list.
+  assert.equal(tm30.reportable({}), true);
+  assert.equal(tm30.reportable({ nationality: '' }), true);
+  assert.equal(tm30.reportable({ nationality: null }), true);
+});
+
+test('an incomplete guest is told everything that is missing at once', () => {
+  const check = tm30.checkGuest({ firstName: 'Anna' });
+  assert.equal(check.ok, false);
+  // Not just the first problem: somebody fixing this at a desk should not have
+  // to save four times to find four gaps.
+  assert.ok(check.missing.includes('family name'));
+  assert.ok(check.missing.includes('nationality'));
+  assert.ok(check.missing.includes('passport number'));
+  assert.ok(check.missing.length >= 3);
+});
+
+test('a complete guest passes', () => {
+  const check = tm30.checkGuest({
+    familyName: 'Lindqvist',
+    firstName: 'Anna',
+    nationality: 'SE',
+    passportNumber: '12345678',
+  });
+  assert.deepEqual(check, { ok: true, missing: [] });
+});
+
+test('a date that is not a date is caught, and an absent one is not a problem', () => {
+  const bad = tm30.checkGuest({
+    familyName: 'X', firstName: 'Y', nationality: 'GB', passportNumber: '1',
+    arrivedInThailand: '2026-02-30',
+  });
+  assert.equal(bad.ok, false);
+  assert.match(bad.missing.join(' '), /readable arrival date/);
+
+  // Optional fields left blank are fine — Immigration asks for the entry date,
+  // and a front desk does not always have the stamp in front of it.
+  const fine = tm30.checkGuest({
+    familyName: 'X', firstName: 'Y', nationality: 'GB', passportNumber: '1',
+  });
+  assert.equal(fine.ok, true);
+});
+
+test('a passport number is tidied so the same one matches itself', () => {
+  // The same passport gets typed four ways across four stays.
+  for (const typed of ['ab-123 456', 'AB123456', ' ab123456 ', 'AB-123-456']) {
+    assert.equal(tm30.normalisePassport(typed), 'AB123456');
+  }
+  assert.equal(tm30.normalisePassport(null), '');
+});
+
+test('the file is a CSV Excel can open without mangling a Thai name', () => {
+  const csv = tm30.toCsv([
+    {
+      guest: {
+        familyName: 'Preecha', firstName: 'สมชาย', nationality: 'TH',
+        passportNumber: 'AA1234567', phone: '+66 81 234 5678',
+      },
+      stay: { arrival: '2026-12-14', departure: '2026-12-17', roomName: 'B1' },
+    },
+  ]);
+
+  // A byte-order mark, or Excel renders Thai and accented names as mojibake.
+  assert.equal(csv.charCodeAt(0), 0xfeff);
+  // CRLF, or some versions of Excel put the whole file on one line.
+  assert.ok(csv.includes(String.fromCharCode(13) + String.fromCharCode(10)));
+
+  assert.ok(csv.includes('Passport number'));
+  assert.ok(csv.includes('AA1234567'));
+  assert.ok(csv.includes('สมชาย'));
+});
+
+test('a comma in a name does not become an extra column', () => {
+  const csv = tm30.toCsv([
+    { guest: { familyName: 'Smith, Jr', firstName: 'John' }, stay: {} },
+  ]);
+  assert.ok(csv.includes('"Smith, Jr"'));
+});
+
+test('a quote in a field is doubled rather than ending the field', () => {
+  const csv = tm30.toCsv([
+    { guest: { familyName: 'O"Hara', firstName: 'Pat' }, stay: {} },
+  ]);
+  assert.ok(csv.includes('"O""Hara"'));
+});
+
+test('a row has one cell per column, always', () => {
+  // Off-by-one here shifts every field after it: somebody's phone number lands
+  // in the passport column and the whole upload is rejected, or worse, is not.
+  const row = tm30.toRow({ familyName: 'X' }, {});
+  assert.equal(row.length, tm30.COLUMNS.length);
+
+  const full = tm30.toRow(
+    { familyName: 'a', firstName: 'b', middleName: 'c', nationality: 'd',
+      passportNumber: 'e', dateOfBirth: 'f', phone: 'g', arrivedInThailand: 'h' },
+    { arrival: 'i', departure: 'j', roomName: 'k' }
+  );
+  assert.deepEqual(full, ['a','b','c','d','e','f','g','h','i','j','k']);
+});
+
+test('an empty export is still a file with headers', () => {
+  const csv = tm30.toCsv([]);
+  assert.ok(csv.includes('Family name'));
+  // One header line, and nothing pretending to be a guest.
+  assert.equal(csv.trim().split(String.fromCharCode(13) + String.fromCharCode(10)).length, 1);
+});
+
+/* -------------------------------------------------------------- encryption */
+
+/**
+ * The passport numbers this collects are dumped to S3 every night. These check
+ * the one property that matters: the dump on its own is not readable.
+ *
+ * secrets.js reads its key once at load, so the key is set before the require
+ * rather than after.
+ */
+test('a passport number does not survive a dump in readable form', () => {
+  process.env.SECRET_KEY = 'a'.repeat(64);
+  const secrets = require('../secrets');
+
+  assert.equal(secrets.configured, true);
+
+  const stored = secrets.encrypt('AA1234567');
+  assert.ok(stored);
+  // What lands in the column, and therefore in the backup.
+  assert.ok(!stored.includes('AA1234567'));
+  assert.equal(secrets.decrypt(stored), 'AA1234567');
+});
+
+test('the same number encrypts differently every time', () => {
+  const secrets = require('../secrets');
+  const a = secrets.encrypt('AA1234567');
+  const b = secrets.encrypt('AA1234567');
+
+  // A fresh IV each time. Otherwise equal ciphertexts announce equal
+  // passports, and a dump tells you which guests are the same person.
+  assert.notEqual(a, b);
+  assert.equal(secrets.decrypt(a), secrets.decrypt(b));
+});
+
+test('a tampered value fails to decrypt rather than returning nonsense', () => {
+  const secrets = require('../secrets');
+  const stored = secrets.encrypt('AA1234567');
+  const [iv, tag, body] = stored.split(':');
+
+  // Flip a byte of the ciphertext. GCM authenticates, so this is detected
+  // rather than quietly producing a different passport number.
+  const flipped = body.slice(0, -2) + (body.slice(-2) === '00' ? '01' : '00');
+  assert.equal(secrets.decrypt([iv, tag, flipped].join(':')), null);
+
+  for (const junk of ['', 'not-encrypted', 'a:b', null, undefined, 42]) {
+    assert.equal(secrets.decrypt(junk), null);
+  }
+});
+
+test('the tail is short enough to identify nobody', () => {
+  const secrets = require('../secrets');
+  assert.equal(secrets.tail('AA1234567'), '4567');
+  assert.equal(secrets.tail('AB'), 'AB');
+  assert.equal(secrets.tail(''), '');
 });
