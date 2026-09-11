@@ -201,6 +201,24 @@ async function forExport({ subscriberId, from, to }) {
 
   const entries = rows
     .filter((row) => tm30.reportable({ nationality: row.nationality }))
+    // Only complete records go in the file.
+    //
+    // A row with no passport number is one Immigration cannot act on, and a
+    // file containing it risks the whole upload being refused. Leaving those
+    // out is safe *because* they stay in `pending` — visibly outstanding, and
+    // markNotified never touches them, so nobody can tick off a guest who was
+    // never actually reported. Putting them in the file is what would hide
+    // them: the upload looks done and one arrival was never notified.
+    .filter((row) =>
+      tm30.checkGuest({
+        familyName: row.family_name,
+        firstName: row.first_name,
+        nationality: row.nationality,
+        passportNumber: row.passport_enc ? 'held' : '',
+        dateOfBirth: row.date_of_birth,
+        arrivedInThailand: row.arrived_in_thailand,
+      }).ok
+    )
     .map((row) => ({
       id: row.id,
       guest: {
