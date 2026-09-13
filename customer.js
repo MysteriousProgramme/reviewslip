@@ -951,6 +951,30 @@ router.get(
   }
 );
 
+/**
+ * The bookings widget on the venue page.
+ *
+ * `today` comes from the caller, which knows the property's timezone — a date
+ * worked out from UTC here would be yesterday's summary until 07:00 in Bangkok.
+ */
+router.get(
+  '/businesses/:slug/summary',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json(
+        await bookings.summary({
+          subscriberId: req.venue.id,
+          today: String(req.query.today || ''),
+        })
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 /** Arrivals, departures and who is in house on one day. */
 router.get(
   '/businesses/:slug/day',

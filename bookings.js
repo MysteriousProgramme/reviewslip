@@ -562,6 +562,90 @@ async function calendar({ subscriberId, start, days }) {
   };
 }
 
+/**
+ * The venue page's bookings widget, in one query.
+ *
+ * A summary, not a screen. It answers "is anything on fire" — who is due in,
+ * who is due out, how full tonight is, and whether anything is blocking either.
+ * Everything it shows has a page behind it; nothing here is the only place to
+ * find a number.
+ *
+ * One statement rather than five, because this renders on a page that is mostly
+ * about something else. The venue page already makes several calls before it
+ * paints, and five more for a widget in the corner would be the slowest thing
+ * on it.
+ *
+ * `today` is passed in rather than computed here: the caller knows the
+ * property's timezone, and a date derived from UTC would be yesterday's summary
+ * until seven in the morning.
+ */
+async function summary({ subscriberId, today }) {
+  const day = nights.parse(today);
+  if (!day) throw fail(400, 'That is not a date.');
+
+  const row = await one(
+    `SELECT
+       (SELECT count(*) FROM rooms
+         WHERE subscriber_id = $1 AND status = 'active') AS rooms,
+       (SELECT count(*) FROM rooms
+         WHERE subscriber_id = $1 AND housekeeping = 'dirty') AS dirty,
+       (SELECT count(*) FROM bookings
+         WHERE subscriber_id = $1 AND status <> 'cancelled'
+           AND arrival = $2::date) AS arrivals,
+       (SELECT count(*) FROM bookings
+         WHERE subscriber_id = $1 AND status = 'confirmed'
+           AND arrival = $2::date) AS to_check_in,
+       (SELECT count(*) FROM bookings
+         WHERE subscriber_id = $1 AND status <> 'cancelled'
+           AND departure = $2::date) AS departures,
+       (SELECT count(*) FROM bookings
+         WHERE subscriber_id = $1 AND status = 'in_house'
+           AND departure = $2::date) AS to_check_out,
+       (SELECT count(*) FROM bookings
+         WHERE subscriber_id = $1 AND status = ANY($3)
+           AND arrival <= $2::date AND departure > $2::date) AS staying,
+       (SELECT count(*) FROM bookings
+         WHERE subscriber_id = $1 AND status = ANY($3)
+           AND room_id IS NULL
+           AND arrival <= $2::date AND departure > $2::date) AS unassigned,
+       (SELECT count(*) FROM booking_guests g
+          JOIN bookings b ON b.id = g.booking_id
+         WHERE g.subscriber_id = $1
+           AND g.notified_at IS NULL
+           AND b.status <> 'cancelled'
+           -- A week back: the duty is 24 hours, so a window of today alone
+           -- would hide exactly the arrivals already overdue.
+           AND b.arrival BETWEEN $2::date - 7 AND $2::date) AS tm30_pending`,
+    [subscriberId, day, HOLDS_INVENTORY]
+  );
+
+  const n = (value) => {
+    const v = Number(value);
+    return Number.isSafeInteger(v) && v >= 0 ? v : 0;
+  };
+
+  const rooms = n(row?.rooms);
+  const staying = n(row?.staying);
+
+  return {
+    date: day,
+    rooms,
+    // Rooms sold tonight over rooms that exist. Zero rather than a division by
+    // zero for a property that has not set its rooms up yet.
+    occupancy: rooms > 0 ? Math.round((staying / rooms) * 100) : 0,
+    staying,
+    arrivals: n(row?.arrivals),
+    toCheckIn: n(row?.to_check_in),
+    departures: n(row?.departures),
+    toCheckOut: n(row?.to_check_out),
+    // The three things that need somebody: a stay with no room, a room that
+    // needs cleaning, a guest not yet notified to Immigration.
+    unassigned: n(row?.unassigned),
+    dirty: n(row?.dirty),
+    tm30Pending: n(row?.tm30_pending),
+  };
+}
+
 /** One booking, scoped to its venue. */
 async function get({ subscriberId, id }) {
   const row = await one(
@@ -641,6 +725,7 @@ async function onDate({ subscriberId, date }) {
 
 module.exports = {
   HOLDS_INVENTORY,
+  summary,
   create,
   update,
   assign,
