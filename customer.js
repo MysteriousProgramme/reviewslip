@@ -11,6 +11,7 @@ const staff = require('./staff');
 const tickets = require('./tickets');
 const rooms = require('./rooms');
 const bookings = require('./bookings');
+const bookingfilter = require('./bookingfilter');
 const rates = require('./rates');
 const guests = require('./guests');
 const secrets = require('./secrets');
@@ -1013,6 +1014,34 @@ router.get(
         await bookings.summary({
           subscriberId: req.venue.id,
           today: String(req.query.today || ''),
+        })
+      );
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * The bookings list.
+ *
+ * No status filter unless one is asked for. A list that silently hides rows is
+ * the bug this is most likely to grow, so the default here is everything and
+ * the screen's own default link is the one that narrows it.
+ *
+ * All the validation lives in bookingfilter, which is pure and tested; this
+ * hands it the query string and passes the result along.
+ */
+router.get(
+  '/businesses/:slug/bookings',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json(
+        await bookings.list({
+          subscriberId: req.venue.id,
+          ...bookingfilter.parse(req.query),
         })
       );
     } catch (err) {

@@ -886,6 +886,43 @@ const MIGRATIONS = [
   async (c) => {
     await c.query('ALTER TABLE booking_guests ADD COLUMN tm30_required boolean');
   },
+
+  /**
+   * What the bookings list sorts and filters on.
+   *
+   * Until now the only index on bookings was (subscriber_id, arrival), which is
+   * what a calendar window needs. A list that can be narrowed by status, room
+   * type, room or guest name asks different questions, and every one of them
+   * was a scan of the venue's whole history.
+   *
+   * Plain CREATE INDEX, not CONCURRENTLY: migrate() runs each step inside a
+   * transaction and a concurrent build cannot. These tables are per-venue and
+   * small, so the write lock is milliseconds — and a migration that takes a
+   * lock briefly at deploy is a better trade than one that cannot run at all.
+   *
+   * Deliberately no pg_trgm. Substring search here is always already bounded by
+   * subscriber_id and usually by a date range, which is a few thousand rows for
+   * any real property; the name index serves prefix matching, and the rest is a
+   * scan of an already-tiny set. Do not add the extension without measuring
+   * first — it needs privileges this deployment should not have to assume.
+   */
+  async (c) => {
+    await c.query(
+      'CREATE INDEX bookings_venue_departure ON bookings (subscriber_id, departure)'
+    );
+    await c.query(
+      'CREATE INDEX bookings_venue_status_arrival ON bookings (subscriber_id, status, arrival DESC)'
+    );
+    await c.query(
+      'CREATE INDEX bookings_venue_group_arrival ON bookings (subscriber_id, group_id, arrival DESC)'
+    );
+    await c.query(
+      'CREATE INDEX bookings_venue_room_arrival ON bookings (subscriber_id, room_id, arrival DESC)'
+    );
+    await c.query(
+      'CREATE INDEX bookings_venue_name ON bookings (subscriber_id, lower(guest_name))'
+    );
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

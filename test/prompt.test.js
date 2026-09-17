@@ -34,6 +34,7 @@ const ticketrules = require('../ticketrules');
 const nights = require('../nights');
 const tariff = require('../tariff');
 const tm30 = require('../tm30');
+const bookingfilter = require('../bookingfilter');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -1870,6 +1871,117 @@ test('a month window covers the month the date is in', () => {
 
   assert.equal(nights.monthWindow('2028-02-03').days, 29);
   assert.equal(nights.monthWindow(''), null);
+});
+
+
+/* -------------------------------------------------- the booking list's filters */
+
+/**
+ * Every one of these is a way a list can lie. A filter that quietly drops
+ * itself shows a page that looks complete and is not, and the only symptom is
+ * somebody insisting a booking has disappeared.
+ */
+
+test('an unknown status is dropped, but not all of them', () => {
+  assert.deepEqual(
+    bookingfilter.parse({ status: 'confirmed,nonsense,in_house' }).statuses,
+    ['confirmed', 'in_house']
+  );
+
+  // Null means all. An empty array would match nothing, which on screen is
+  // indistinguishable from a property with no bookings at all.
+  assert.equal(bookingfilter.parse({ status: 'nonsense' }).statuses, null);
+  assert.equal(bookingfilter.parse({ status: '' }).statuses, null);
+  assert.equal(bookingfilter.parse({}).statuses, null);
+});
+
+test('a status asked for twice is asked for once', () => {
+  assert.deepEqual(
+    bookingfilter.parse({ status: 'confirmed,CONFIRMED,confirmed' }).statuses,
+    ['confirmed']
+  );
+});
+
+test('zero is a room filter, and it means no room yet', () => {
+  // The one place a zero id survives, because "who has not been given a room"
+  // is most of what this list gets opened for.
+  assert.equal(bookingfilter.parse({ roomId: '0' }).roomId, bookingfilter.NO_ROOM);
+  assert.equal(bookingfilter.parse({ roomId: '4' }).roomId, 4);
+  assert.equal(bookingfilter.parse({ roomId: '' }).roomId, null);
+  assert.equal(bookingfilter.parse({ roomId: 'x' }).roomId, null);
+
+  // But not for a room type, where zero is just a broken link.
+  assert.equal(bookingfilter.parse({ groupId: '0' }).groupId, null);
+});
+
+test('a backwards range is refused rather than quietly swapped', () => {
+  // Swapping would hide the typo, and the next wrong date goes unnoticed too —
+  // while the list being read is not the one anybody asked for.
+  assert.throws(
+    () => bookingfilter.parse({ from: '2026-10-10', to: '2026-10-01' }),
+    /before the start/
+  );
+  assert.throws(() => bookingfilter.parse({ from: 'yesterday' }), /not a date/);
+  assert.throws(() => bookingfilter.parse({ to: '2026-02-30' }), /not a date/);
+
+  const both = bookingfilter.parse({ from: '2026-10-01', to: '2026-10-01' });
+  assert.equal(both.from, '2026-10-01');
+  assert.equal(both.to, '2026-10-01');
+});
+
+test('which date the range is about defaults to the stay', () => {
+  assert.equal(bookingfilter.parse({}).on, 'stay');
+  assert.equal(bookingfilter.parse({ on: 'arrival' }).on, 'arrival');
+  assert.equal(bookingfilter.parse({ on: 'DEPARTURE' }).on, 'departure');
+  // An unreadable mode falls back rather than throwing: it is a link somebody
+  // edited, not a reason to show them nothing.
+  assert.equal(bookingfilter.parse({ on: 'sideways' }).on, 'stay');
+});
+
+test('a limit is clamped, not refused', () => {
+  assert.equal(bookingfilter.parse({}).limit, bookingfilter.DEFAULT_LIMIT);
+  assert.equal(bookingfilter.parse({ limit: '10' }).limit, 10);
+  assert.equal(bookingfilter.parse({ limit: '10000' }).limit, bookingfilter.MAX_LIMIT);
+  assert.equal(bookingfilter.parse({ limit: '0' }).limit, bookingfilter.DEFAULT_LIMIT);
+  assert.equal(bookingfilter.parse({ limit: '-5' }).limit, bookingfilter.DEFAULT_LIMIT);
+  assert.equal(bookingfilter.parse({ limit: 'lots' }).limit, bookingfilter.DEFAULT_LIMIT);
+});
+
+test('a search is trimmed and bounded', () => {
+  assert.equal(bookingfilter.parse({ q: '  anna  ' }).q, 'anna');
+  assert.equal(bookingfilter.parse({ q: '   ' }).q, '');
+  assert.equal(bookingfilter.parse({ q: 'x'.repeat(500) }).q.length, 120);
+});
+
+test('a cursor survives the round trip', () => {
+  const cursor = bookingfilter.formatCursor({ arrival: '2026-10-04', id: 512 });
+  assert.equal(cursor, '2026-10-04:512');
+  assert.deepEqual(bookingfilter.parseCursor(cursor), {
+    arrival: '2026-10-04',
+    id: 512,
+  });
+  assert.deepEqual(bookingfilter.parse({ cursor }).cursor, {
+    arrival: '2026-10-04',
+    id: 512,
+  });
+});
+
+test('an unreadable cursor is page one, not an error', () => {
+  // A link somebody bookmarked a month ago should still show a list. Refusing
+  // it teaches people the page is broken when a cursor has merely gone stale.
+  for (const bad of ['', 'nonsense', '2026-13-40:5', '2026-10-04:0', '2026-10-04:x', ':5']) {
+    assert.equal(bookingfilter.parseCursor(bad), null, bad);
+  }
+});
+
+test('a query value that arrives twice is read once', () => {
+  // Express hands back an array for ?status=a&status=b, and String() on an
+  // array quietly joins it with a comma — which would have turned two filters
+  // into one nonsense value.
+  assert.deepEqual(bookingfilter.parse({ status: ['confirmed', 'cancelled'] }).statuses, [
+    'confirmed',
+  ]);
+  assert.equal(bookingfilter.parse({ q: ['anna', 'tom'] }).q, 'anna');
 });
 
 

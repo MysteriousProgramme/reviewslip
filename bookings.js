@@ -4,6 +4,7 @@ const { one, all, tx } = require('./db');
 const nights = require('./nights');
 const tariff = require('./tariff');
 const tm30 = require('./tm30');
+const bookingfilter = require('./bookingfilter');
 
 /**
  * Stays, and the nights they hold.
@@ -33,6 +34,17 @@ const NOTE_MAX = 2000;
 
 /** Stays that hold a room. A cancellation gives its nights back immediately. */
 const HOLDS_INVENTORY = ['confirmed', 'in_house', 'checked_out'];
+
+/**
+ * Postgres returns count() as a string, every time.
+ *
+ * Coerced in one place because '12' + 1 is '121', and a total that renders
+ * correctly and adds up wrongly is the kind of bug that survives a review.
+ */
+function count(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n >= 0 ? n : 0;
+}
 
 /* ------------------------------------------------------------------- shape */
 
@@ -630,13 +642,8 @@ async function summary({ subscriberId, today }) {
     [subscriberId, day, HOLDS_INVENTORY, tm30.NOT_REPORTABLE]
   );
 
-  const n = (value) => {
-    const v = Number(value);
-    return Number.isSafeInteger(v) && v >= 0 ? v : 0;
-  };
-
-  const rooms = n(row?.rooms);
-  const staying = n(row?.staying);
+  const rooms = count(row?.rooms);
+  const staying = count(row?.staying);
 
   return {
     date: day,
@@ -645,15 +652,134 @@ async function summary({ subscriberId, today }) {
     // zero for a property that has not set its rooms up yet.
     occupancy: rooms > 0 ? Math.round((staying / rooms) * 100) : 0,
     staying,
-    arrivals: n(row?.arrivals),
-    toCheckIn: n(row?.to_check_in),
-    departures: n(row?.departures),
-    toCheckOut: n(row?.to_check_out),
+    arrivals: count(row?.arrivals),
+    toCheckIn: count(row?.to_check_in),
+    departures: count(row?.departures),
+    toCheckOut: count(row?.to_check_out),
     // The three things that need somebody: a stay with no room, a room that
     // needs cleaning, a guest not yet notified to Immigration.
-    unassigned: n(row?.unassigned),
-    dirty: n(row?.dirty),
-    tm30Pending: n(row?.tm30_pending),
+    unassigned: count(row?.unassigned),
+    dirty: count(row?.dirty),
+    tm30Pending: count(row?.tm30_pending),
+  };
+}
+
+/**
+ * Bookings, filtered, newest arrival first.
+ *
+ * The screen behind this is a list somebody scans rather than a grid they read,
+ * so it answers the questions a calendar cannot: who is cancelled, who has no
+ * room yet, what did that guest book in March.
+ *
+ * Three things are worth knowing about how it is built.
+ *
+ * The WHERE is assembled rather than written out with `($n IS NULL OR ...)` for
+ * every filter. Six optional filters against three date modes is eighteen
+ * shapes, and the one that goes wrong is always the combination nobody thought
+ * to try.
+ *
+ * Paging is keyset, not OFFSET. This list is read while bookings are being
+ * taken underneath it, and an offset shifts by one every time a row lands above
+ * the window — which shows the reader the same stay twice and skips another. A
+ * booking that appears to have vanished is the one failure a reservations list
+ * cannot have.
+ *
+ * And one row past the limit is fetched rather than counted, so "is there
+ * another page" costs nothing. The total is a separate statement because people
+ * do want it, and it runs alongside rather than after.
+ */
+async function list(input) {
+  const { subscriberId } = input;
+  const {
+    statuses = null,
+    groupId = null,
+    roomId = null,
+    from = null,
+    to = null,
+    on = 'stay',
+    q = '',
+    limit = bookingfilter.DEFAULT_LIMIT,
+    cursor = null,
+  } = input;
+
+  const params = [subscriberId];
+  const where = ['b.subscriber_id = $1'];
+  const add = (value) => `$${params.push(value)}`;
+
+  if (statuses) where.push(`b.status = ANY(${add(statuses)}::text[])`);
+  if (groupId) where.push(`b.group_id = ${add(groupId)}`);
+
+  if (roomId === bookingfilter.NO_ROOM) {
+    where.push('b.room_id IS NULL');
+  } else if (roomId) {
+    where.push(`b.room_id = ${add(roomId)}`);
+  }
+
+  if (from || to) {
+    const start = from ?? '0001-01-01';
+    const end = to ?? '9999-12-31';
+    if (on === 'arrival') {
+      where.push(`b.arrival BETWEEN ${add(start)}::date AND ${add(end)}::date`);
+    } else if (on === 'departure') {
+      where.push(`b.departure BETWEEN ${add(start)}::date AND ${add(end)}::date`);
+    } else {
+      // Overlap, the half-open way: a stay departing on the first day of the
+      // window was gone that morning and did not occupy it.
+      where.push(
+        `b.arrival <= ${add(end)}::date AND b.departure > ${add(start)}::date`
+      );
+    }
+  }
+
+  if (q) {
+    // % and _ are harmless inside a %...% wrap — the worst a guest called
+    // "A_B" can do is match more than they meant, which is a search box
+    // behaving oddly rather than a way into the query.
+    const like = `%${q}%`;
+    where.push(
+      `(b.guest_name ILIKE ${add(like)} OR b.guest_email ILIKE ${add(like)})`
+    );
+  }
+
+  const filtered = where.join('\n       AND ');
+
+  const paged = [...params];
+  const addPaged = (value) => `$${paged.push(value)}`;
+  let keyset = '';
+  if (cursor) {
+    // Row comparison, not two hand-written halves. `(arrival, id) < (x, y)` is
+    // one expression that matches the ORDER BY exactly; the version spelled out
+    // with OR is where duplicated and skipped rows come from on a day that has
+    // more arrivals than a page.
+    keyset = `\n       AND (b.arrival, b.id) < (${addPaged(cursor.arrival)}::date, ${addPaged(cursor.id)}::int)`;
+  }
+  const limitParam = addPaged(limit + 1);
+
+  const [rows, totals] = await Promise.all([
+    all(
+      `SELECT b.*, g.name AS group_name, r.name AS room_name
+         FROM bookings b
+         JOIN room_groups g ON g.id = b.group_id
+         LEFT JOIN rooms r ON r.id = b.room_id
+        WHERE ${filtered}${keyset}
+        ORDER BY b.arrival DESC, b.id DESC
+        LIMIT ${limitParam}`,
+      paged
+    ),
+    one(`SELECT count(*) AS total FROM bookings b WHERE ${filtered}`, params),
+  ]);
+
+  const more = rows.length > limit;
+  const page = more ? rows.slice(0, limit) : rows;
+  const lastRow = page[page.length - 1];
+
+  return {
+    bookings: page.map(toRecord),
+    // Postgres returns count() as a string. Every one of these in this codebase
+    // is coerced for the same reason: '12' + 1 is '121'.
+    total: count(totals?.total),
+    nextCursor: more && lastRow ? bookingfilter.formatCursor(lastRow) : null,
+    filters: { statuses, groupId, roomId, from, to, on, q, limit },
   };
 }
 
@@ -736,6 +862,7 @@ async function onDate({ subscriberId, date }) {
 
 module.exports = {
   HOLDS_INVENTORY,
+  list,
   summary,
   create,
   update,
