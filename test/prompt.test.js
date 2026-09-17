@@ -1812,6 +1812,67 @@ test('adding days crosses boundaries and rejects nonsense', () => {
 });
 
 
+test('a month knows how long it is', () => {
+  assert.equal(nights.daysInMonth('2026-01-14'), 31);
+  assert.equal(nights.daysInMonth('2026-04-30'), 30);
+  assert.equal(nights.daysInMonth('2026-02-01'), 28);
+  // The leap year, and the century rule underneath it.
+  assert.equal(nights.daysInMonth('2028-02-14'), 29);
+  assert.equal(nights.daysInMonth('2000-02-01'), 29);
+  assert.equal(nights.daysInMonth('2100-02-01'), 28);
+  assert.equal(nights.daysInMonth('2026-02-30'), null);
+});
+
+test('the start of a month is the first of it', () => {
+  assert.equal(nights.monthStart('2026-02-17'), '2026-02-01');
+  assert.equal(nights.monthStart('2026-02-01'), '2026-02-01');
+  assert.equal(nights.monthStart('nope'), null);
+});
+
+/**
+ * The clamp is the whole reason addMonths exists rather than addDays(30).
+ * Without it, paging forward from the 31st of January lands on the 3rd of
+ * March — a calendar that skips February entirely, having been asked to show
+ * it.
+ */
+test('a month step lands on a day that exists', () => {
+  assert.equal(nights.addMonths('2026-01-31', 1), '2026-02-28');
+  assert.equal(nights.addMonths('2028-01-31', 1), '2028-02-29');
+  assert.equal(nights.addMonths('2026-03-31', -1), '2026-02-28');
+  assert.equal(nights.addMonths('2026-05-31', 1), '2026-06-30');
+});
+
+test('a month step crosses a year in both directions', () => {
+  assert.equal(nights.addMonths('2026-12-15', 1), '2027-01-15');
+  assert.equal(nights.addMonths('2026-01-15', -1), '2025-12-15');
+  assert.equal(nights.addMonths('2026-01-31', 12), '2027-01-31');
+  assert.equal(nights.addMonths('2026-06-10', 0), '2026-06-10');
+});
+
+test('a month step refuses what is not a date or not a count', () => {
+  assert.equal(nights.addMonths('2026-02-30', 1), null);
+  assert.equal(nights.addMonths('nope', 1), null);
+  assert.equal(nights.addMonths('2026-06-10', 1.5), null);
+});
+
+test('a month window covers the month the date is in', () => {
+  const february = nights.monthWindow('2026-02-17');
+  assert.equal(february.start, '2026-02-01');
+  assert.equal(february.days, 28);
+  assert.equal(february.nights.length, 28);
+  assert.equal(february.nights.at(-1), '2026-02-28');
+
+  // The last night of a 31-day month is the 31st. A guest departing that
+  // morning holds none of it, which is the rule the whole module rests on.
+  const december = nights.monthWindow('2026-12-09');
+  assert.equal(december.days, 31);
+  assert.equal(december.nights.at(-1), '2026-12-31');
+
+  assert.equal(nights.monthWindow('2028-02-03').days, 29);
+  assert.equal(nights.monthWindow(''), null);
+});
+
+
 /* ----------------------------------------------------------------- money */
 
 /**

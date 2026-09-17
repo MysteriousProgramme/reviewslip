@@ -145,7 +145,17 @@ async function setRange(input) {
   if (end < start) throw fail(400, 'The last night has to be on or after the first.');
 
   const list = nights.nightsBetween(start, nights.addDays(end, 1));
-  if (!list.length) throw fail(400, 'That range covers no nights.');
+  if (!list.length) {
+    // `end >= start` was already established, so a range from one date to the
+    // other covers at least one night — and the only way nightsBetween comes
+    // back empty is the MAX_NIGHTS cap. Telling somebody who just asked for
+    // three years of high season that their range "covers no nights" sends
+    // them to check dates that are perfectly correct.
+    throw fail(
+      400,
+      `That is more than ${nights.MAX_NIGHTS} nights. Set a long season a year at a time.`
+    );
+  }
 
   const has = (key) => Object.prototype.hasOwnProperty.call(input, key);
 

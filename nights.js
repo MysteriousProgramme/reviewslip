@@ -258,8 +258,94 @@ function window(start, count) {
   return out;
 }
 
+/* ------------------------------------------------------------------ months */
+
+/**
+ * The first of the month a date falls in.
+ *
+ * @param {string} value
+ * @returns {string|null}
+ */
+function monthStart(value) {
+  const date = parse(value);
+  if (!date) return null;
+  return `${date.slice(0, 7)}-01`;
+}
+
+/**
+ * How many days that month has: 28, 29, 30 or 31.
+ *
+ * Day zero of the next month is the last day of this one, which is the whole
+ * trick — February and leap years fall out of it rather than being cased.
+ *
+ * @param {string} value
+ * @returns {number|null}
+ */
+function daysInMonth(value) {
+  const date = parse(value);
+  if (!date) return null;
+
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/**
+ * The same day, `count` months away, clamped to a day that exists.
+ *
+ * The 31st of January plus one month is the 28th of February, not the 3rd of
+ * March — which is what Date.UTC(2026, 1, 31) would hand back, silently, and
+ * what a calendar stepping through the year would then keep compounding: paging
+ * forward twelve times from the 31st lands in a different month than it started
+ * in.
+ *
+ * Built from the month, never by adding thirty days.
+ *
+ * @param {string} value
+ * @param {number} count
+ * @returns {string|null}
+ */
+function addMonths(value, count) {
+  const date = parse(value);
+  if (!date || !Number.isSafeInteger(count)) return null;
+
+  const year = Number(date.slice(0, 4));
+  const month = Number(date.slice(5, 7));
+  const day = Number(date.slice(8, 10));
+
+  const first = format(Date.UTC(year, month - 1 + count, 1));
+  const last = daysInMonth(first);
+  return `${first.slice(0, 7)}-${String(Math.min(day, last)).padStart(2, '0')}`;
+}
+
+/**
+ * A whole month as a calendar window.
+ *
+ * The month a date falls in, not the month starting on that date, so a
+ * hand-typed `?start=2026-02-17` draws February rather than a ragged window
+ * running into March.
+ *
+ * `days` is the night count, and the last night of a 31-day month is the 31st:
+ * a guest departing that morning holds none of it. That is the same rule as
+ * everywhere else here, and it is the one worth saying twice.
+ *
+ * @param {string} value
+ * @returns {{start: string, days: number, nights: string[]}|null}
+ */
+function monthWindow(value) {
+  const start = monthStart(value);
+  if (!start) return null;
+
+  const days = daysInMonth(start);
+  return { start, days, nights: window(start, days) };
+}
+
 module.exports = {
   MAX_NIGHTS,
+  monthStart,
+  daysInMonth,
+  addMonths,
+  monthWindow,
   parse,
   addDays,
   nightsBetween,
