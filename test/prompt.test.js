@@ -2040,6 +2040,44 @@ test('a guest with no nationality recorded is reported anyway', () => {
   assert.equal(tm30.reportable({ nationality: null }), true);
 });
 
+/**
+ * The override exists because the rule cannot know. A rule you cannot overrule
+ * is one people work around by mistyping the nationality, which breaks the
+ * export as well as the count.
+ */
+test('somebody can overrule the nationality rule in either direction', () => {
+  assert.equal(tm30.reportable({ nationality: 'TH', tm30Required: true }), true);
+  assert.equal(tm30.reportable({ nationality: 'GB', tm30Required: false }), false);
+  // No nationality at all, forced off: still off. The override is the answer,
+  // not a tiebreak.
+  assert.equal(tm30.reportable({ tm30Required: false }), false);
+});
+
+test('only a real true or false overrules it', () => {
+  // Null is what every guest recorded before the column existed carries, and
+  // it has to mean "use the rule" rather than "exempt".
+  assert.equal(tm30.reportable({ nationality: 'GB', tm30Required: null }), true);
+  assert.equal(tm30.reportable({ nationality: 'TH', tm30Required: null }), false);
+  assert.equal(tm30.reportable({ nationality: 'GB', tm30Required: undefined }), true);
+
+  // Not a coercion. Boolean('false') is true, and that cast would mark an
+  // exempt guest reportable — a wrong answer to a legal question, arrived at
+  // helpfully. Anything that is not a boolean falls through to the rule.
+  assert.equal(tm30.reportable({ nationality: 'TH', tm30Required: 'false' }), false);
+  assert.equal(tm30.reportable({ nationality: 'TH', tm30Required: 1 }), false);
+});
+
+test('the nationalities the rule exempts are named in one place', () => {
+  // bookings.summary counts the same thing in SQL off this list. A widget
+  // saying three guests need notifying over a page listing two is worse than
+  // either number on its own.
+  for (const nationality of tm30.NOT_REPORTABLE) {
+    assert.equal(tm30.reportable({ nationality }), false);
+    assert.equal(tm30.reportable({ nationality: nationality.toLowerCase() }), false);
+    assert.equal(tm30.reportable({ nationality: `  ${nationality}  ` }), false);
+  }
+});
+
 test('an incomplete guest is told everything that is missing at once', () => {
   const check = tm30.checkGuest({ firstName: 'Anna' });
   assert.equal(check.ok, false);

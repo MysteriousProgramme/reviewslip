@@ -3,6 +3,7 @@
 const { one, all, tx } = require('./db');
 const nights = require('./nights');
 const tariff = require('./tariff');
+const tm30 = require('./tm30');
 
 /**
  * Stays, and the nights they hold.
@@ -615,8 +616,18 @@ async function summary({ subscriberId, today }) {
            AND b.status <> 'cancelled'
            -- A week back: the duty is 24 hours, so a window of today alone
            -- would hide exactly the arrivals already overdue.
-           AND b.arrival BETWEEN $2::date - 7 AND $2::date) AS tm30_pending`,
-    [subscriberId, day, HOLDS_INVENTORY]
+           AND b.arrival BETWEEN $2::date - 7 AND $2::date
+           -- Only the guests the TM30 page would actually list. This count
+           -- used to include Thai nationals, so the widget said three needed
+           -- notifying over a page showing two — and a number nobody can
+           -- reconcile is a number people stop reading. The shape of the rule
+           -- is repeated here rather than the list of nationalities; see
+           -- tm30.reportable, which this has to agree with.
+           AND coalesce(
+                 g.tm30_required,
+                 upper(btrim(coalesce(g.nationality, ''))) <> ALL($4::text[])
+               )) AS tm30_pending`,
+    [subscriberId, day, HOLDS_INVENTORY, tm30.NOT_REPORTABLE]
   );
 
   const n = (value) => {

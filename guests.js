@@ -37,6 +37,9 @@ function toRecord(row) {
     passportTail: row.passport_tail,
     hasPassport: Boolean(row.passport_enc),
     notifiedAt: row.notified_at,
+    // Null means "decide from nationality". Set here, above the reportable()
+    // call below, so listFor and pending get the override for free.
+    tm30Required: row.tm30_required ?? null,
   };
 
   // Said here rather than by every page that lists guests, so one answer to
@@ -114,6 +117,112 @@ async function add({ subscriberId, bookingId, ...input }) {
       input.arrivedInThailand || null,
       passport ? secrets.encrypt(passport) : null,
       passport ? secrets.tail(passport) : null,
+    ]
+  );
+
+  return toRecord(row);
+}
+
+/**
+ * Correct a guest record.
+ *
+ * Only the fields actually sent are written, so ticking the TM30 override does
+ * not blank a passport somebody typed in yesterday. That matters more here than
+ * in most places: without an update, the only way to fix a mistyped passport was
+ * to delete the guest and add them again, which throws away `notified_at` — and
+ * a guest who really was reported to Immigration coming back as outstanding is
+ * how somebody ends up reporting them twice, or deciding the count is wrong and
+ * ignoring it.
+ *
+ * `tm30Required` takes true, false or null and nothing else. Not a coercion:
+ * Boolean('false') is true, and that one would silently mark an exempt guest
+ * reportable — a wrong answer to a legal question, arrived at by a helpful cast.
+ */
+async function update({ subscriberId, id, ...input }) {
+  const has = (key) => Object.prototype.hasOwnProperty.call(input, key);
+
+  const current = await one(
+    'SELECT * FROM booking_guests WHERE id = $1 AND subscriber_id = $2',
+    [id, subscriberId]
+  );
+  if (!current) throw fail(404, 'No such guest.');
+
+  const text = (key, column, max = NAME_MAX) => {
+    if (!has(key)) return [column, current[column]];
+    const value = String(input[key] ?? '').trim().slice(0, max);
+    return [column, value || null];
+  };
+
+  const [, familyName] = text('familyName', 'family_name');
+  const [, firstName] = text('firstName', 'first_name');
+  if (!familyName || !firstName) {
+    throw fail(400, 'A guest needs a family name and a first name.');
+  }
+
+  for (const [key, label] of [
+    ['dateOfBirth', 'date of birth'],
+    ['arrivedInThailand', 'arrival date'],
+  ]) {
+    if (has(key) && input[key] && !nights.parse(input[key])) {
+      throw fail(400, `That ${label} is not a date.`);
+    }
+  }
+
+  let required = current.tm30_required;
+  if (has('tm30Required')) {
+    const wanted = input.tm30Required;
+    if (wanted !== true && wanted !== false && wanted !== null) {
+      throw fail(400, 'Whether TM30 applies is yes, no, or left to the rule.');
+    }
+    required = wanted;
+  }
+
+  // The same refusal as `add`, for the same reason: a passport stored in the
+  // clear is worse than one not stored at all, because nobody would know.
+  let passportEnc = current.passport_enc;
+  let passportTail = current.passport_tail;
+  if (has('passportNumber')) {
+    const passport = tm30.normalisePassport(input.passportNumber);
+    if (passport && !secrets.configured) {
+      throw fail(
+        503,
+        'Passport numbers cannot be stored until SECRET_KEY is set on the server. Everything else about the guest will save.'
+      );
+    }
+    passportEnc = passport ? secrets.encrypt(passport) : null;
+    passportTail = passport ? secrets.tail(passport) : null;
+  }
+
+  const row = await one(
+    `UPDATE booking_guests SET
+       family_name = $3,
+       first_name = $4,
+       middle_name = $5,
+       nationality = $6,
+       date_of_birth = $7,
+       phone = $8,
+       arrived_in_thailand = $9,
+       passport_enc = $10,
+       passport_tail = $11,
+       tm30_required = $12,
+       updated_at = now()
+     WHERE id = $1 AND subscriber_id = $2
+     RETURNING *`,
+    [
+      id,
+      subscriberId,
+      familyName,
+      firstName,
+      text('middleName', 'middle_name')[1],
+      text('nationality', 'nationality', 40)[1],
+      has('dateOfBirth') ? input.dateOfBirth || null : current.date_of_birth,
+      text('phone', 'phone', 40)[1],
+      has('arrivedInThailand')
+        ? input.arrivedInThailand || null
+        : current.arrived_in_thailand,
+      passportEnc,
+      passportTail,
+      required,
     ]
   );
 
@@ -200,7 +309,16 @@ async function forExport({ subscriberId, from, to }) {
   );
 
   const entries = rows
-    .filter((row) => tm30.reportable({ nationality: row.nationality }))
+    // The raw row, so the override has to be named explicitly — `row` is
+    // snake_case and `reportable` reads camelCase, which is exactly the kind of
+    // mismatch that compiles, passes, and quietly drops a guest somebody was
+    // told to report.
+    .filter((row) =>
+      tm30.reportable({
+        nationality: row.nationality,
+        tm30Required: row.tm30_required,
+      })
+    )
     // Only complete records go in the file.
     //
     // A row with no passport number is one Immigration cannot act on, and a
@@ -300,6 +418,7 @@ async function forgetPassports({ subscriberId, days = 365 }) {
 
 module.exports = {
   add,
+  update,
   remove,
   listFor,
   pending,

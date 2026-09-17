@@ -869,6 +869,23 @@ const MIGRATIONS = [
         ON booking_guests (subscriber_id, notified_at)
     `);
   },
+
+  /**
+   * Whether this guest has to be reported, when the rule gets it wrong.
+   *
+   * Three states, and the third is the reason for the column. Null means
+   * "decide from nationality", which is what every existing row keeps; true
+   * means report regardless; false means exempt. A plain boolean would have
+   * needed a backfill, and a backfill freezes today's reading of the rule onto
+   * every guest already stored — including the ones it got wrong, which is
+   * precisely the set this exists for.
+   *
+   * No index. It is only ever read on a row already found by booking id, or by
+   * (subscriber_id, notified_at).
+   */
+  async (c) => {
+    await c.query('ALTER TABLE booking_guests ADD COLUMN tm30_required boolean');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

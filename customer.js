@@ -633,6 +633,52 @@ router.post(
   }
 );
 
+/**
+ * Correct a guest record.
+ *
+ * Scoped by guest id rather than by booking, like the delete below it: a guest
+ * belongs to exactly one booking, and making the caller carry both means two
+ * ways to be wrong about which.
+ *
+ * Only the keys actually sent are forwarded. `tm30Required` is passed through
+ * untouched — including null, which is a real value here meaning "go back to
+ * deciding from nationality" — and guests.update is the one place that decides
+ * whether it is acceptable.
+ */
+router.patch(
+  '/businesses/:slug/guests/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such guest.' });
+      }
+
+      const body = req.body || {};
+      const patch = { subscriberId: req.venue.id, id };
+      for (const key of [
+        'familyName',
+        'firstName',
+        'middleName',
+        'nationality',
+        'dateOfBirth',
+        'phone',
+        'arrivedInThailand',
+        'passportNumber',
+        'tm30Required',
+      ]) {
+        if (body[key] !== undefined) patch[key] = body[key];
+      }
+
+      res.json({ guest: await guests.update(patch) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.delete(
   '/businesses/:slug/guests/:id',
   requireAccount,

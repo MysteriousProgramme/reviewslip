@@ -41,6 +41,15 @@ const COLUMNS = [
 ];
 
 /**
+ * Nationalities section 38 does not cover.
+ *
+ * Exported because `bookings.summary` counts the same thing in SQL and the two
+ * must not drift — a widget saying three guests need notifying over a page
+ * listing two is worse than either number alone.
+ */
+const NOT_REPORTABLE = ['TH', 'THAI', 'THAILAND'];
+
+/**
  * Who has to be reported.
  *
  * Thai nationals are not notifiable under section 38 — it is a foreigner
@@ -48,10 +57,22 @@ const COLUMNS = [
  * rejected. Anybody with no nationality recorded is *included*, because the
  * failure of omitting somebody who should have been reported is a fine, and the
  * failure of including somebody who should not is a line the portal ignores.
+ *
+ * `tm30Required` overrides all of that, because the rule is a default for the
+ * common case and the property is the one standing in front of the guest. A
+ * Thai-passport holder the immigration office asked them to report, a resident
+ * on a work permit they were told not to — the rule has no way to know, and a
+ * rule you cannot overrule is one people work around by mistyping nationality.
+ *
+ * Only a literal true or false counts. Null and undefined fall through, which
+ * is what every guest recorded before this existed will have.
  */
 function reportable(guest) {
+  const forced = guest?.tm30Required;
+  if (forced === true || forced === false) return forced;
+
   const nationality = String(guest?.nationality ?? '').trim().toUpperCase();
-  return nationality !== 'TH' && nationality !== 'THAI' && nationality !== 'THAILAND';
+  return !NOT_REPORTABLE.includes(nationality);
 }
 
 /**
@@ -153,6 +174,7 @@ function toCsv(entries = []) {
 
 module.exports = {
   COLUMNS,
+  NOT_REPORTABLE,
   reportable,
   checkGuest,
   normalisePassport,
