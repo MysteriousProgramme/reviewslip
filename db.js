@@ -923,6 +923,24 @@ const MIGRATIONS = [
       'CREATE INDEX bookings_venue_name ON bookings (subscriber_id, lower(guest_name))'
     );
   },
+
+  /**
+   * Which review sites a venue has decided it is not on.
+   *
+   * A JSON list of platform ids, like `categories` above it.
+   *
+   * Without this, "is the Tripadvisor link set" has two answers that look the
+   * same — not yet, and never — so a setup checklist can never finish for a
+   * venue that only uses Google, which is most of them. It would nag forever,
+   * people would stop reading it, and a checklist nobody reads is worse than
+   * no checklist at all.
+   *
+   * Nullable and unread when absent: every venue already stored has decided
+   * nothing, which is exactly what null means here.
+   */
+  async (c) => {
+    await c.query('ALTER TABLE subscribers ADD COLUMN platforms_off text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

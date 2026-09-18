@@ -107,6 +107,9 @@ const COLUMNS = {
 // decision stays reversible.
 const LISTS = {
   categories: 'categories',
+  // Which review sites this venue has decided it is not on. See setup.js for
+  // why "not yet" and "never" have to be storable apart.
+  platformsOff: 'platforms_off',
 };
 
 // JSON too, but an object rather than a list, so it needs its own parse: an

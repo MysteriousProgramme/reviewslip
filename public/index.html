@@ -28,6 +28,15 @@
   </head>
   <body>
     <main class="page">
+      <!-- Shown only when the venue's setup is unfinished. Above everything,
+           because a working-looking form over a page that can post nothing is
+           worse than an honest refusal: the guest writes a review, presses
+           nothing because there is nothing to press, and leaves. -->
+      <div class="setup-notice" id="setup-notice" role="alert" hidden>
+        <p id="setup-message"></p>
+        <a id="setup-fix" class="setup-fix" href="#" hidden></a>
+      </div>
+
       <header class="masthead">
         <div class="masthead-top">
           <!-- The venue's own mark, when it has uploaded one. Hidden until the

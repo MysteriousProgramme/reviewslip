@@ -35,6 +35,7 @@ const nights = require('../nights');
 const tariff = require('../tariff');
 const tm30 = require('../tm30');
 const bookingfilter = require('../bookingfilter');
+const setup = require('../setup');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -1982,6 +1983,109 @@ test('a query value that arrives twice is read once', () => {
     'confirmed',
   ]);
   assert.equal(bookingfilter.parse({ q: ['anna', 'tom'] }).q, 'anna');
+});
+
+
+/* ------------------------------------------------------ the setup checklist */
+
+/**
+ * The chain these exist to break, because every symptom in it points somewhere
+ * else: no listing link is set, so the guest page draws no Proceed button, so
+ * no review is ever marked as taken, so the owner's review list is permanently
+ * empty — under the words "Nothing yet. Reviews appear here as guests generate
+ * them", which is the one reading of it that is wrong.
+ */
+
+const READY = {
+  apiKey: 'sk-test',
+  categories: [{ id: 'food', label: 'Food' }],
+  googleUrl: 'https://g.page/r/example',
+};
+
+test('a venue with a key, topics and one listing can take reviews', () => {
+  const p = setup.progress({ settings: READY });
+  assert.equal(p.canTakeReviews, true);
+  assert.deepEqual(p.blocking, []);
+});
+
+test('the three things that stop a review being taken are named', () => {
+  const p = setup.progress({ settings: {} });
+  assert.equal(p.canTakeReviews, false);
+  assert.deepEqual(p.blocking.sort(), ['key', 'listing', 'topics']);
+});
+
+test('no listing is what empties the review list, and it says so', () => {
+  const p = setup.progress({
+    settings: { ...READY, googleUrl: '' },
+  });
+  assert.equal(p.canTakeReviews, false);
+  assert.deepEqual(p.blocking, ['listing']);
+
+  const step = p.steps.find((s) => s.id === 'listing');
+  assert.equal(step.done, false);
+  assert.match(step.note, /never appears in your list/);
+});
+
+/**
+ * The whole reason the "not used" flag is stored. Without it a venue that is
+ * only on Google can never finish the checklist, so it nags forever — and a
+ * checklist people have learned to ignore is worse than no checklist.
+ */
+test('a venue only on Google can finish the checklist', () => {
+  const nagging = setup.progress({ settings: READY });
+  assert.equal(nagging.complete, false);
+  assert.equal(nagging.steps.find((s) => s.id === 'sites').done, false);
+
+  const settled = setup.progress({
+    settings: READY,
+    off: ['tripadvisor', 'facebook', 'wongnai'],
+  });
+  assert.equal(settled.complete, true);
+  assert.equal(settled.canTakeReviews, true);
+});
+
+test('marking every site unused still leaves nowhere to send anybody', () => {
+  // The one combination that could have finished the checklist while breaking
+  // the product. "Somewhere to send guests" is its own step precisely so that
+  // deciding about a site and having a site are never the same question.
+  const p = setup.progress({
+    settings: { ...READY, googleUrl: '' },
+    off: ['google', 'tripadvisor', 'facebook', 'wongnai'],
+  });
+  assert.equal(p.steps.find((s) => s.id === 'sites').done, true);
+  assert.equal(p.steps.find((s) => s.id === 'listing').done, false);
+  assert.equal(p.complete, false);
+  assert.equal(p.canTakeReviews, false);
+});
+
+test('a link beats the flag, because pasting one is changing your mind', () => {
+  const p = setup.progress({
+    settings: { ...READY, tripadvisorUrl: 'https://tripadvisor.com/x' },
+    off: ['tripadvisor'],
+  });
+  const site = p.sites.find((s) => s.id === 'tripadvisor');
+  assert.equal(site.linked, true);
+  assert.equal(site.off, false);
+  assert.equal(p.steps.find((s) => s.id === 'sites').done, false);
+});
+
+test('an unreadable list of unused sites is no decision, not a crash', () => {
+  for (const off of [null, undefined, 'google', 42, {}]) {
+    const p = setup.progress({ settings: READY, off });
+    assert.equal(p.canTakeReviews, true, String(off));
+    assert.equal(p.steps.find((s) => s.id === 'sites').done, false, String(off));
+  }
+  assert.equal(setup.progress().canTakeReviews, false);
+});
+
+test('what a guest is told names no setting and blames nobody', () => {
+  // The guest did not misconfigure anything and cannot fix it. The detail goes
+  // on the owner's screen, where somebody can act on it.
+  assert.equal(setup.guestMessage([]), null);
+  assert.equal(setup.guestMessage(null), null);
+  assert.match(setup.guestMessage(['listing']), /nowhere to post a review/);
+  assert.match(setup.guestMessage(['key']), /not finished being set up/);
+  assert.doesNotMatch(setup.guestMessage(['key']), /OpenRouter|API|key/i);
 });
 
 

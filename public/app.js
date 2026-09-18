@@ -13,6 +13,9 @@ const el = {
   regenerate: document.getElementById('regenerate'),
   copy: document.getElementById('copy'),
   destinations: document.getElementById('destinations'),
+  setupNotice: document.getElementById('setup-notice'),
+  setupMessage: document.getElementById('setup-message'),
+  setupFix: document.getElementById('setup-fix'),
   hint: document.getElementById('hint'),
 
   // The furniture. Static text until the selector moved the page as well as the
@@ -135,6 +138,7 @@ async function init() {
     state.destinations = Array.isArray(config.destinations)
       ? config.destinations
       : [];
+    renderSetup(config.setup);
     if (config.venue) {
       state.venue = config.venue;
       el.eyebrow.textContent = config.venue;
@@ -177,6 +181,36 @@ async function init() {
   // who scanned the code out of curiosity and put the phone away, before they
   // had picked a topic or a length. The box says what to press.
   setBusy(false);
+}
+
+/**
+ * Say so when this page cannot do its job.
+ *
+ * The failure it replaces was silent from both ends. A venue with no listing
+ * link drew no Proceed button, so a guest could write a review and leave with
+ * nowhere to put it — and because the dashboard's review list only holds
+ * reviews a guest took somewhere, the owner saw "Nothing yet. Reviews appear
+ * here as guests generate them" and concluded the product was not working.
+ * Neither person could see the one fact that explained it.
+ *
+ * The link is for the owner, who is the likeliest person to be standing in
+ * front of an unfinished page of their own. It is dropped when the server has
+ * no real host to point at, because a dead link under an error reads as a
+ * second thing broken.
+ */
+function renderSetup(info) {
+  const message = info && info.ready === false ? info.message : '';
+  el.setupNotice.hidden = !message;
+  if (!message) return;
+
+  el.setupMessage.textContent = message;
+
+  const fix = typeof info.fix === 'string' ? info.fix : '';
+  el.setupFix.hidden = !fix;
+  if (fix) {
+    el.setupFix.href = fix;
+    el.setupFix.textContent = `${t('setupOwner')} →`;
+  }
 }
 
 /**
@@ -932,7 +966,11 @@ function onProceed(place) {
   markProceeded(place.id);
 
   copying.then((copied) => {
-    say(t(copied ? 'pasteCopied' : 'pasteManual', { place: place.label }));
+    // Weighted, because this one is an instruction for the next thing the guest
+    // does rather than the running commentary the same line carries otherwise —
+    // and they are reading it on a page they have already started to leave.
+    say(t(copied ? 'pasteCopied' : 'pasteManual', { place: place.label }),
+      copied ? 'done' : 'error');
   });
 }
 

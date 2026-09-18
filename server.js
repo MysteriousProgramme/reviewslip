@@ -29,6 +29,7 @@ const events = require('./events');
 const openrouter = require('./openrouter');
 const { readWebsite, openrouterHeaders } = require('./reader');
 const { PLATFORMS } = require('./platforms');
+const setup = require('./setup');
 const adminRouter = require('./admin');
 const customerRouter = require('./customer');
 const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
@@ -297,6 +298,18 @@ app.get('/api/config', requireTenant, (req, res) => {
     url: resolved[`${p.id}Url`] || '',
   })).filter((p) => p.url);
 
+  /*
+   * Whether this page can actually do its job.
+   *
+   * Sent so the page can say so plainly instead of drawing a working-looking
+   * form over nothing. With no listing set, a guest could write a review, press
+   * nothing, and leave — and the owner's list stayed empty while the dashboard
+   * looked fine. Neither end knew.
+   *
+   * The same function the dashboard checklist uses, so the two cannot drift.
+   */
+  const ready = setup.progress({ settings: resolved, off: resolved.platformsOff });
+
   res.json({
     venue: req.subscriber.name,
     place,
@@ -320,8 +333,31 @@ app.get('/api/config', requireTenant, (req, res) => {
     // Which account is being served. The panel shows it so staff can tell at a
     // glance that they are editing the right venue.
     subscriber: { slug: req.subscriber.slug, name: req.subscriber.name },
+    setup: {
+      ready: ready.canTakeReviews,
+      // Said to the guest, so it names no setting: they did not misconfigure
+      // anything and cannot fix it.
+      message: setup.guestMessage(ready.blocking),
+      // Where the person who *can* fix it should go. Empty off a real host,
+      // where a link would go nowhere — and a dead link under an error message
+      // is worse than no link, because it reads as a second thing broken.
+      fix: dashboardUrl(req.subscriber.slug),
+    },
   });
 });
+
+/**
+ * This venue's page on the dashboard, for the owner to follow from the notice.
+ *
+ * Built from BASE_DOMAIN, the only thing this app is told about where it lives.
+ */
+function dashboardUrl(slug) {
+  const domain = String(process.env.BASE_DOMAIN || '').trim();
+  if (!domain || domain === 'localhost' || domain.endsWith('.localhost')) {
+    return '';
+  }
+  return `https://${domain}/dashboard/${encodeURIComponent(slug)}`;
+}
 
 /* --------------------------------------------------- translated topic names */
 

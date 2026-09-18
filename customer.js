@@ -12,6 +12,7 @@ const tickets = require('./tickets');
 const rooms = require('./rooms');
 const bookings = require('./bookings');
 const bookingfilter = require('./bookingfilter');
+const setup = require('./setup');
 const rates = require('./rates');
 const guests = require('./guests');
 const secrets = require('./secrets');
@@ -1290,8 +1291,18 @@ router.get(
         createdAt: req.venue.created_at,
       };
 
+      // The same answer the guest page refuses on, from the same module, so
+      // the two screens cannot tell different stories about whether this venue
+      // works. A dashboard that looks finished over a guest page that can send
+      // nobody anywhere is the failure this exists to prevent.
+      const resolved = subscribers.settingsFor(req.venue);
+
       res.json({
         business: identity,
+        setup: setup.progress({
+          settings: resolved,
+          off: resolved.platformsOff,
+        }),
         settings: subscribers.describe(req.venue),
         stats: {
           month: {
@@ -1342,6 +1353,9 @@ router.patch(
         wongnaiUrl: patch.wongnaiUrl,
         websiteUrl: patch.websiteUrl,
         categories: patch.categories,
+        // Which review sites this venue has decided it is not on. Validated in
+        // settings.js against the known platforms, like every other list here.
+        platformsOff: patch.platformsOff,
         kind: patch.kind,
         place: patch.place,
         theme: patch.theme,

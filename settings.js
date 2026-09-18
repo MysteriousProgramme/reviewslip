@@ -19,6 +19,7 @@
 const { bannedWord, bullets } = require('./seed');
 const themes = require('./theme');
 const assets = require('./assets');
+const { PLATFORMS } = require('./platforms');
 
 /**
  * The model every venue writes with, fixed.
@@ -41,6 +42,9 @@ const FIELDS = [
 
 const BUILT_IN = {
   apiKey: '',
+  // Nothing decided. Every venue starts here, and it is the honest answer:
+  // they have not said they are off Tripadvisor, they have not said anything.
+  platformsOff: [],
   model: MODEL,
   // No built-in review links. One venue's listing is the wrong default for
   // every other venue — an unset link is reported as unset, and the guest page
@@ -89,6 +93,9 @@ function resolve(own) {
   // buttons was worse than showing none at all. Callers must cope with an empty
   // list. Details are the same, for the same reason.
   merged.categories = ownCategories(own) || [];
+  // The same shape of decision as topics, and the same reasoning: which review
+  // sites *this* venue is on is not something to set installation-wide.
+  merged.platformsOff = Array.isArray(own?.platformsOff) ? own.platformsOff : [];
   // null rather than the shipped palette: "this business has no theme" and
   // "this business chose the shipped colours" want to behave differently.
   // The first serves an empty /theme.css and leaves the stylesheet alone.
@@ -177,6 +184,7 @@ function sources(own) {
   // Not in FIELDS, so the loop above never sets it — and it is always ours.
   out.model = 'default';
   out.categories = ownCategories(own) ? 'subscriber' : 'default';
+  out.platformsOff = own?.platformsOff?.length ? 'subscriber' : 'default';
   out.theme = ownTheme(own) ? 'subscriber' : 'default';
   return out;
 }
@@ -203,6 +211,10 @@ function describe(own) {
     facebookUrl: { value: values.facebookUrl, source: source.facebookUrl },
     wongnaiUrl: { value: values.wongnaiUrl, source: source.wongnaiUrl },
     categories: { value: values.categories, source: source.categories },
+    platformsOff: {
+      value: values.platformsOff ?? [],
+      source: source.platformsOff,
+    },
     // The four chosen colours, plus what they derive to and anything the
     // contrast check had to move. The dashboard needs the derived set to draw a
     // truthful preview — showing the four raw colours would promise a page the
@@ -299,6 +311,16 @@ function validate(patch) {
     const verdict = validateCategories(patch.categories);
     if (!verdict.ok) return verdict;
     out.categories = verdict.categories;
+  }
+
+  if (Array.isArray(patch.platformsOff)) {
+    // Only ids we know, deduplicated. This is written straight back onto the
+    // owner's own screen and read by the guest page's readiness check, so an
+    // unchecked string from a form is one that would travel a long way.
+    const known = new Set(PLATFORMS.map((p) => p.id));
+    out.platformsOff = [
+      ...new Set(patch.platformsOff.filter((id) => known.has(id))),
+    ];
   }
 
   if (patch.theme !== undefined) {

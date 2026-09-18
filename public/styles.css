@@ -572,6 +572,61 @@ body {
   color: var(--warn);
 }
 
+/*
+ * The copy confirmation is the one notice a guest has to act on — it is the
+ * instruction for the next thing they do, on a page they are already leaving.
+ * Weighted so it is not mistaken for the running commentary the same line
+ * carries the rest of the time.
+ */
+.notice[data-tone='done'] {
+  color: var(--jade);
+  font-weight: 500;
+}
+
+/* ---------------------------------------------------------------- setup -- */
+
+/*
+ * Shown when the venue's setup is unfinished, above everything.
+ *
+ * A working-looking form over a page that can post nothing is worse than an
+ * honest refusal: the guest writes a review, finds nothing to press, and
+ * leaves — and because the owner's review list only holds reviews somebody
+ * took to a listing, their dashboard says "Nothing yet" and they conclude the
+ * product is broken. Nobody could see the one fact that explained it.
+ */
+.setup-notice {
+  margin: 0 0 1.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--warn);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  /* --warn, not --ink. This page is dark: --ink is the *paper* theme's text
+     colour and lands at 1.29 against this background — legible in a mockup and
+     invisible on the page. Measured, not guessed. */
+  color: var(--warn);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.setup-notice[hidden] {
+  display: none;
+}
+
+.setup-notice p {
+  margin: 0;
+}
+
+.setup-fix {
+  display: inline-block;
+  margin-top: 0.45rem;
+  color: var(--warn);
+  font-weight: 500;
+}
+
+.setup-fix[hidden] {
+  display: none;
+}
+
 /* -------------------------------------------------------------- actions -- */
 
 .actions {

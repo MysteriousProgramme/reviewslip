@@ -52,7 +52,9 @@ const STRINGS = {
     proceed: 'Proceed to {place}',
     hint: 'Copies your review, then opens the listing.',
     noLink: 'No review link set yet.',
-    pasteCopied: 'Copied. Tap "Write a review" on {place}, then paste.',
+    setupOwner: 'If this is your business, finish setting it up',
+    pasteCopied:
+      'Your review has been copied. Paste it into the review box on {place}.',
     pasteManual:
       'Select the review and copy it, then tap "Write a review" on {place}.',
     nothingToCopy: 'Nothing to copy yet.',
@@ -94,7 +96,8 @@ const STRINGS = {
     proceed: 'ไปที่ {place}',
     hint: 'คัดลอกรีวิวของคุณ แล้วเปิดหน้าร้าน',
     noLink: 'ยังไม่ได้ตั้งลิงก์รีวิว',
-    pasteCopied: 'คัดลอกแล้ว แตะ "เขียนรีวิว" ที่ {place} แล้ววาง',
+    pasteCopied: 'คัดลอกรีวิวของคุณแล้ว วางลงในช่องเขียนรีวิวที่ {place}',
+    setupOwner: 'หากนี่คือธุรกิจของคุณ ตั้งค่าให้เสร็จ',
     pasteManual: 'เลือกรีวิวแล้วคัดลอก จากนั้นแตะ "เขียนรีวิว" ที่ {place}',
     nothingToCopy: 'ยังไม่มีอะไรให้คัดลอก',
     languageChanged: 'รีวิวถัดไปจะเขียนเป็นภาษานั้น',
@@ -135,7 +138,8 @@ const STRINGS = {
     proceed: '前往 {place}',
     hint: '复制评价后会打开商家页面。',
     noLink: '尚未设置评价链接。',
-    pasteCopied: '已复制。在 {place} 点击「写评价」，然后粘贴。',
+    pasteCopied: '已复制您的评价。请粘贴到 {place} 的评价框中。',
+    setupOwner: '如果这是您的商家，请完成设置',
     pasteManual: '请选中评价并复制，然后在 {place} 点击「写评价」。',
     nothingToCopy: '还没有可复制的内容。',
     languageChanged: '下一条将用该语言书写。',
@@ -176,7 +180,8 @@ const STRINGS = {
     hint: 'レビューをコピーして掲載ページを開きます。',
     noLink: 'レビューのリンクが未設定です。',
     pasteCopied:
-      'コピーしました。{place} で「クチコミを書く」を押して貼り付けてください。',
+      'レビューをコピーしました。{place} のクチコミ入力欄に貼り付けてください。',
+    setupOwner: 'これがあなたのお店なら、設定を完了してください',
     pasteManual:
       'レビューを選択してコピーし、{place} で「クチコミを書く」を押してください。',
     nothingToCopy: 'まだコピーするものがありません。',
@@ -218,7 +223,8 @@ const STRINGS = {
     proceed: '{place}(으)로 이동',
     hint: '리뷰를 복사한 뒤 등록 페이지를 엽니다.',
     noLink: '리뷰 링크가 아직 없습니다.',
-    pasteCopied: '복사했습니다. {place}에서 "리뷰 쓰기"를 누른 뒤 붙여넣으세요.',
+    pasteCopied: '리뷰를 복사했습니다. {place}의 리뷰 입력란에 붙여넣으세요.',
+    setupOwner: '이곳이 귀하의 업체라면 설정을 완료하세요',
     pasteManual: '리뷰를 선택해 복사한 뒤 {place}에서 "리뷰 쓰기"를 누르세요.',
     nothingToCopy: '아직 복사할 내용이 없습니다.',
     languageChanged: '다음 리뷰는 해당 언어로 작성됩니다.',
@@ -259,7 +265,9 @@ const STRINGS = {
     proceed: 'Ir a {place}',
     hint: 'Copia tu reseña y abre la ficha.',
     noLink: 'Todavía no hay enlace de reseñas.',
-    pasteCopied: 'Copiado. Pulsa "Escribir una reseña" en {place} y pega.',
+    pasteCopied:
+      'Tu reseña se ha copiado. Pégala en el cuadro de reseñas de {place}.',
+    setupOwner: 'Si este es tu negocio, termina de configurarlo',
     pasteManual:
       'Selecciona la reseña y cópiala, luego pulsa "Escribir una reseña" en {place}.',
     nothingToCopy: 'Todavía no hay nada que copiar.',
@@ -301,7 +309,9 @@ const STRINGS = {
     proceed: 'Aller sur {place}',
     hint: 'Copie votre avis, puis ouvre la fiche.',
     noLink: "Aucun lien d'avis pour le moment.",
-    pasteCopied: 'Copié. Touchez « Rédiger un avis » sur {place}, puis collez.',
+    pasteCopied:
+      'Votre avis a été copié. Collez-le dans le champ d’avis sur {place}.',
+    setupOwner: 'Si c’est votre établissement, terminez la configuration',
     pasteManual:
       "Sélectionnez l'avis et copiez-le, puis touchez « Rédiger un avis » sur {place}.",
     nothingToCopy: 'Rien à copier pour le moment.',
@@ -344,7 +354,8 @@ const STRINGS = {
     hint: 'Kopiert Ihre Bewertung und öffnet den Eintrag.',
     noLink: 'Noch kein Bewertungslink hinterlegt.',
     pasteCopied:
-      'Kopiert. Tippen Sie bei {place} auf „Rezension schreiben“ und fügen Sie ein.',
+      'Ihre Bewertung wurde kopiert. Fügen Sie sie im Bewertungsfeld auf {place} ein.',
+    setupOwner: 'Wenn dies Ihr Betrieb ist, schließen Sie die Einrichtung ab',
     pasteManual:
       'Markieren und kopieren Sie die Bewertung, dann tippen Sie bei {place} auf „Rezension schreiben“.',
     nothingToCopy: 'Noch nichts zum Kopieren da.',
@@ -386,7 +397,9 @@ const STRINGS = {
     proceed: 'Vai su {place}',
     hint: 'Copia la recensione e apre la scheda.',
     noLink: 'Nessun link alle recensioni.',
-    pasteCopied: 'Copiato. Tocca "Scrivi una recensione" su {place}, poi incolla.',
+    pasteCopied:
+      'La tua recensione è stata copiata. Incollala nel campo recensione su {place}.',
+    setupOwner: 'Se questa è la tua attività, completa la configurazione',
     pasteManual:
       'Seleziona la recensione e copiala, poi tocca "Scrivi una recensione" su {place}.',
     nothingToCopy: 'Non c’è ancora nulla da copiare.',
@@ -428,7 +441,9 @@ const STRINGS = {
     proceed: 'Ir para {place}',
     hint: 'Copia a avaliação e abre a página.',
     noLink: 'Ainda sem link de avaliações.',
-    pasteCopied: 'Copiado. Toque em "Escrever avaliação" em {place} e cole.',
+    pasteCopied:
+      'A sua avaliação foi copiada. Cole-a na caixa de avaliação em {place}.',
+    setupOwner: 'Se este é o seu negócio, conclua a configuração',
     pasteManual:
       'Selecione a avaliação e copie, depois toque em "Escrever avaliação" em {place}.',
     nothingToCopy: 'Ainda não há nada para copiar.',
@@ -470,7 +485,9 @@ const STRINGS = {
     proceed: 'Naar {place}',
     hint: 'Kopieert je review en opent de pagina.',
     noLink: 'Nog geen reviewlink ingesteld.',
-    pasteCopied: 'Gekopieerd. Tik bij {place} op "Een review schrijven" en plak.',
+    pasteCopied:
+      'Je review is gekopieerd. Plak hem in het reviewveld op {place}.',
+    setupOwner: 'Als dit jouw bedrijf is, maak de installatie af',
     pasteManual:
       'Selecteer de review en kopieer hem, tik dan bij {place} op "Een review schrijven".',
     nothingToCopy: 'Nog niets om te kopiëren.',
