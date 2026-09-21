@@ -79,6 +79,68 @@ function inviteEmail({ referrer, url }) {
   return { subject, text, html };
 }
 
+/* ------------------------------------------------------------- check-in */
+
+/**
+ * The note a guest gets when they are checked in.
+ *
+ * From the property, about their stay — not from us about our product. It
+ * carries the two facts somebody in a strange town actually wants written
+ * down and searchable: which room they are in and when they are due to leave.
+ *
+ * Deliberately not a receipt. What a stay cost is between the guest and the
+ * property and may still change; putting a number in an automatic email makes
+ * it a quote nobody meant to give.
+ *
+ * No review link either, and this is the restraint that matters most: the
+ * product exists to ask for reviews, and asking on the doorstep, before
+ * anybody has slept in the bed, is how a property ends up with reviews written
+ * about a check-in desk. The ask belongs at the end of a stay.
+ *
+ * @param {{venue: string, guestName?: string, roomName?: string|null,
+ *   arrival: string, departure: string, nights: number}} input
+ * @returns {{subject: string, text: string, html: string}}
+ */
+function welcomeEmail({ venue, guestName, roomName, arrival, departure, nights }) {
+  const place = clean(venue, 120) || 'your stay';
+  const who = clean(guestName, 120);
+  const room = clean(roomName, 60);
+  const stay = `${arrival} to ${departure}`;
+  const count = `${nights} night${nights === 1 ? '' : 's'}`;
+
+  const subject = `You are checked in at ${place}`;
+
+  const lines = [
+    who ? `Hello ${who},` : 'Hello,',
+    '',
+    `You are checked in at ${place}.`,
+    '',
+    room ? `Room: ${room}` : 'Your room will be confirmed at the desk.',
+    `Staying: ${stay} (${count})`,
+    '',
+    'Keep this for the dates and the room number. Anything else, ask at the desk.',
+    '',
+    `— ${place}`,
+  ];
+
+  const html = [
+    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">',
+    `<p>${who ? `Hello ${escapeHtml(who)},` : 'Hello,'}</p>`,
+    `<p>You are checked in at <strong>${escapeHtml(place)}</strong>.</p>`,
+    '<table style="border-collapse:collapse;font-size:15px">',
+    room
+      ? `<tr><td style="padding:0.2rem 1rem 0.2rem 0;color:#5a6b63">Room</td><td style="padding:0.2rem 0"><strong>${escapeHtml(room)}</strong></td></tr>`
+      : '',
+    `<tr><td style="padding:0.2rem 1rem 0.2rem 0;color:#5a6b63">Staying</td><td style="padding:0.2rem 0">${escapeHtml(stay)} (${escapeHtml(count)})</td></tr>`,
+    '</table>',
+    '<p style="font-size:0.9em;color:#5a6b63">Keep this for the dates and the room number. Anything else, ask at the desk.</p>',
+    `<p style="font-size:0.9em;color:#5a6b63">— ${escapeHtml(place)}</p>`,
+    '</div>',
+  ].join('');
+
+  return { subject, text: lines.join('\n'), html };
+}
+
 /* -------------------------------------------------------------- tickets */
 
 /**
@@ -137,6 +199,7 @@ function ticketAlertEmail({ opened, from, venue, title, body, url }) {
 }
 
 module.exports = {
+  welcomeEmail,
   inviteEmail,
   ticketReplyEmail,
   ticketAlertEmail,

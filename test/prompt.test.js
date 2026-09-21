@@ -2089,6 +2089,66 @@ test('what a guest is told names no setting and blames nobody', () => {
 });
 
 
+/* ------------------------------------------------------ the check-in email */
+
+test('the welcome note carries the room and the dates', () => {
+  const mail = emails.welcomeEmail({
+    venue: 'Baan Pong Lodge',
+    guestName: 'Anna Lindqvist',
+    roomName: 'B2',
+    arrival: '2026-09-22',
+    departure: '2026-09-25',
+    nights: 3,
+  });
+
+  assert.match(mail.subject, /checked in at Baan Pong Lodge/);
+  assert.match(mail.text, /Room: B2/);
+  assert.match(mail.text, /2026-09-22 to 2026-09-25 \(3 nights\)/);
+  assert.match(mail.html, /<strong>Baan Pong Lodge<\/strong>/);
+});
+
+test('one night is one night', () => {
+  const mail = emails.welcomeEmail({
+    venue: 'X', arrival: '2026-01-01', departure: '2026-01-02', nights: 1,
+  });
+  assert.match(mail.text, /\(1 night\)/);
+  assert.doesNotMatch(mail.text, /1 nights/);
+});
+
+/**
+ * The restraint that matters most. This product exists to ask for reviews, and
+ * asking on the doorstep — before anybody has slept in the bed — is how a
+ * property collects reviews about its check-in desk. The ask belongs at the
+ * end of a stay, and this test is here so nobody adds it to the welcome.
+ */
+test('the welcome asks for nothing', () => {
+  const mail = emails.welcomeEmail({
+    venue: 'Baan Pong Lodge', guestName: 'Anna',
+    arrival: '2026-09-22', departure: '2026-09-25', nights: 3,
+  });
+  for (const word of [/review/i, /rate us/i, /google/i, /tripadvisor/i]) {
+    assert.doesNotMatch(mail.text, word);
+    assert.doesNotMatch(mail.html, word);
+  }
+});
+
+test('a guest with no room yet is told so rather than shown a blank', () => {
+  const mail = emails.welcomeEmail({
+    venue: 'X', roomName: null, arrival: '2026-01-01', departure: '2026-01-03', nights: 2,
+  });
+  assert.match(mail.text, /confirmed at the desk/);
+  assert.doesNotMatch(mail.text, /Room: *$/m);
+});
+
+test('a venue name with markup in it cannot escape the html', () => {
+  const mail = emails.welcomeEmail({
+    venue: '<script>alert(1)</script>', arrival: '2026-01-01', departure: '2026-01-02', nights: 1,
+  });
+  assert.doesNotMatch(mail.html, /<script>/);
+  assert.match(mail.html, /&lt;script&gt;/);
+});
+
+
 /* ----------------------------------------------------------------- money */
 
 /**

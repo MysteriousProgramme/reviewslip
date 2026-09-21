@@ -5,6 +5,8 @@ const nights = require('./nights');
 const tariff = require('./tariff');
 const tm30 = require('./tm30');
 const bookingfilter = require('./bookingfilter');
+const mailer = require('./mailer');
+const emails = require('./emails');
 
 /**
  * Stays, and the nights they hold.
@@ -493,7 +495,7 @@ async function setStatus({ subscriberId, id, status }) {
   const allowed = ['confirmed', 'in_house', 'checked_out', 'cancelled', 'no_show'];
   if (!allowed.includes(status)) throw fail(400, 'Not a status.');
 
-  return tx(async (client) => {
+  const result = await tx(async (client) => {
     const { rows } = await client.query(
       'SELECT * FROM bookings WHERE id = $1 AND subscriber_id = $2 FOR UPDATE',
       [id, subscriberId]
@@ -543,8 +545,75 @@ async function setStatus({ subscriberId, id, status }) {
       );
     }
 
-    return toRecord(next);
+    /*
+     * What the guest gets told, gathered here and sent after the commit.
+     *
+     * Only on the way in, and only once: the check against the previous status
+     * is what stops a desk re-marking an in-house stay and mailing the guest
+     * their own welcome a second time.
+     */
+    const welcome =
+      next.status === 'in_house' && rows[0].status !== 'in_house'
+        ? {
+            to: next.guest_email,
+            guestName: next.guest_name,
+            arrival: next.arrival,
+            departure: next.departure,
+            roomId: next.room_id,
+          }
+        : null;
+
+    return { record: toRecord(next), welcome };
   });
+
+  // Fired, not awaited. A check-in happens with somebody standing at a desk,
+  // and it must not wait on a mail server — nor fail because of one. The
+  // function below swallows every error it can have.
+  if (result.welcome) {
+    void sendWelcome({ subscriberId, welcome: result.welcome });
+  }
+
+  return result.record;
+}
+
+/**
+ * The note a guest gets on being checked in.
+ *
+ * Outside the transaction, and outside the caller's path entirely: a check-in
+ * is a thing that happened at a desk with somebody standing at it, and it must
+ * not fail because a mail server did. Every failure here is logged and
+ * swallowed.
+ *
+ * Nothing is sent without an address. An OTA booking often has none, or has a
+ * forwarding alias that bounces, and neither is a reason to stop the desk.
+ */
+async function sendWelcome({ subscriberId, welcome }) {
+  if (!welcome?.to || !mailer.configured()) return false;
+
+  try {
+    const venue = await one(
+      'SELECT name FROM subscribers WHERE id = $1',
+      [subscriberId]
+    );
+    const room = welcome.roomId
+      ? await one('SELECT name FROM rooms WHERE id = $1', [welcome.roomId])
+      : null;
+
+    const note = emails.welcomeEmail({
+      venue: venue?.name ?? '',
+      guestName: welcome.guestName,
+      roomName: room?.name ?? null,
+      arrival: welcome.arrival,
+      departure: welcome.departure,
+      nights: nights.nightCount(welcome.arrival, welcome.departure),
+    });
+
+    await mailer.send({ to: welcome.to, ...note });
+    return true;
+  } catch (err) {
+    console.error('Could not send the welcome email:', err.message);
+    return false;
+  }
 }
 
 /* ----------------------------------------------------------------- reading */
