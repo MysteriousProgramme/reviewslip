@@ -43,7 +43,15 @@ DECLARE
 BEGIN
   SELECT id INTO v_sub FROM subscribers WHERE slug = current_setting('demo.slug');
   IF v_sub IS NULL THEN
-    RAISE EXCEPTION 'No venue with slug %', current_setting('demo.slug');
+    -- With the list, because the slug is the one thing somebody running this
+    -- has to guess, and a bare refusal leaves them at an aborted transaction
+    -- with no way forward that does not involve another query.
+    RAISE EXCEPTION 'No venue with slug %. Venues here: %',
+      current_setting('demo.slug'),
+      coalesce(
+        (SELECT string_agg(slug, ', ' ORDER BY id) FROM subscribers),
+        '(none — this database has no venues)'
+      );
   END IF;
 
   -- Run twice and you get one set, not two. The listing half below is
