@@ -941,6 +941,65 @@ const MIGRATIONS = [
   async (c) => {
     await c.query('ALTER TABLE subscribers ADD COLUMN platforms_off text');
   },
+
+  /**
+   * Reviews that came from the listings, rather than ones we drafted.
+   *
+   * Kept apart from review_events on purpose. That table is our own
+   * product's output — what the writer produced and whether a guest carried
+   * it off — and this is other people's writing, fetched from somewhere else,
+   * with a different owner and a different lifecycle. One table holding both
+   * would need a column saying which kind each row was, and every query would
+   * then have to remember it.
+   *
+   * The unique index is the whole de-duplication story. `external_id` is the
+   * platform's own id where it gives one and a fingerprint where it does not,
+   * so re-fetching the same thirty days updates rows instead of stacking
+   * copies of them — including the owner's reply, which is why replied_at
+   * lives here rather than being worked out.
+   */
+  async (c) => {
+    await c.query(`
+      CREATE TABLE external_reviews (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        -- google | tripadvisor | facebook | wongnai, from platforms.js
+        platform      text NOT NULL,
+        external_id   text NOT NULL,
+        author        text,
+        -- Nullable: not every platform has stars, and a missing rating is not
+        -- a zero.
+        rating        integer,
+        body          text,
+        posted_at     timestamptz NOT NULL,
+        -- When the property answered, and with what. Null means unanswered,
+        -- which is the thing the list is sorted and filtered by.
+        replied_at    timestamptz,
+        reply_body    text,
+        url           text,
+        fetched_at    timestamptz NOT NULL DEFAULT now(),
+        created_at    timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+
+    await c.query(`
+      CREATE UNIQUE INDEX external_reviews_identity
+        ON external_reviews (subscriber_id, platform, external_id)
+    `);
+
+    // What the list actually asks for: this venue, newest first, last month.
+    await c.query(`
+      CREATE INDEX external_reviews_recent
+        ON external_reviews (subscriber_id, posted_at DESC)
+    `);
+
+    // Unanswered ones, which is the only filter worth an index of its own.
+    await c.query(`
+      CREATE INDEX external_reviews_unanswered
+        ON external_reviews (subscriber_id, posted_at DESC)
+        WHERE replied_at IS NULL
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

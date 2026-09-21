@@ -36,6 +36,8 @@ const tariff = require('../tariff');
 const tm30 = require('../tm30');
 const bookingfilter = require('../bookingfilter');
 const setup = require('../setup');
+const inbound = require('../inbound');
+const connectors = require('../connectors');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -2146,6 +2148,153 @@ test('a venue name with markup in it cannot escape the html', () => {
   });
   assert.doesNotMatch(mail.html, /<script>/);
   assert.match(mail.html, /&lt;script&gt;/);
+});
+
+
+/* ------------------------------------------------ reviews from the listings */
+
+/**
+ * The part that goes wrong is never the fetching. It is deciding whether the
+ * review in front of you is one you already have — and both ways of getting it
+ * wrong are expensive: duplicates make an owner read the same complaint three
+ * times and stop trusting the count, and over-matching silently drops a real
+ * review nobody ever sees.
+ */
+
+const GOOGLE = {
+  name: 'accounts/1/locations/2/reviews/abc',
+  starRating: 'FOUR',
+  comment: 'Lovely garden, slow breakfast.',
+  createTime: '2026-09-01T08:00:00Z',
+};
+
+test('a review keeps the id the platform gave it', () => {
+  const r = inbound.normalise('google', GOOGLE);
+  assert.equal(r.externalId, 'accounts/1/locations/2/reviews/abc');
+  assert.equal(r.rating, 4);
+  assert.equal(r.platform, 'google');
+});
+
+test("Google's words are numbers here", () => {
+  for (const [word, n] of [['ONE', 1], ['THREE', 3], ['FIVE', 5]]) {
+    assert.equal(inbound.ratingOf(word), n);
+  }
+  assert.equal(inbound.ratingOf(4), 4);
+  assert.equal(inbound.ratingOf('4'), 4);
+  assert.equal(inbound.ratingOf(''), null);
+  assert.equal(inbound.ratingOf(9), null);
+  assert.equal(inbound.ratingOf('lovely'), null);
+});
+
+/**
+ * The fingerprint is for sources with no id — a pasted export, a scrape. It
+ * has to survive the things that change between two reads of the same review
+ * and change for a genuinely different one.
+ */
+test('a review with no id gets one that survives a second look', () => {
+  const pasted = {
+    author: 'Anna L',
+    postedAt: '2026-09-01T08:00:00Z',
+    body: 'Lovely garden, slow breakfast.',
+  };
+  const first = inbound.normalise('google', pasted);
+  const again = inbound.normalise('google', {
+    ...pasted,
+    // The same review, read later in the day, with the whitespace tidied.
+    postedAt: '2026-09-01T19:30:00Z',
+    body: '  Lovely garden,   slow breakfast.  ',
+  });
+  assert.equal(first.externalId, again.externalId);
+  assert.match(first.externalId, /^fp_/);
+});
+
+test('an edited rating is the same review, a different author is not', () => {
+  const base = { author: 'Anna L', postedAt: '2026-09-01T08:00:00Z', body: 'Lovely.' };
+  assert.equal(
+    inbound.normalise('google', { ...base, rating: 4 }).externalId,
+    inbound.normalise('google', { ...base, rating: 2 }).externalId
+  );
+  assert.notEqual(
+    inbound.normalise('google', base).externalId,
+    inbound.normalise('google', { ...base, author: 'Tom B' }).externalId
+  );
+});
+
+test('the same review on two listings is two reviews', () => {
+  const same = { author: 'Anna L', postedAt: '2026-09-01T08:00:00Z', body: 'Lovely.' };
+  assert.notEqual(
+    inbound.normalise('google', same).externalId,
+    inbound.normalise('tripadvisor', same).externalId
+  );
+});
+
+test('nothing usable is stored as nothing', () => {
+  assert.equal(inbound.normalise('google', { postedAt: '2026-09-01' }), null);
+  assert.equal(inbound.normalise('google', { body: 'x' }), null);
+  assert.equal(inbound.normalise('nowhere', GOOGLE), null);
+  // A rating on its own is a review: plenty of people leave stars and no words.
+  assert.ok(inbound.normalise('google', { rating: 5, postedAt: '2026-09-01' }));
+});
+
+test('a review dated in the future is refused', () => {
+  // A clock problem somewhere, and letting one in pins it to the top of a list
+  // ordered by date for as long as it takes somebody to notice.
+  const far = new Date(Date.now() + 40 * 86_400_000).toISOString();
+  assert.equal(inbound.normalise('google', { body: 'x', postedAt: far }), null);
+  assert.ok(inbound.normalise('google', { body: 'x', postedAt: new Date().toISOString() }));
+});
+
+test('a batch drops its own duplicates, keeping the later read', () => {
+  // Paging through results while somebody posts can return the same review on
+  // two pages. The unique index would catch it as a failed insert, which would
+  // abandon the rest of the batch.
+  const rows = [
+    { ...GOOGLE, comment: 'first read' },
+    { ...GOOGLE, comment: 'second read' },
+    { name: 'other', comment: 'different', createTime: '2026-09-02T08:00:00Z' },
+  ];
+  const out = inbound.batch('google', rows);
+  assert.equal(out.length, 2);
+  assert.equal(out.find((r) => r.externalId === GOOGLE.name).body, 'second read');
+});
+
+test('a reply on the review is carried across', () => {
+  const r = inbound.normalise('google', {
+    ...GOOGLE,
+    reply: { comment: 'Thank you — the breakfast is being looked at.', updateTime: '2026-09-02T09:00:00Z' },
+  });
+  assert.match(r.replyBody, /breakfast is being looked at/);
+  assert.equal(r.repliedAt, '2026-09-02T09:00:00.000Z');
+});
+
+test('no reply is null, not an empty answer', () => {
+  const r = inbound.normalise('google', GOOGLE);
+  assert.equal(r.repliedAt, null);
+  assert.equal(r.replyBody, null);
+});
+
+test('the window is thirty days unless told otherwise', () => {
+  const now = new Date('2026-09-30T00:00:00Z');
+  assert.equal(inbound.since(undefined, now), '2026-08-31T00:00:00.000Z');
+  assert.equal(inbound.since(7, now), '2026-09-23T00:00:00.000Z');
+  // Nonsense falls back rather than throwing; a hand-edited number is not a
+  // reason to fetch nothing.
+  assert.equal(inbound.since(0, now), inbound.since(30, now));
+  assert.equal(inbound.since(-5, now), inbound.since(30, now));
+  assert.equal(inbound.since(10_000, now), inbound.since(365, now));
+});
+
+test('a connector says what it is waiting for', () => {
+  const none = connectors.list({});
+  const google = none.find((c) => c.id === 'google');
+  assert.equal(google.ready, false);
+  assert.match(google.missing, /Google review link/);
+
+  const linked = connectors.list({ googleUrl: 'https://g.page/x' });
+  assert.match(linked.find((c) => c.id === 'google').missing, /allow-listed/);
+
+  // Paste needs nothing, which is what makes the feature usable today.
+  assert.equal(none.find((c) => c.id === 'paste').ready, true);
 });
 
 

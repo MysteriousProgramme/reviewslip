@@ -13,6 +13,8 @@ const rooms = require('./rooms');
 const bookings = require('./bookings');
 const bookingfilter = require('./bookingfilter');
 const setup = require('./setup');
+const listings = require('./listings');
+const connectors = require('./connectors');
 const rates = require('./rates');
 const guests = require('./guests');
 const secrets = require('./secrets');
@@ -1468,6 +1470,172 @@ router.post(
       if (!saved) return res.status(404).json({ error: 'No such review.' });
 
       res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Reviews already on the venue's listings — the other direction entirely.
+ *
+ * Everything above is about reviews this product helped write. These are the
+ * ones already out there, fetched back so an owner can see what is being said
+ * and whether anybody answered it. They live in their own table and never mix
+ * with review_events: one is what we did, the other is what the world did, and
+ * a screen that added them together would be lying about both.
+ */
+const MAX_IMPORT = 500;
+
+/** A window a person could plausibly have meant. */
+function windowDays(value) {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? Math.min(n, 365) : undefined;
+}
+
+router.get(
+  '/businesses/:slug/listing-reviews',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const resolved = subscribers.settingsFor(req.venue);
+      const found = await listings.recent({
+        subscriberId: req.venue.id,
+        days: windowDays(req.query.days),
+      });
+
+      // The connectors go with the list rather than on a settings page,
+      // because the question they answer is the one an owner asks *here*:
+      // "why is Tripadvisor not in this?" An empty list with no explanation
+      // beside it reads as a product that does not work.
+      res.json({ ...found, connectors: connectors.list(resolved) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Go and look now.
+ *
+ * Returns the list afterwards rather than a count, so the screen shows the
+ * result of the fetch instead of asking for it again and rendering whatever
+ * arrives second.
+ */
+router.post(
+  '/businesses/:slug/listing-reviews/fetch',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const resolved = subscribers.settingsFor(req.venue);
+      const days = windowDays(req.body?.days);
+
+      const run = await connectors.fetchAll({ settings: resolved, days });
+
+      const ran = [];
+      for (const result of run.results) {
+        if (!result.ran) {
+          ran.push({ id: result.id, stored: 0, added: 0, reason: result.reason });
+          continue;
+        }
+        const saved = await listings.store({
+          subscriberId: req.venue.id,
+          platform: result.platform,
+          rows: result.rows,
+        });
+        ran.push({ id: result.id, ...saved });
+      }
+
+      const found = await listings.recent({ subscriberId: req.venue.id, days });
+      res.json({ ...found, ran, connectors: connectors.list(resolved) });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Reviews handed over by somebody who has them.
+ *
+ * The path that works today, and the reason the rest of this was worth
+ * building before any API access exists: an export pasted in gets the same
+ * de-duplication, the same window and the same reply tracking a connector
+ * would give it, because all of that lives on this side of the fetch.
+ */
+router.post(
+  '/businesses/:slug/listing-reviews/import',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const { platform, rows } = req.body || {};
+
+      if (!PLATFORMS.some((p) => p.id === platform)) {
+        return res.status(400).json({ error: 'Pick a listing these came from.' });
+      }
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res.status(400).json({ error: 'There were no reviews in that.' });
+      }
+      if (rows.length > MAX_IMPORT) {
+        return res
+          .status(400)
+          .json({ error: `That is more than ${MAX_IMPORT} reviews at once.` });
+      }
+
+      const saved = await listings.store({
+        subscriberId: req.venue.id,
+        platform,
+        rows,
+      });
+
+      // Unusable rows are counted rather than refused: an export with three
+      // blank lines in it is not a failed import, and telling somebody their
+      // paste was rejected when 97 of its 100 rows were fine is wrong.
+      //
+      // The same shape as the GET, connectors and all. The screen replaces
+      // everything it holds with whatever a write hands back, so a response
+      // that is *nearly* the list is worse than one that is not: it renders
+      // once and then breaks on the field that was left out.
+      const found = await listings.recent({ subscriberId: req.venue.id });
+      res.json({
+        ...found,
+        connectors: connectors.list(subscribers.settingsFor(req.venue)),
+        imported: { ...saved, read: rows.length },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Whether this one has been answered.
+ *
+ * By hand, for a reply left somewhere this cannot see — which is every reply
+ * today. A fetch that later brings the real one back overwrites the text but
+ * cannot un-answer it; listings.js says why.
+ */
+router.post(
+  '/businesses/:slug/listing-reviews/:id/replied',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: 'No such review.' });
+      }
+
+      const saved = await listings.setReplied({
+        subscriberId: req.venue.id,
+        id,
+        replied: req.body?.replied !== false,
+        body: req.body?.body,
+      });
+
+      res.json({ review: saved });
     } catch (err) {
       next(err);
     }

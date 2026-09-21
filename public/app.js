@@ -1018,19 +1018,30 @@ async function copyReview() {
 /* ----------------------------------------------------------------- utils */
 
 /**
- * How many of the guest's tries are gone, on the button itself.
+ * What the button is about to do, and how many tries are left.
  *
- * On the button rather than in the notice, because the notice is where errors
- * and the copy confirmation go — a count that shares that line disappears the
- * moment anything else has something to say.
+ * "Generate" while the box is empty, "Regenerate" once there is something in
+ * it. The page opens with an empty box and a button that said Regenerate,
+ * which asks the guest to re-do something that has not happened yet — and on
+ * the one screen where the whole job is pressing that button.
+ *
+ * The count is on the button rather than in the notice, because the notice is
+ * where errors and the copy confirmation go: a count sharing that line
+ * disappears the moment anything else has something to say.
  */
 function renderCount() {
-  if (state.max === null || state.left === null) return;
+  const written = el.review.value.trim() !== '';
+  const verb = written ? 'regenerate' : 'generate';
+
+  if (state.max === null || state.left === null) {
+    el.regenerate.textContent = t(verb);
+    return;
+  }
 
   // Regenerations, both of them: the first draft arrives before the guest has
   // asked for anything, so counting it here would open the page on "1/10"
   // having spent nothing.
-  el.regenerate.textContent = t('regenerateCount', {
+  el.regenerate.textContent = t(`${verb}Count`, {
     used: state.max - state.left,
     max: state.max,
   });
@@ -1054,6 +1065,7 @@ function say(message, tone) {
 function clearReview() {
   el.review.value = '';
   el.review.style.height = 'auto';
+  renderCount();
 }
 
 function autosize() {
