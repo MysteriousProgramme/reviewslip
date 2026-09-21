@@ -129,7 +129,9 @@ function describeFont(font) {
     family: font.family,
     format: font.format,
     source: typeof font.source === 'string' ? font.source : '',
-    kb: Math.round((font.data.length * 3) / 4 / 1024),
+    // Bytes rather than kilobytes, because the dashboard rounds and a 366-byte
+    // SVG displayed as "0kB" reads as a file that never arrived.
+    bytes: Math.round((font.data.length * 3) / 4),
   };
 }
 
@@ -237,7 +239,11 @@ function describe(own) {
         ? {
             type: values.background.type,
             source: values.background.source ?? '',
-            kb: Math.round((values.background.dataUri.length * 3) / 4 / 1024),
+            bytes: Math.round((values.background.dataUri.length * 3) / 4),
+            // Where a stored photo came from is not recorded, and now that
+            // there are two ways in, guessing would be wrong for one of them.
+            // So it says neither: "saved" is the true thing known about it.
+            from: 'stored',
           }
         : null,
     },

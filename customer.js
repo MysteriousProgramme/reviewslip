@@ -1903,7 +1903,7 @@ router.post(
         const image = await assets.fetchImage(parsed.logoUrl);
         if (image.ok) {
           parsed.theme.logo = image.dataUri;
-          logoNote = `Found a logo (${Math.round(image.bytes / 1024)}kB ${image.type.replace('image/', '')}).`;
+          logoNote = `Found a logo (${assets.size(image.bytes)} ${image.type.replace('image/', '')}).`;
         } else {
           logoNote = `No logo: ${image.error}`;
         }
@@ -1927,7 +1927,7 @@ router.post(
             dataUri: photo.dataUri,
             source: parsed.backgroundUrl.slice(0, 300),
           };
-          backgroundNote = `Took a background photo (${Math.round(photo.bytes / 1024)}kB ${photo.type.replace('image/', '')}).`;
+          backgroundNote = `Took a background photo (${assets.size(photo.bytes)} ${photo.type.replace('image/', '')}).`;
         } else {
           backgroundNote = `No background: ${photo.error}`;
         }
@@ -1963,7 +1963,7 @@ router.post(
             source: found.url.slice(0, 300),
             data: file.data,
           };
-          fontNotes.push(`Took ${found.family} (${Math.round(file.bytes / 1024)}kB) for the ${slot}.`);
+          fontNotes.push(`Took ${found.family} (${assets.size(file.bytes)}) for the ${slot}.`);
         } else {
           fontNotes.push(`${found.family} could not be used: ${file.error}`);
         }
@@ -1981,6 +1981,15 @@ router.post(
         logoNote,
         background,
         backgroundNote,
+        // The addresses the reader settled on, whether or not the download
+        // worked. A note saying "no logo: that file is 4MB" is a dead end on
+        // its own; with the address beside it somebody can look at what was
+        // found, correct it, and try again — which is the difference between
+        // a failure they can act on and one they can only accept.
+        found: {
+          logoUrl: parsed.logoUrl ?? null,
+          backgroundUrl: parsed.backgroundUrl ?? null,
+        },
         // The scrim only exists when there is a photo behind it, so the preview
         // has to be derived with the same flag the served stylesheet will use.
         // Otherwise the dashboard would show the page without its wash.
@@ -1992,6 +2001,62 @@ router.post(
         },
         fontNotes,
         url: resolved.sourceUrl,
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * A logo or a background the customer points at themselves.
+ *
+ * The reader finds these on the page when they are findable, and often they
+ * are not: a logo that is a background-image in a stylesheet, a hero behind a
+ * slideshow, a site that will not be read at all. Until now that was the end
+ * of it — the draft said "no logo found" and there was nothing to do about it
+ * except accept a page without one.
+ *
+ * So: the same download, from an address somebody typed. It is worth saying
+ * what that does *not* open up, because the answer is nothing. assets.js
+ * refuses anything that is not https, resolves the host first and refuses
+ * private addresses, caps the bytes and checks the type — and it did all of
+ * that already, because the address the model returns is no more trustworthy
+ * than the one a customer types. A model that reads a page and repeats a URL
+ * off it is not a safer source of URLs than the person who owns the page.
+ *
+ * Fetched here and handed back as a data URI rather than stored, so what gets
+ * approved is the image itself. Saving is still Save.
+ */
+router.post(
+  '/businesses/:slug/theme/image',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const kind = req.body?.kind === 'background' ? 'background' : 'logo';
+      const raw = String(req.body?.url ?? '').trim();
+
+      if (!raw) {
+        return res.status(400).json({ error: 'Paste the address of an image.' });
+      }
+
+      const image = await assets.fetchImage(raw, {
+        maxBytes: kind === 'background' ? assets.MAX_BACKGROUND_BYTES : assets.MAX_BYTES,
+      });
+
+      // The reason, not a generic refusal. Every one of these is something the
+      // customer can do something about — a different file, a smaller one, a
+      // real address — and none of them are worth a support message.
+      if (!image.ok) return res.status(422).json({ error: image.error });
+
+      res.json({
+        kind,
+        type: image.type,
+        bytes: image.bytes,
+        dataUri: image.dataUri,
+        source: raw.slice(0, 300),
+        note: `Took a ${kind} (${assets.size(image.bytes)} ${image.type.replace('image/', '')}).`,
       });
     } catch (err) {
       next(err);

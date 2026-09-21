@@ -406,6 +406,18 @@ function isStoredFont(value) {
   );
 }
 
+/**
+ * A file size a person can read.
+ *
+ * Bytes below a kilobyte, because Math.round(500 / 1024) is 0 and "took a logo
+ * (0kB)" reads as a failure that reported success. Plenty of real logos are a
+ * few hundred bytes of SVG.
+ */
+function size(bytes) {
+  const n = Number(bytes) || 0;
+  return n < 1024 ? `${n}B` : `${Math.round(n / 1024)}kB`;
+}
+
 module.exports = {
   MAX_BYTES,
   MAX_BACKGROUND_BYTES,
@@ -419,6 +431,7 @@ module.exports = {
   parseUrl,
   fetchImage,
   fetchFont,
+  size,
   isStoredImage,
   isStoredFont,
 };
