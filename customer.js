@@ -1146,6 +1146,11 @@ router.patch(
         if (body[key] !== undefined) patch[key] = body[key];
       }
       if (body.groupId !== undefined) patch.groupId = Number(body.groupId);
+      // A dragged stay sends its room with its dates, so the two land in one
+      // transaction. Null unassigns; the room decides the type.
+      if (body.roomId !== undefined) {
+        patch.roomId = body.roomId === null ? null : Number(body.roomId);
+      }
 
       res.json({ booking: await bookings.update(patch) });
     } catch (err) {

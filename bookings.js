@@ -314,6 +314,36 @@ async function update(input) {
     let groupId = Number(pick('groupId', current.group_id));
     let roomId = current.room_id;
 
+    /*
+     * A room sent here comes from a drag, and a drag moves both axes at once.
+     *
+     * Doing it in this transaction is the whole point: the room and the nights
+     * are one change. Split across two calls — assign, then patch the dates —
+     * there is a moment where the stay is in the new room on the old nights,
+     * and if the second call fails it stays there. That is a booking holding a
+     * room it was never meant to, on a calendar that looks correct.
+     *
+     * The room decides the type, not the other way round. A stay dragged from
+     * a bungalow row to a suite row has plainly been moved to a suite; making
+     * the caller send the group as well would be asking it to restate
+     * something it already said.
+     */
+    if (input.roomId !== undefined) {
+      const wanted = input.roomId === null ? null : Number(input.roomId);
+      if (wanted === null) {
+        roomId = null;
+      } else {
+        const room = await client.query(
+          `SELECT id, group_id FROM rooms
+            WHERE id = $1 AND subscriber_id = $2 AND status = 'active'`,
+          [wanted, subscriberId]
+        );
+        if (!room.rows[0]) throw fail(404, 'No such room.');
+        roomId = room.rows[0].id;
+        groupId = room.rows[0].group_id;
+      }
+    }
+
     if (groupId !== current.group_id) {
       const group = await client.query(
         'SELECT id FROM room_groups WHERE id = $1 AND subscriber_id = $2',
@@ -321,7 +351,9 @@ async function update(input) {
       );
       if (!group.rows[0]) throw fail(404, 'No such room type.');
 
-      // The room cannot follow the booking into another type.
+      // The room cannot follow the booking into another type — unless the
+      // room is what moved it there, which the block above has already
+      // checked and which is how a drag across types arrives.
       const stillFits = roomId
         ? await client.query(
             'SELECT id FROM rooms WHERE id = $1 AND group_id = $2',
