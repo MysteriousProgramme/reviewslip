@@ -729,13 +729,13 @@ function applyStrings() {
   // "Copy" by a language change landing inside that window.
   if (!copyResetTimer) el.copy.textContent = t('copy');
 
-  // Regenerate carries a count once the server has sent one; renderCount owns
-  // that wording, so defer to it rather than writing the label twice.
-  if (state.max === null || state.left === null) {
-    el.regenerate.textContent = t('regenerate');
-  } else {
-    renderCount();
-  }
+  // renderCount owns this label completely — the verb as well as the count.
+  // This used to write "Regenerate" itself whenever no count had arrived yet,
+  // which is every page load: the button asked the guest to re-do something
+  // that had not happened, on the one screen where pressing it is the whole
+  // job. The count is genuinely absent until the first generation answers,
+  // and renderCount already handles that.
+  renderCount();
 
   // Drawn lists. Guarded because applyStrings runs once before any of them
   // exist, on a page that has not been told what the business offers yet.
@@ -1030,10 +1030,22 @@ async function copyReview() {
  * disappears the moment anything else has something to say.
  */
 function renderCount() {
-  const written = el.review.value.trim() !== '';
+  /*
+   * "Have we written one yet", and the honest answer to that is the count
+   * rather than what is in the box.
+   *
+   * The box was the first answer and it was wrong twice. generate() empties it
+   * before the request goes out, so a guest waiting for their second draft
+   * watched the button fall back to "Generate" and then jump forward two —
+   * and the count arrives from applyQuota, which deliberately runs before the
+   * text is written because a refusal carries a count too, so the label was
+   * being decided a step too early. A count exists only once a generation has
+   * answered, which is exactly the question being asked.
+   */
+  const written = state.max !== null && state.left !== null;
   const verb = written ? 'regenerate' : 'generate';
 
-  if (state.max === null || state.left === null) {
+  if (!written) {
     el.regenerate.textContent = t(verb);
     return;
   }
@@ -1061,11 +1073,16 @@ function say(message, tone) {
   else delete el.notice.dataset.tone;
 }
 
-/** The old review goes as soon as a new one is asked for, height included. */
+/**
+ * The old review goes as soon as a new one is asked for, height included.
+ *
+ * It does not touch the button. Emptying the box is the first step of a
+ * generation, not a return to never having made one, and the label says what
+ * the next press will do.
+ */
 function clearReview() {
   el.review.value = '';
   el.review.style.height = 'auto';
-  renderCount();
 }
 
 function autosize() {
