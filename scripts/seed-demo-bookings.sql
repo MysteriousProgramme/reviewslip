@@ -100,7 +100,9 @@ DECLARE
   v_len    integer;
   v_id     integer;
   v_status text;
+  v_holds  boolean;
   v_made   integer := 0;
+  v_past   integer := 0;
   i        integer;
 
   firsts text[] := ARRAY['Anna','Tom','Priya','Wei','Somchai','Maria','Jonas','Yuki',
@@ -117,11 +119,16 @@ BEGIN
   /*
    * One room at a time, walking forward.
    *
-   * Placing stays back to back down a single room is what keeps room_nights
-   * inside its UNIQUE (room_id, night) index without having to check for
-   * clashes: a room cannot overlap itself if the next stay starts after the
-   * last one ended. Scattering bookings at random and hoping would fail that
-   * index on a full calendar, which is exactly when you want to look at one.
+   * Placing stays back to back down a single room keeps the demo stays from
+   * overlapping each other: a room cannot clash with itself if the next stay
+   * starts after the last one ended.
+   *
+   * That says nothing about what is already in the room. This gets run on a
+   * venue that is already taking bookings at least as often as on an empty
+   * one, and room_nights has a UNIQUE (room_id, night) that a real guest may
+   * already be holding — so every span is checked before it is used, and the
+   * ones that are taken are stepped over. Assuming an empty calendar is what
+   * made this fail on the first venue it met that was not one.
    */
   FOR r IN
     SELECT id, group_id FROM rooms
@@ -141,6 +148,23 @@ BEGIN
         v_status := 'in_house';
       ELSE
         v_status := CASE WHEN random() < 0.06 THEN 'cancelled' ELSE 'confirmed' END;
+      END IF;
+
+      -- Only three statuses take inventory, so only those can clash.
+      v_holds := v_status IN ('confirmed', 'in_house', 'checked_out');
+
+      IF v_holds AND EXISTS (
+        SELECT 1 FROM room_nights n
+         WHERE n.room_id = r.id
+           AND n.night >= v_day
+           AND n.night <  v_day + v_len
+      ) THEN
+        -- Somebody real is in that room. Step past the span and carry on
+        -- rather than giving up on the room: a venue with one busy week would
+        -- otherwise end up with a demo calendar missing whole rooms.
+        v_past := v_past + 1;
+        v_day  := v_day + v_len + 1;
+        CONTINUE;
       END IF;
 
       INSERT INTO bookings
@@ -164,7 +188,7 @@ BEGIN
        * would both overstate occupancy and occupy an index slot that a real
        * stay is entitled to.
        */
-      IF v_status IN ('confirmed', 'in_house', 'checked_out') THEN
+      IF v_holds THEN
         INSERT INTO room_nights (subscriber_id, room_id, night, booking_id)
         SELECT v_sub, r.id, d::date, v_id
           FROM generate_series(v_day, v_day + (v_len - 1), interval '1 day') AS d;
@@ -198,6 +222,10 @@ BEGIN
   END LOOP;
 
   RAISE NOTICE 'wrote % bookings', v_made;
+  IF v_past > 0 THEN
+    RAISE NOTICE 'stepped over % span% already taken by real bookings',
+      v_past, CASE WHEN v_past = 1 THEN '' ELSE 's' END;
+  END IF;
 END $$;
 
 /* ----------------------------------------------------------------- checks */
