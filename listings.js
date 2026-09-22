@@ -53,18 +53,41 @@ function toRecord(row) {
  * a reply we already knew about, because the reply is the thing somebody
  * actually did. So the update takes the new value only when there is one.
  *
- * `from` drops anything older than the window that was asked for. A listing
- * page hands back its whole first page, which on an established venue is
- * mostly years old — and recent() cannot reach past a year however it is
- * asked, so storing those would grow a table that nothing can ever display.
- * Whoever wants an old one can still add it by hand, which is a deliberate
- * act rather than a side effect.
+ * `from` drops anything older than the window that was asked for — but only
+ * if it is new. A listing page hands back its whole first page, which on an
+ * established venue is mostly years old, and recent() cannot reach past a
+ * year however it is asked, so storing all of that would grow a table nothing
+ * can ever display. Whoever wants an old one adds it by hand, which is a
+ * deliberate act rather than a side effect.
+ *
+ * A review already held is updated whatever its age, and that is the whole
+ * point of fetching reply status rather than only asking people to tick a
+ * box. Somebody answers a review three weeks after it was written, the next
+ * fetch sees the reply on the page — and a window applied blindly would have
+ * dropped that review on the way past for being a day too old, so the reply
+ * it came to collect would never land.
  *
  * @returns {Promise<{read: number, stored: number, added: number}>}
  */
 async function store({ subscriberId, platform, rows, from = null }) {
   const found = inbound.batch(platform, rows);
-  const reviews = from ? found.filter((r) => inbound.within(r, from)) : found;
+  if (!found.length) return { read: 0, stored: 0, added: 0 };
+
+  let reviews = found;
+  if (from) {
+    const known = new Set(
+      (
+        await all(
+          `SELECT external_id FROM external_reviews
+            WHERE subscriber_id = $1 AND platform = $2 AND external_id = ANY($3)`,
+          [subscriberId, platform, found.map((r) => r.externalId)]
+        )
+      ).map((row) => row.external_id)
+    );
+    reviews = found.filter(
+      (r) => inbound.within(r, from) || known.has(r.externalId)
+    );
+  }
   if (!reviews.length) return { read: found.length, stored: 0, added: 0 };
 
   const before = await one(
