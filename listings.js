@@ -32,6 +32,8 @@ function toRecord(row) {
     rating: row.rating,
     body: row.body,
     postedAt: row.posted_at,
+    /** Whether that date is a real one or worked out from "3 weeks ago". */
+    approximate: row.approximate ?? false,
     repliedAt: row.replied_at,
     replyBody: row.reply_body,
     url: row.url,
@@ -51,11 +53,19 @@ function toRecord(row) {
  * a reply we already knew about, because the reply is the thing somebody
  * actually did. So the update takes the new value only when there is one.
  *
- * @returns {Promise<{stored: number, added: number}>}
+ * `from` drops anything older than the window that was asked for. A listing
+ * page hands back its whole first page, which on an established venue is
+ * mostly years old — and recent() cannot reach past a year however it is
+ * asked, so storing those would grow a table that nothing can ever display.
+ * Whoever wants an old one can still add it by hand, which is a deliberate
+ * act rather than a side effect.
+ *
+ * @returns {Promise<{read: number, stored: number, added: number}>}
  */
-async function store({ subscriberId, platform, rows }) {
-  const reviews = inbound.batch(platform, rows);
-  if (!reviews.length) return { stored: 0, added: 0 };
+async function store({ subscriberId, platform, rows, from = null }) {
+  const found = inbound.batch(platform, rows);
+  const reviews = from ? found.filter((r) => inbound.within(r, from)) : found;
+  if (!reviews.length) return { read: found.length, stored: 0, added: 0 };
 
   const before = await one(
     'SELECT count(*) AS n FROM external_reviews WHERE subscriber_id = $1',
@@ -66,13 +76,30 @@ async function store({ subscriberId, platform, rows }) {
     await query(
       `INSERT INTO external_reviews
          (subscriber_id, platform, external_id, author, rating, body,
-          posted_at, replied_at, reply_body, url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          posted_at, approximate, replied_at, reply_body, url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        ON CONFLICT (subscriber_id, platform, external_id) DO UPDATE SET
          author     = COALESCE(EXCLUDED.author, external_reviews.author),
          rating     = COALESCE(EXCLUDED.rating, external_reviews.rating),
          body       = COALESCE(EXCLUDED.body, external_reviews.body),
-         posted_at  = EXCLUDED.posted_at,
+         /*
+          * The first guess, or any real date.
+          *
+          * A page that says "3 weeks ago" today says "4 weeks ago" next week
+          * about the same review, so a stored date that follows the page
+          * slides backwards on every fetch until the review ages out of the
+          * window and vanishes from the screen on its own. The earliest
+          * estimate is also the closest one, so it is the one that is kept.
+          * A real date beats a guess whenever one turns up, which is what
+          * happens when an API finally answers for a review a page supplied
+          * first.
+          */
+         posted_at   = CASE
+                         WHEN external_reviews.approximate AND EXCLUDED.approximate
+                           THEN external_reviews.posted_at
+                         ELSE EXCLUDED.posted_at
+                       END,
+         approximate = external_reviews.approximate AND EXCLUDED.approximate,
          replied_at = COALESCE(EXCLUDED.replied_at, external_reviews.replied_at),
          reply_body = COALESCE(EXCLUDED.reply_body, external_reviews.reply_body),
          url        = COALESCE(EXCLUDED.url, external_reviews.url),
@@ -85,6 +112,7 @@ async function store({ subscriberId, platform, rows }) {
         r.rating,
         r.body,
         r.postedAt,
+        r.approximate ?? false,
         r.repliedAt,
         r.replyBody,
         r.url,
@@ -98,6 +126,7 @@ async function store({ subscriberId, platform, rows }) {
   );
 
   return {
+    read: found.length,
     stored: reviews.length,
     added: count(after?.n) - count(before?.n),
   };

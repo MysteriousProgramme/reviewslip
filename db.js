@@ -1000,6 +1000,28 @@ const MIGRATIONS = [
         WHERE replied_at IS NULL
     `);
   },
+
+  async (c) => {
+    /*
+     * Whether a review's date is a real one or a guess.
+     *
+     * A listing page does not print dates, it prints "3 weeks ago" — so a
+     * review read off one gets an estimate, and the estimate is only accurate
+     * on the first read. Every later read says a bigger number about the same
+     * review, and a stored date that follows it slides steadily backwards
+     * until the review drops out of the thirty-day window and disappears from
+     * the screen by itself.
+     *
+     * So the first estimate is kept and later ones are ignored, and this is
+     * the column that makes that decidable. A real date always wins over a
+     * guess, which is what happens when an API eventually supplies one for a
+     * review that was read off a page first.
+     */
+    await c.query(
+      `ALTER TABLE external_reviews
+         ADD COLUMN approximate boolean NOT NULL DEFAULT false`
+    );
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

@@ -1,6 +1,7 @@
 'use strict';
 
 const inbound = require('./inbound');
+const listingreader = require('./listingreader');
 
 /**
  * Where reviews are fetched from, and what is needed before each can be.
@@ -41,6 +42,83 @@ const CONNECTORS = [
     /** Always. It needs nothing but somebody with the reviews in front of them. */
     ready: () => ({ ok: true }),
     fetch: null,
+  },
+
+  {
+    id: 'reader',
+    platform: null,
+    label: 'Read the listing pages',
+    ready: (settings) => {
+      if (!settings?.apiKey) {
+        return { ok: false, missing: 'a writing key in Settings — the same one the reviews use' };
+      }
+      if (!listingreader.pages(settings).length) {
+        return { ok: false, missing: 'at least one listing link in Settings' };
+      }
+      return { ok: true };
+    },
+
+    /**
+     * Each linked listing in turn, read by the model that already reads the
+     * business's own website for its colours and its topics.
+     *
+     * One page at a time and one answer each: a page that will not load, or
+     * answers with a consent wall, costs that listing and not the others.
+     *
+     * What comes back is grouped by the listing each review is actually on,
+     * because a Google page shows Tripadvisor reviews alongside its own and
+     * filing those under Google would put a review on a listing it is not on.
+     */
+    fetch: async ({ venue, settings }) => {
+      /*
+       * Required here rather than at the top of the file, and that is not a
+       * style choice. reader.js reaches the database through tenant.js, and
+       * db.js throws on require without a DATABASE_URL — so a top-level
+       * require would make this module impossible to load in a unit test, and
+       * the whole point of splitting the rules out was that they can be.
+       * Nothing needs the reader until something actually fetches.
+       */
+      const { readWebsite } = require('./reader');
+      const out = [];
+
+      for (const page of listingreader.pages(settings)) {
+        const answer = await readWebsite(venue, settings, {
+          messages: listingreader.messages(page),
+          maxTokens: 8000,
+        });
+
+        if (!answer.ok) {
+          out.push({ platform: page.platform, rows: [], reason: answer.error });
+          continue;
+        }
+
+        const found = listingreader.parse(answer.content, { platform: page.platform });
+        if (!found) {
+          console.error(
+            `Listing read for ${page.platform} produced nothing usable:`,
+            String(answer.content).slice(0, 400)
+          );
+          out.push({
+            platform: page.platform,
+            rows: [],
+            reason: 'that page could not be read',
+          });
+          continue;
+        }
+
+        // An empty answer is a real answer: a listing with no reviews yet, or
+        // a page that showed a sign-in wall. Saying "0 found" is honest and
+        // saying "it failed" would not be.
+        for (const group of found.groups) {
+          out.push({ platform: group.platform, rows: group.rows, from: page.platform });
+        }
+        if (!found.groups.length) {
+          out.push({ platform: page.platform, rows: [], reason: 'no reviews on that page' });
+        }
+      }
+
+      return out;
+    },
   },
 
   {
@@ -128,7 +206,7 @@ function list(settings = {}) {
  * each did, because "nothing happened" and "nothing has changed" look the same
  * on a screen and are not the same thing.
  */
-async function fetchAll({ settings, days = inbound.WINDOW_DAYS }) {
+async function fetchAll({ venue, settings, days = inbound.WINDOW_DAYS }) {
   const from = inbound.since(days);
   const results = [];
 
@@ -142,8 +220,24 @@ async function fetchAll({ settings, days = inbound.WINDOW_DAYS }) {
     }
 
     try {
-      const rows = await c.fetch({ settings, from });
-      results.push({ id: c.id, platform: c.platform, ran: true, rows });
+      /*
+       * A connector answers with one entry per listing rather than one list,
+       * because the platform is half of a review's identity and the caller
+       * stores one platform at a time. A connector that reads a single source
+       * says so by returning a single entry.
+       */
+      const batches = await c.fetch({ venue, settings, from, days });
+
+      for (const batch of Array.isArray(batches) ? batches : []) {
+        results.push({
+          id: c.id,
+          platform: batch.platform ?? c.platform,
+          ran: !batch.reason,
+          rows: batch.rows ?? [],
+          reason: batch.reason ?? null,
+          from: batch.from ?? null,
+        });
+      }
     } catch (err) {
       console.error(`Could not fetch ${c.id} reviews:`, err.message);
       results.push({ id: c.id, ran: false, reason: 'the source could not be reached' });

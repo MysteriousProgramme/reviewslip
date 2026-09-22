@@ -38,6 +38,7 @@ const bookingfilter = require('../bookingfilter');
 const setup = require('../setup');
 const inbound = require('../inbound');
 const connectors = require('../connectors');
+const listingreader = require('../listingreader');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -2295,6 +2296,160 @@ test('a connector says what it is waiting for', () => {
 
   // Paste needs nothing, which is what makes the feature usable today.
   assert.equal(none.find((c) => c.id === 'paste').ready, true);
+});
+
+
+/* ------------------------------------------- reading them off a listing page */
+
+/**
+ * A listing page does not print dates. It prints "3 weeks ago", and next week
+ * the same review says "4 weeks ago" — so a date worked out from it moves, and
+ * anything keyed on that date treats one review as a new one every week.
+ *
+ * This is the whole reason the reader was worth building carefully rather than
+ * quickly: an importer that duplicates its own history is worse than no
+ * importer, because somebody has to go and clean it up.
+ */
+
+test('how long ago, from the words a page uses', () => {
+  assert.equal(inbound.agoDays('3 weeks'), 21);
+  assert.equal(inbound.agoDays('a week ago'), 7);
+  assert.equal(inbound.agoDays('one month'), 30);
+  assert.equal(inbound.agoDays('2 years ago'), 730);
+  assert.equal(inbound.agoDays('4 days'), 4);
+  assert.equal(inbound.agoDays(11), 11);
+
+  // Thai, because that is what this venue's reviews are in.
+  assert.equal(inbound.agoDays('3 สัปดาห์ที่แล้ว'), 21);
+  assert.equal(inbound.agoDays('2 เดือนที่แล้ว'), 60);
+  assert.equal(inbound.agoDays('6 ปีที่แล้ว'), 2190);
+
+  // Anything inside a day is today, not null: "an hour ago" is a real answer.
+  assert.equal(inbound.agoDays('an hour ago'), 0);
+
+  assert.equal(inbound.agoDays('lovely'), null);
+  assert.equal(inbound.agoDays(''), null);
+  assert.equal(inbound.agoDays(-3), null);
+});
+
+test('the same review read a week later is the same review', () => {
+  const page = {
+    author: 'Anna L',
+    rating: 5,
+    ago: '3 weeks',
+    body: 'Lovely garden, and the breakfast fruit is all local.',
+  };
+
+  const now = inbound.normalise('google', page);
+  // A week passes. The page now says four weeks, so the date it resolves to
+  // has moved by seven days — which is exactly the trap.
+  const later = inbound.normalise('google', { ...page, ago: '4 weeks' });
+
+  assert.notEqual(now.postedAt, later.postedAt, 'the dates should differ');
+  assert.equal(now.externalId, later.externalId, 'but it is the same review');
+});
+
+test('a guessed date is marked as one', () => {
+  const guessed = inbound.normalise('google', { author: 'A', body: 'x', ago: '3 weeks' });
+  assert.equal(guessed.approximate, true);
+
+  const known = inbound.normalise('google', {
+    author: 'A',
+    body: 'x',
+    postedAt: '2026-09-01T08:00:00Z',
+  });
+  assert.equal(known.approximate, false);
+});
+
+test('a real date still beats a guess, and still identifies the review', () => {
+  // When the API arrives its reviews land in the same table beside these. Two
+  // reviews that differ only in the day must stay two reviews.
+  const a = inbound.normalise('google', { author: 'A', body: 'Same words.', postedAt: '2026-09-01' });
+  const b = inbound.normalise('google', { author: 'A', body: 'Same words.', postedAt: '2026-07-04' });
+  assert.notEqual(a.externalId, b.externalId);
+});
+
+test('a page with nothing on it reads as nothing, not as a failure', () => {
+  // A consent wall or a sign-in page. Returning null here would be reported as
+  // "could not be read", which sends somebody to check a link that is fine.
+  const empty = listingreader.parse('{"reviews": []}', { platform: 'google' });
+  assert.deepEqual(empty, { groups: [], read: 0, truncated: 0 });
+
+  // Whereas nothing usable at all is a failure, and says so.
+  assert.equal(listingreader.parse('I could not open that page.', { platform: 'google' }), null);
+  assert.equal(listingreader.parse('', { platform: 'google' }), null);
+});
+
+test('reviews are filed under the site they are actually on', () => {
+  // A Google listing shows Tripadvisor reviews alongside its own and labels
+  // them. Filing those under Google would put a review on a listing it is not
+  // on, and an owner going to answer it would not find it.
+  const found = listingreader.parse(
+    JSON.stringify({
+      reviews: [
+        { author: 'Anna', rating: 5, ago: '3 weeks', source: 'google', body: 'Lovely.' },
+        { author: 'Ummares', rating: 5, ago: '6 years', source: 'tripadvisor', body: 'Been three times.' },
+        // No label: it belongs to whoever's page this is.
+        { author: 'Kit', rating: 4, ago: '1 month', body: 'Good value.' },
+        // A label nobody recognises is this page's platform rather than a
+        // dropped review — losing one is worse than filing it here.
+        { author: 'Mel', rating: 3, ago: '2 days', source: 'yelp!!', body: 'Fine.' },
+      ],
+    }),
+    { platform: 'google' }
+  );
+
+  assert.equal(found.read, 4);
+  const google = found.groups.find((g) => g.platform === 'google');
+  const trip = found.groups.find((g) => g.platform === 'tripadvisor');
+  assert.equal(google.rows.length, 3);
+  assert.equal(trip.rows.length, 1);
+  assert.equal(trip.rows[0].author, 'Ummares');
+});
+
+test('a cut-off review is counted, and what is visible is kept', () => {
+  const found = listingreader.parse(
+    JSON.stringify({
+      reviews: [{ author: 'Yenjit', rating: 5, ago: '4 weeks', body: 'Been here many times', truncated: true }],
+    }),
+    { platform: 'google' }
+  );
+  assert.equal(found.truncated, 1);
+  assert.equal(found.groups[0].rows[0].body, 'Been here many times');
+});
+
+test('JSON in a fence, which is how models return it half the time', () => {
+  const found = listingreader.parse(
+    '```json\n{"reviews": [{"author": "A", "rating": 5, "ago": "1 day", "body": "Good."}]}\n```',
+    { platform: 'google' }
+  );
+  assert.equal(found.read, 1);
+});
+
+test('the pages to read are the listings the venue has linked', () => {
+  assert.deepEqual(listingreader.pages({}), []);
+  assert.deepEqual(
+    listingreader.pages({ googleUrl: 'https://g.page/x ', tripadvisorUrl: '' }),
+    [{ platform: 'google', url: 'https://g.page/x' }]
+  );
+});
+
+test('the reader says what it is waiting for, and can be ready', () => {
+  const none = connectors.list({});
+  const reader = none.find((c) => c.id === 'reader');
+  assert.equal(reader.ready, false);
+  assert.match(reader.missing, /writing key/);
+
+  assert.match(
+    connectors.list({ apiKey: 'sk-x' }).find((c) => c.id === 'reader').missing,
+    /listing link/
+  );
+
+  // With both, it is the one connector on the list that can actually run.
+  const set = connectors.list({ apiKey: 'sk-x', googleUrl: 'https://g.page/x' });
+  const live = set.find((c) => c.id === 'reader');
+  assert.equal(live.ready, true);
+  assert.equal(live.automatic, true);
 });
 
 

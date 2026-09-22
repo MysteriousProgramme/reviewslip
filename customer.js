@@ -1487,6 +1487,9 @@ router.post(
  */
 const MAX_IMPORT = 500;
 
+/** Platform ids to the names people call them. */
+const LABELS = new Map(PLATFORMS.map((p) => [p.id, p.label]));
+
 /** A window a person could plausibly have meant. */
 function windowDays(value) {
   const n = Number(value);
@@ -1532,20 +1535,50 @@ router.post(
       const resolved = subscribers.settingsFor(req.venue);
       const days = windowDays(req.body?.days);
 
-      const run = await connectors.fetchAll({ settings: resolved, days });
+      const run = await connectors.fetchAll({
+        venue: req.venue,
+        settings: resolved,
+        days,
+      });
 
+      /*
+       * One line per listing rather than per connector, because that is the
+       * unit somebody reads: "Google 14, 2 new; Tripadvisor could not be
+       * read" is four facts they can act on, and a single "fetched" is none.
+       */
       const ran = [];
       for (const result of run.results) {
+        const listing = result.platform ?? result.id;
+
         if (!result.ran) {
-          ran.push({ id: result.id, stored: 0, added: 0, reason: result.reason });
+          ran.push({
+            id: result.id,
+            platform: result.platform ?? null,
+            label: LABELS.get(listing) ?? listing,
+            stored: 0,
+            added: 0,
+            reason: result.reason,
+          });
           continue;
         }
+
         const saved = await listings.store({
           subscriberId: req.venue.id,
           platform: result.platform,
           rows: result.rows,
+          // A listing page returns its whole first page regardless of what was
+          // asked for, so the window is applied here rather than hoped for.
+          from: run.from,
         });
-        ran.push({ id: result.id, ...saved });
+        ran.push({
+          id: result.id,
+          platform: result.platform,
+          label: LABELS.get(listing) ?? listing,
+          ...saved,
+          // Which page it was read off, when that is not the listing it is on:
+          // a Tripadvisor review found on the Google page came from Google.
+          via: result.from && result.from !== result.platform ? result.from : null,
+        });
       }
 
       const found = await listings.recent({ subscriberId: req.venue.id, days });
