@@ -1,6 +1,7 @@
 'use strict';
 
 const inbound = require('./inbound');
+const sitefacts = require('./sitefacts');
 const { PLATFORMS } = require('./platforms');
 
 /**
@@ -17,10 +18,9 @@ const { PLATFORMS } = require('./platforms');
  * whoever maintains this next will want to know why it is shaped this way.
  *
  * Automated reading of a listing page is against Google's terms of service.
- * The fetch is OpenRouter's — the same web_fetch server tool the theme reader
- * uses — so there is no crawler here and nothing that looks like one from this
- * side, but that is a description of the mechanism, not an exemption. It runs
- * only when somebody presses a button for their own listing.
+ * It runs only when somebody presses a button for their own listing, and it
+ * fetches that one page once. That is a description of the scale, not an
+ * exemption.
  *
  * And a listing page is a worse source than an API in ways that are not about
  * volume. It prints "3 weeks ago" instead of a date, it truncates long reviews
@@ -33,6 +33,17 @@ const { PLATFORMS } = require('./platforms');
  * When an API does arrive, its reviews carry real ids and real timestamps, and
  * they will land in the same table beside these — which is what the two-layer
  * identity in inbound.js was built for.
+ *
+ * One thing this cannot do, and it is worth writing down because it looks
+ * like a bug and is not. Google Maps renders its reviews with JavaScript
+ * after the page loads. Fetch that page over HTTP — by any means, ours or a
+ * model's web tool — and you get two hundred kilobytes of HTML with the
+ * business name in it and not one review. Tested on every surface Google
+ * offers for it: /maps/place, ?cid=, output=embed and a plain search page.
+ * All 200, all empty. So a Google Maps link cannot be read this way at all,
+ * and the honest thing is to say so before spending anybody's tokens on a
+ * call that cannot succeed. A page whose reviews *are* in its HTML reads
+ * fine, which is most listing sites that are not Google.
  */
 
 const LABELS = new Map(PLATFORMS.map((p) => [p.id, p.label]));
@@ -87,18 +98,108 @@ Output only the JSON object. Nothing before it, nothing after it.`;
 
 /**
  * @param {object} args
- * @param {string} args.url - the listing page
+ * @param {string} args.url - the listing page, for context only
  * @param {string} args.platform - whose page it is, for reviews with no label
+ * @param {string} args.text - the page, already fetched
  */
-function messages({ url, platform }) {
+function messages({ url, platform, text }) {
   const label = LABELS.get(platform) ?? platform;
   return [
     { role: 'system', content: system() },
     {
       role: 'user',
-      content: `Read ${url} and return the reviews on it. This is the business's ${label} listing, so a review with no other site named on it is a ${platform} review. Fetch the page before answering — do not answer from what you know about this business.`,
+      content:
+        `Below is the text of ${url}, the business's ${label} listing. Return the reviews in it. ` +
+        `A review with no other site named on it is a ${platform} review. ` +
+        `Everything you return must be in the text below — do not add anything you know about this business from elsewhere, and if there are no reviews in it say so with an empty list.\n\n` +
+        `--- page ---\n${text}`,
     },
   ];
+}
+
+/** Tags out, entities in, whitespace collapsed. */
+function visibleText(html) {
+  return String(html || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Does this text plausibly contain reviews at all?
+ *
+ * Asked before the model is, because the answer is usually no for a reason no
+ * model can fix, and finding that out costs a fetch instead of a completion.
+ *
+ * The test is deliberately loose. It is not trying to count reviews — it is
+ * separating "a page with reviews on it" from "a shell that will fill itself
+ * in once a browser runs its JavaScript", and those two are not close. A
+ * Google Maps page has the business name, a hundred script tags and nothing
+ * a person would read.
+ */
+const REVIEW_WORDS =
+  /\b(review|reviews|rated|rating|stars?|guest|stayed|verified)\b|รีวิว|ความเห็น|评论|レビュー|리뷰/i;
+
+/** How few words means the page never really arrived. */
+const MIN_WORDS = 120;
+
+/**
+ * @returns {{ok: true}|{ok: false, error: string}} and the two failures are
+ *   worth telling apart, because one is the site's design and the other is
+ *   just an empty listing. "Could not be read" covered both and helped with
+ *   neither.
+ */
+function looksLikeReviews(text) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
+
+  if (words < MIN_WORDS) {
+    return {
+      ok: false,
+      error:
+        'that page builds itself in the browser, so almost nothing is in the page that was sent and there is nothing to read',
+    };
+  }
+
+  if (!REVIEW_WORDS.test(text)) {
+    return { ok: false, error: 'there are no reviews on that page' };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * The page, as text, fetched by us rather than by the model.
+ *
+ * Ours for three reasons. It works with any model, including one whose
+ * provider has no web tool or will not use it. It costs one request instead
+ * of a completion when the page turns out to be unreadable. And it goes
+ * through the same refusals as every other fetch in the app — https only, the
+ * host resolved and private addresses refused, redirects followed by hand,
+ * bytes capped.
+ *
+ * @returns {Promise<{ok: true, text: string}|{ok: false, error: string}>}
+ */
+async function readPage(url) {
+  const page = await sitefacts.fetchText(url, { maxBytes: 1_500_000 });
+  if (!page.ok) return page;
+
+  const text = visibleText(page.text);
+
+  const usable = looksLikeReviews(text);
+  if (!usable.ok) return { ok: false, error: usable.error, empty: true };
+
+  // Trimmed, because a listing page is mostly navigation and the reviews are
+  // in it once. Generous enough to hold a first page of them.
+  return { ok: true, text: text.slice(0, 60_000) };
 }
 
 /** The first JSON object in whatever came back. */
@@ -175,4 +276,13 @@ function pages(settings = {}) {
     .map((p) => ({ ...p, url: p.url.trim() }));
 }
 
-module.exports = { MAX_REVIEWS, messages, parse, pages, extractJson };
+module.exports = {
+  MAX_REVIEWS,
+  messages,
+  parse,
+  pages,
+  extractJson,
+  readPage,
+  visibleText,
+  looksLikeReviews,
+};

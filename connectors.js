@@ -81,10 +81,33 @@ const CONNECTORS = [
       const { readWebsite } = require('./reader');
       const out = [];
 
+
       for (const page of listingreader.pages(settings)) {
+        /*
+         * The page first, and by us.
+         *
+         * It used to be the model's job, through OpenRouter's web tool, and
+         * that failed in a way nobody could diagnose from the screen: a
+         * Google Maps link comes back as two hundred kilobytes of HTML with
+         * no reviews in it, because Maps builds them in the browser. The
+         * model was being asked to find something that was not there, and
+         * whatever it said was wrong. Reading it here means the page can be
+         * checked before a completion is paid for, and the answer when it is
+         * unreadable is a sentence rather than a shrug.
+         */
+        const fetched = await listingreader.readPage(page.url);
+        if (!fetched.ok) {
+          out.push({ platform: page.platform, rows: [], reason: fetched.error });
+          continue;
+        }
+
         const answer = await readWebsite(venue, settings, {
-          messages: listingreader.messages(page),
+          messages: listingreader.messages({ ...page, text: fetched.text }),
           maxTokens: 8000,
+          // The page is already in the prompt. Asking for the web tool as
+          // well would rule out every model that does not take tools, for a
+          // capability this call has stopped using.
+          fetchPage: false,
         });
 
         if (!answer.ok) {

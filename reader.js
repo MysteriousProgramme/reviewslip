@@ -18,7 +18,11 @@ const { publicUrl } = require('./tenant');
  *
  * @returns {{ok: true, content: string}|{ok: false, status: number, error: string}}
  */
-async function readWebsite(subscriber, { apiKey, model }, { messages, maxTokens }) {
+async function readWebsite(
+  subscriber,
+  { apiKey, model },
+  { messages, maxTokens, fetchPage = true }
+) {
   try {
     const upstream = await fetch(openrouter.CHAT, {
       method: 'POST',
@@ -26,9 +30,16 @@ async function readWebsite(subscriber, { apiKey, model }, { messages, maxTokens 
       body: JSON.stringify({
         model,
         messages,
-        // Server-side tool: OpenRouter fetches the page and hands the text to
-        // the model, so there is no tool-call loop to run here.
-        tools: [{ type: 'openrouter:web_fetch' }],
+        /*
+         * Server-side tool: OpenRouter fetches the page and hands the text to
+         * the model, so there is no tool-call loop to run here.
+         *
+         * Optional, because not every model will take a tool and a caller
+         * that has already fetched the page does not need one. Attaching it
+         * regardless was a way to fail on a model that does not support
+         * tools, for a capability that call was not using.
+         */
+        ...(fetchPage ? { tools: [{ type: 'openrouter:web_fetch' }] } : {}),
         max_tokens: maxTokens,
       }),
       signal: AbortSignal.timeout(90_000),

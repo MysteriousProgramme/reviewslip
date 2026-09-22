@@ -2381,6 +2381,48 @@ test('a page with nothing on it reads as nothing, not as a failure', () => {
   assert.equal(listingreader.parse('', { platform: 'google' }), null);
 });
 
+test('a page that arrives empty is told apart from one with no reviews', () => {
+  /*
+   * The failure that started this: a Google Maps link came back as 216kB of
+   * HTML holding two words of readable text — "Google Maps" — because Maps
+   * builds its reviews in the browser after the page loads. No fetch can see
+   * them, so no model can read them, and the model was being blamed.
+   *
+   * These are two different problems with two different answers, and saying
+   * "could not be read" about both helped with neither.
+   */
+  const shell = 'Google Maps';
+  assert.equal(listingreader.looksLikeReviews(shell).ok, false);
+  assert.match(listingreader.looksLikeReviews(shell).error, /builds itself in the browser/);
+
+  // A real page with plenty on it and no reviews anywhere — a hotel's own
+  // home page, which is a different sentence entirely.
+  const brochure =
+    'Peaceful garden resort in San Kamphaeng rooms chalets pool restaurant contact us book direct directions gallery about the owners history '.repeat(
+      10
+    );
+  const verdict = listingreader.looksLikeReviews(brochure);
+  assert.equal(verdict.ok, false);
+  assert.match(verdict.error, /no reviews on that page/);
+
+  // And a page that does carry them passes.
+  const withReviews = brochure + ' Reviews: Anna L rated 5 stars 3 weeks ago, lovely garden.';
+  assert.equal(listingreader.looksLikeReviews(withReviews).ok, true);
+});
+
+test('the readable part of a page is the part a person would read', () => {
+  const html =
+    '<html><head><style>.a{color:#fff}</style><script>var x="Yenjit wrote this"</script></head>' +
+    '<body><nav>Home</nav><p>Anna&nbsp;L &amp; friends &mdash; 5 stars</p></body></html>';
+  const text = listingreader.visibleText(html);
+
+  assert.match(text, /Anna L & friends/);
+  // Script contents are not page text, and a review "found" inside one is a
+  // variable name.
+  assert.ok(!/Yenjit/.test(text), 'script contents leaked into the page text');
+  assert.ok(!/color:#fff/.test(text), 'stylesheet contents leaked into the page text');
+});
+
 test('reviews are filed under the site they are actually on', () => {
   // A Google listing shows Tripadvisor reviews alongside its own and labels
   // them. Filing those under Google would put a review on a listing it is not
