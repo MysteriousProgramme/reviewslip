@@ -36,6 +36,7 @@ const context = require('./context');
 const { buildSystemPrompt } = require('./config');
 const assets = require('./assets');
 const settingsRules = require('./settings');
+const sitefacts = require('./sitefacts');
 const { PLATFORMS } = require('./platforms');
 
 /**
@@ -1904,11 +1905,25 @@ router.post(
       const resolved = readable(req.venue, res);
       if (!resolved) return;
 
+      /*
+       * Read the site ourselves first.
+       *
+       * Never fatal: a host that is slow or unreachable leaves the model doing
+       * what it did before, which is worse but not nothing. Somebody should
+       * not be unable to theme their page because their web host had a bad
+       * afternoon.
+       */
+      const facts = await sitefacts.gather(resolved.sourceUrl).catch((err) => {
+        console.error('Could not read the site for theme evidence:', err.message);
+        return { brief: '', colours: [], logos: [], backgrounds: [], note: '' };
+      });
+
       const answer = await readWebsite(req.venue, resolved, {
         messages: buildThemeMessages({
           url: resolved.sourceUrl,
           displayFonts: theme.DISPLAY_FONTS,
           uiFonts: theme.UI_FONTS,
+          brief: facts.brief,
         }),
         maxTokens: 1200,
       });
@@ -1931,17 +1946,46 @@ router.post(
       // front of the customer is the image itself and not a promise of one. A
       // failure is reported and the rest of the draft still stands: a palette
       // and a pair of typefaces are worth having without a mark.
-      let logoNote = '';
-      if (parsed.logoUrl) {
-        const image = await assets.fetchImage(parsed.logoUrl);
+      /*
+       * What we found, when the model named nothing.
+       *
+       * It is reading a page for a mark it has to recognise as one; we have a
+       * shortlist from the markup — the apple touch icon, an image the page
+       * itself calls a logo. Neither is reliable alone and they fail
+       * differently, so the model's answer is tried first and ours is what
+       * stands behind it rather than an argument with it.
+       */
+      if (!parsed.logoUrl && facts.logos?.length) {
+        parsed.logoUrl = facts.logos[0].url;
+        parsed.sources.logo = facts.logos[0].why;
+      }
+      if (!parsed.backgroundUrl && facts.backgrounds?.length) {
+        parsed.backgroundUrl = facts.backgrounds[0].url;
+        parsed.sources.background = facts.backgrounds[0].why;
+      }
+
+      /*
+       * Each candidate in turn until one downloads.
+       *
+       * The first choice fails for ordinary reasons — a file that is 4MB, an
+       * address that 404s, a type we will not serve — and a second candidate
+       * costs one request. Giving up after one was leaving people with "no
+       * logo" while a perfectly good one sat second on the list.
+       */
+      const logoTries = [parsed.logoUrl, ...(facts.logos ?? []).map((l) => l.url)]
+        .filter(Boolean)
+        .filter((url, i, all) => all.indexOf(url) === i)
+        .slice(0, 3);
+
+      let logoNote = logoTries.length ? '' : 'No logo found on that page.';
+      for (const url of logoTries) {
+        const image = await assets.fetchImage(url);
         if (image.ok) {
           parsed.theme.logo = image.dataUri;
           logoNote = `Found a logo (${assets.size(image.bytes)} ${image.type.replace('image/', '')}).`;
-        } else {
-          logoNote = `No logo: ${image.error}`;
+          break;
         }
-      } else {
-        logoNote = 'No logo found on that page.';
+        logoNote = `No logo: ${image.error}`;
       }
 
       // The hero photograph, same treatment: downloaded here so that what the
@@ -1950,20 +1994,25 @@ router.post(
       let background = null;
       let backgroundNote = 'No background photo found on that page.';
 
-      if (parsed.backgroundUrl) {
-        const photo = await assets.fetchImage(parsed.backgroundUrl, {
+      const photoTries = [parsed.backgroundUrl, ...(facts.backgrounds ?? []).map((b) => b.url)]
+        .filter(Boolean)
+        .filter((url, i, all) => all.indexOf(url) === i)
+        .slice(0, 3);
+
+      for (const url of photoTries) {
+        const photo = await assets.fetchImage(url, {
           maxBytes: assets.MAX_BACKGROUND_BYTES,
         });
         if (photo.ok) {
           background = {
             type: photo.type,
             dataUri: photo.dataUri,
-            source: parsed.backgroundUrl.slice(0, 300),
+            source: url.slice(0, 300),
           };
           backgroundNote = `Took a background photo (${assets.size(photo.bytes)} ${photo.type.replace('image/', '')}).`;
-        } else {
-          backgroundNote = `No background: ${photo.error}`;
+          break;
         }
+        backgroundNote = `No background: ${photo.error}`;
       }
 
       // Checked here rather than left to Save. A palette that cannot be stored
@@ -2023,6 +2072,10 @@ router.post(
           logoUrl: parsed.logoUrl ?? null,
           backgroundUrl: parsed.backgroundUrl ?? null,
         },
+        // What was read off the site rather than decided by the model, so the
+        // screen can say which colours were measured.
+        measured: (facts.named ?? []).map((c) => ({ hex: c.hex, roles: c.roles })),
+        readNote: facts.note || null,
         // The scrim only exists when there is a photo behind it, so the preview
         // has to be derived with the same flag the served stylesheet will use.
         // Otherwise the dashboard would show the page without its wash.

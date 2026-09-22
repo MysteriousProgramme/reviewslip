@@ -422,12 +422,29 @@ Output only the JSON object. Nothing before it, nothing after it.`;
  * @param {object[]} args.displayFonts - the allowlist, from theme.js
  * @param {object[]} args.uiFonts - likewise
  */
-function buildThemeMessages({ url, displayFonts, uiFonts }) {
+function buildThemeMessages({ url, displayFonts, uiFonts, brief = '' }) {
+  /*
+   * The page, and what we already went and read off it.
+   *
+   * Telling a model to "read the stylesheet" does not work, and it took a real
+   * customer's site to see why: web_fetch returns the page, not the four files
+   * the page links, and that page carried 175 hex codes of which four were
+   * ever drawn. So the colours are extracted here and handed over named —
+   * see sitecolours.js — and the model is left with the part it is good at,
+   * which is deciding which of four real colours belongs in which slot.
+   *
+   * When that extraction found nothing, the old instruction is still the best
+   * available and stays.
+   */
+  const evidence = brief
+    ? `\n\nWhat we have already read out of this site's own stylesheets:\n\n${brief}\n\nUse this. It was measured rather than guessed, and it beats anything you infer from how the page looks described in text. Fetch the page as well, for the typefaces and for a sense of the place — but do not overrule a colour above with one you thought you saw.`
+    : `\n\nRead the stylesheet and the inline styles as well as the visible text: that is where the colours, the font-family stacks and the logo's real address are.`;
+
   return [
     { role: 'system', content: themeSystem({ displayFonts, uiFonts }) },
     {
       role: 'user',
-      content: `Read ${url} and choose the look. Fetch the page before answering — do not guess from the business name or the domain. Read the stylesheet and the inline styles as well as the visible text: that is where the colours, the font-family stacks and the logo's real address are. Prefer something you can point at over something that merely feels right.`,
+      content: `Read ${url} and choose the look. Fetch the page before answering — do not guess from the business name or the domain. Prefer something you can point at over something that merely feels right.${evidence}`,
     },
   ];
 }

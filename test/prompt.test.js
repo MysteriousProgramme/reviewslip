@@ -39,6 +39,7 @@ const setup = require('../setup');
 const inbound = require('../inbound');
 const connectors = require('../connectors');
 const listingreader = require('../listingreader');
+const sitecolours = require('../sitecolours');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -2450,6 +2451,165 @@ test('the reader says what it is waiting for, and can be ready', () => {
   const live = set.find((c) => c.id === 'reader');
   assert.equal(live.ready, true);
   assert.equal(live.automatic, true);
+});
+
+
+/* --------------------------------------- the colours a site actually uses */
+
+/**
+ * The fixtures are cut down from a real customer's front page, because the
+ * shape of the problem is not obvious until you see one: 175 hex codes, of
+ * which four are ever drawn, and the four are not the frequent ones.
+ *
+ * WordPress writes its stock palette into every page it serves. Bootstrap
+ * declares its defaults hundreds of times. The site's own four colours are
+ * set once each, in named variables, by somebody sitting in a theme
+ * customiser — which makes the variables the answer and the frequency a trap.
+ */
+
+const WORDPRESS_NOISE = `
+:root {
+  --wp--preset--color--black: #000000;
+  --wp--preset--color--white: #ffffff;
+  --wp--preset--color--vivid-red: #cf2e2e;
+  --wp--preset--color--luminous-vivid-orange: #ff6900;
+  --wp--preset--color--pale-pink: #f78da7;
+  --wp--preset--color--vivid-cyan-blue: #0693e3;
+  --wp--preset--gradient--vivid-cyan-blue-to-vivid-purple: linear-gradient(135deg,#0693e3,#9b51e0);
+  --wp-admin-theme-color: #007cba;
+  --wp-block-synced-color: #7a00df;
+}`;
+
+/** Beaver Builder's shape: the owner's own choices, named. */
+const THEME_PALETTE = `
+:root {
+  --wp--preset--color--fl-body-bg: #f2f2f2;
+  --wp--preset--color--fl-body-text: #757575;
+  --wp--preset--color--fl-heading-text: #333333;
+  --wp--preset--color--fl-accent: #2b7bb9;
+  --wp--preset--color--fl-topbar-bg: #fff;
+}`;
+
+/** A vendor bundle, declaring its defaults over and over. */
+const BOOTSTRAP = Array.from({ length: 25 }, (_, i) =>
+  `.btn-primary:nth-child(${i + 1}) { background-color: #337ab7; border-color: #2e6da4; }`
+).join('\n');
+
+test('the stock WordPress palette is not mistaken for a brand', () => {
+  const found = sitecolours.palette(WORDPRESS_NOISE);
+  assert.deepEqual(found.named, []);
+  assert.deepEqual(found.all, []);
+});
+
+test("a theme's own named colours are read, and read as what they are", () => {
+  const found = sitecolours.palette(WORDPRESS_NOISE + THEME_PALETTE + BOOTSTRAP);
+  const hexes = found.named.map((c) => c.hex);
+
+  assert.ok(hexes.includes('#f2f2f2'));
+  assert.ok(hexes.includes('#2b7bb9'));
+  assert.ok(hexes.includes('#757575'));
+
+  const ground = found.named.find((c) => c.hex === '#f2f2f2');
+  assert.ok(ground.roles.includes('ground'));
+  const accent = found.named.find((c) => c.hex === '#2b7bb9');
+  assert.ok(accent.roles.includes('highlight'));
+});
+
+test('white survives, although WordPress also declares it as a preset', () => {
+  // The stock list is matched by name, not by value. A blanket ban on the
+  // twelve preset colours would take white and black with it, and white is
+  // the header colour of half the sites there are.
+  const found = sitecolours.palette(WORDPRESS_NOISE + THEME_PALETTE);
+  assert.ok(found.named.some((c) => c.hex === '#ffffff'));
+});
+
+test("a vendor's defaults do not outvote the site's own choice", () => {
+  // Bootstrap's button blue is declared 25 times here; the site's accent once.
+  // Counting uses would pick the wrong blue, and the two are close enough
+  // that nobody would notice until they looked at the page.
+  const found = sitecolours.palette(WORDPRESS_NOISE + THEME_PALETTE + BOOTSTRAP);
+  const hexes = found.all.map((c) => c.hex);
+  assert.ok(hexes.includes('#2b7bb9'), 'the real accent should be there');
+  assert.ok(!hexes.includes('#337ab7'), "Bootstrap's default should not be offered beside it");
+});
+
+test('a site that names nothing still gets read, from its rules', () => {
+  // No custom properties at all, which is most of the web that is not
+  // WordPress. The selector is the only evidence, so it has to be used.
+  const plain = `
+    body { background: #1b2a23; color: #e8e4d9; }
+    .site-header { background-color: #12201a; }
+    a.btn-book { background: #c9a227; color: #1b2a23; }
+  `;
+  const found = sitecolours.palette(plain);
+  assert.deepEqual(found.named, []);
+
+  const hexes = found.all.map((c) => c.hex);
+  assert.ok(hexes.includes('#1b2a23'));
+  assert.ok(hexes.includes('#c9a227'));
+
+  const ground = found.all.find((c) => c.hex === '#1b2a23');
+  assert.ok(ground.roles.includes('ground'), 'body background is the ground');
+  const cta = found.all.find((c) => c.hex === '#c9a227');
+  assert.ok(cta.roles.includes('highlight'), 'a book button is the highlight');
+});
+
+test('colours are read however they are written', () => {
+  assert.equal(sitecolours.toHex('#ABC'), '#aabbcc');
+  assert.equal(sitecolours.toHex('#2B7BB9'), '#2b7bb9');
+  assert.equal(sitecolours.toHex('rgb(43, 123, 185)'), '#2b7bb9');
+  assert.equal(sitecolours.toHex('rgba(43,123,185,0.9)'), '#2b7bb9');
+
+  // A colour that is nearly transparent was never really drawn, and taking
+  // one as a brand colour produces a palette nobody recognises.
+  assert.equal(sitecolours.toHex('rgba(0,0,0,0.04)'), null);
+  assert.equal(sitecolours.toHex('transparent'), null);
+  assert.equal(sitecolours.toHex('currentColor'), null);
+});
+
+test('the furniture is not offered as a photograph of the hotel', () => {
+  // Slider arrows, a loading spinner and an icon sheet were four of the five
+  // background candidates on the real site. Offering those as the hero image
+  // of a hotel is worse than offering none, because somebody has to notice.
+  const html = `
+    <link rel="apple-touch-icon" href="/wp-content/themes/x/icon.png">
+    <meta property="og:image" content="https://h.test/wp-content/uploads/2024/garden.jpg">
+    <img src="/wp-content/uploads/2024/Lodge-logo.png" alt="Baanpong Lodge logo">
+    <div style="background-image:url(/wp-content/plugins/bb-plugin/img/bxslider/bx_loader.gif)"></div>
+    <div style="background-image:url(/wp-content/plugins/bb-plugin/img/slideshow/controls.png)"></div>
+    <img src="/wp-content/uploads/2024/pool.jpg" alt="The pool">
+  `;
+  const found = sitecolours.images(html, 'https://h.test');
+
+  assert.ok(found.logos.some((l) => /Lodge-logo/.test(l.url)));
+  assert.ok(
+    found.backgrounds.every((b) => !/bx_loader|controls\.png/.test(b.url)),
+    'plugin furniture was offered as a photograph'
+  );
+  // What the site itself nominates for a link preview goes first.
+  assert.match(found.backgrounds[0].url, /garden\.jpg/);
+});
+
+test('an address that cannot be made absolute and safe is dropped', () => {
+  const found = sitecolours.images(
+    `<img src="logo.png" alt="logo"><img src="http://insecure.test/photo.jpg">`,
+    'https://h.test/about/'
+  );
+  assert.equal(found.logos[0].url, 'https://h.test/about/logo.png');
+  // http, on a page served over https, for an image we would then serve from
+  // our own domain with the customer's name on it.
+  assert.ok(found.backgrounds.every((b) => !/insecure/.test(b.url)));
+});
+
+test('the brief reads as evidence rather than as a list of numbers', () => {
+  const found = sitecolours.palette(WORDPRESS_NOISE + THEME_PALETTE);
+  const text = sitecolours.brief({ colours: found.all, logos: [], backgrounds: [] });
+
+  assert.match(text, /#2b7bb9/);
+  assert.match(text, /the highlight/);
+  assert.match(text, /theme customiser/);
+  // The point of the whole module: the model is told these were measured.
+  assert.ok(!/most used first/.test(text), 'frequency is not the argument');
 });
 
 
