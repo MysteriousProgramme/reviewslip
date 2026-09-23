@@ -1022,6 +1022,22 @@ const MIGRATIONS = [
          ADD COLUMN approximate boolean NOT NULL DEFAULT false`
     );
   },
+
+  async (c) => {
+    /*
+     * The PIN a housekeeping shift opens the board with.
+     *
+     * Hashed, although it is four digits and shared: a database dump should
+     * not hand somebody the room list of every venue on the platform at once.
+     * Null means the board is switched off for this venue, which is the state
+     * every venue starts in — an unprotected screen nobody asked for is worse
+     * than no screen.
+     */
+    await c.query('ALTER TABLE subscribers ADD COLUMN housekeeping_pin text');
+    await c.query(
+      'ALTER TABLE subscribers ADD COLUMN housekeeping_pin_at timestamptz'
+    );
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

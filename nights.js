@@ -340,8 +340,32 @@ function monthWindow(value) {
   return { start, days, nights: window(start, days) };
 }
 
+/**
+ * Today where the property is, not where the server is.
+ *
+ * A date worked out from UTC is still yesterday's until seven in the morning
+ * in Bangkok — which is exactly when somebody opens a screen and asks what is
+ * happening today. The dashboard has worked this out on the client since it
+ * has a browser to ask; the housekeeping board is opened on a phone that may
+ * be set to anywhere, so the server has to be the one that knows.
+ *
+ * @param {string} timeZone - an IANA zone; a nonsense one falls back rather
+ *   than throwing, because a bad setting should not take a screen down.
+ */
+function todayAt(timeZone = 'Asia/Bangkok') {
+  const parts = { year: 'numeric', month: '2-digit', day: '2-digit' };
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone, ...parts }).format(new Date());
+  } catch {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', ...parts }).format(
+      new Date()
+    );
+  }
+}
+
 module.exports = {
   MAX_NIGHTS,
+  todayAt,
   monthStart,
   daysInMonth,
   addMonths,

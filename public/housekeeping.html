@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Housekeeping</title>
+<link rel="stylesheet" href="/theme.css">
+<link rel="stylesheet" href="/housekeeping.css">
+</head>
+<body>
+<!--
+  The housekeeping board.
+
+  Opened on a phone, in a corridor, by somebody who has one hand free. That is
+  the whole design brief and it decides everything below: targets big enough to
+  hit without looking, one tap to mark a room done, and no guest's name, email
+  or telephone number anywhere on it — the PIN is shared by a shift and ends up
+  written down, so the screen is built as though it is public.
+-->
+<main class="hk" id="app">
+  <section class="hk-gate" id="gate" hidden>
+    <h1 id="gate-venue">Housekeeping</h1>
+    <p class="hk-lede">Enter today's PIN.</p>
+    <form id="pin-form" autocomplete="off">
+      <input
+        id="pin"
+        class="hk-pin"
+        type="text"
+        inputmode="numeric"
+        pattern="[0-9]*"
+        autocomplete="one-time-code"
+        maxlength="8"
+        aria-label="PIN"
+        placeholder="••••">
+      <button type="submit" class="hk-go" id="pin-go">Start</button>
+    </form>
+    <p class="hk-note" id="gate-note" role="status"></p>
+  </section>
+
+  <section class="hk-board" id="board" hidden>
+    <header class="hk-head">
+      <div>
+        <h1 id="venue">Housekeeping</h1>
+        <p class="hk-date" id="date"></p>
+      </div>
+      <button type="button" class="hk-quiet" id="refresh" aria-label="Refresh">↻</button>
+    </header>
+
+    <p class="hk-counts" id="counts"></p>
+    <p class="hk-note" id="note" role="status"></p>
+
+    <ul class="hk-list" id="list"></ul>
+
+    <p class="hk-foot">
+      Rooms you mark clean show up at the front desk straight away.
+      <button type="button" class="hk-link" id="out">Finish shift</button>
+    </p>
+  </section>
+</main>
+
+<script src="/housekeeping.js"></script>
+</body>
+</html>

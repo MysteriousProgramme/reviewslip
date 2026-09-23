@@ -30,6 +30,12 @@ const openrouter = require('./openrouter');
 const { readWebsite, openrouterHeaders } = require('./reader');
 const { PLATFORMS } = require('./platforms');
 const setup = require('./setup');
+const bookings = require('./bookings');
+const rooms = require('./rooms');
+const accounts = require('./accounts');
+const nights = require('./nights');
+const housekeeping = require('./housekeeping');
+const shift = require('./shift');
 const adminRouter = require('./admin');
 const customerRouter = require('./customer');
 const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
@@ -95,6 +101,24 @@ app.get('/', resolveTenant, (req, res, next) => {
   const usable = req.subscriber && req.subscriber.status === 'active';
   if (usable) return next();
 
+  res.status(404).sendFile(path.join(__dirname, 'public', '404.html'), (err) => {
+    if (err) next(err);
+  });
+});
+
+/**
+ * The housekeeping board.
+ *
+ * On the venue's own address rather than the dashboard's, because it is opened
+ * on a phone by somebody who is not a dashboard user and never will be. Before
+ * express.static for the same reason `/` is: the file must not be reachable at
+ * a venue that has not switched the board on.
+ */
+app.get('/housekeeping', resolveTenant, (req, res, next) => {
+  const usable = req.subscriber && req.subscriber.status === 'active';
+  if (usable) {
+    return res.sendFile(path.join(__dirname, 'public', 'housekeeping.html'), next);
+  }
   res.status(404).sendFile(path.join(__dirname, 'public', '404.html'), (err) => {
     if (err) next(err);
   });
@@ -283,6 +307,164 @@ function throttled(key) {
   entry.count += 1;
   return entry.count > MAX_PER_WINDOW;
 }
+
+/* ------------------------------------------------------ housekeeping board */
+
+/*
+ * A PIN is four digits, so the only thing standing between it and a guess is
+ * how fast somebody can try. The guest throttle above allows thirty a minute,
+ * which would walk a four-digit PIN in under six hours; this one is separate
+ * and far tighter, keyed per venue and address so one venue cannot lock out
+ * another.
+ *
+ * In memory, and a restart forgives everyone — the same trade quota.js makes,
+ * and for the same reason: the alternative is a table, and an hour of lockout
+ * is worth less than the thing it would cost to get wrong.
+ */
+const PIN_TRIES = 8;
+const PIN_WINDOW_MS = 10 * 60_000;
+const pinHits = new Map();
+
+function pinThrottled(key) {
+  const now = Date.now();
+  const entry = pinHits.get(key);
+
+  if (!entry || now > entry.resetAt) {
+    pinHits.set(key, { count: 1, resetAt: now + PIN_WINDOW_MS });
+    if (pinHits.size > 5000) pinHits.clear();
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > PIN_TRIES;
+}
+
+/** The shift's token, from the header the board sends it on. */
+function shiftOf(req) {
+  const header = String(req.get('authorization') || '');
+  return header.startsWith('Shift ') ? header.slice(6).trim() : '';
+}
+
+/**
+ * Whoever is on today, if their token is still good.
+ *
+ * Every failure is the same shape as a signed-out one from outside: the board
+ * shows a PIN box again, which is the only thing anybody can do about any of
+ * them.
+ */
+function requireShift(req, res, next) {
+  if (!req.subscriber || req.subscriber.status !== 'active') {
+    return res.status(404).json({ error: 'No such venue.' });
+  }
+
+  const pinHash = req.subscriber.housekeeping_pin;
+  if (!pinHash) {
+    return res.status(403).json({ error: 'The housekeeping board is switched off.' });
+  }
+
+  const opened = shift.open(shiftOf(req), {
+    pinHash,
+    subscriberId: req.subscriber.id,
+  });
+  if (!opened.ok) {
+    return res.status(401).json({ error: opened.error, signedOut: true });
+  }
+
+  next();
+}
+
+/** The PIN in, a shift out. */
+app.post('/api/housekeeping/shift', requireTenant, async (req, res, next) => {
+  try {
+    const pinHash = req.subscriber.housekeeping_pin;
+    if (!pinHash) {
+      return res.status(403).json({ error: 'The housekeeping board is switched off.' });
+    }
+
+    if (pinThrottled(`hk:${req.subscriber.slug}:${req.ip}`)) {
+      return res.status(429).json({
+        error: 'Too many tries. Wait ten minutes, or ask for the PIN again.',
+      });
+    }
+
+    const pin = String(req.body?.pin ?? '').trim();
+    const ok = pin ? await accounts.verifyPassword(pin, pinHash) : false;
+    if (!ok) return res.status(401).json({ error: 'That PIN is not right.' });
+
+    const token = shift.issue({ subscriberId: req.subscriber.id, pinHash });
+    if (!token) {
+      console.error('SECRET_KEY is not usable, so no shift can be signed.');
+      return res.status(500).json({ error: 'The board is not set up. Tell the owner.' });
+    }
+
+    res.json({ token, venue: req.subscriber.name, hours: shift.HOURS });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** What needs doing, for one day. */
+app.get(
+  '/api/housekeeping/board',
+  requireTenant,
+  requireShift,
+  async (req, res, next) => {
+    try {
+      const date =
+        nights.parse(String(req.query.date || '')) ||
+        nights.todayAt(req.subscriber.timezone || 'Asia/Bangkok');
+
+      const day = await bookings.onDate({ subscriberId: req.subscriber.id, date });
+
+      res.json({
+        venue: req.subscriber.name,
+        ...housekeeping.board({
+          date,
+          rooms: day.rooms,
+          // onDate returns whole bookings; the board takes only what it needs
+          // and never sees a name, an email or a phone number.
+          bookings: day.arrivals
+            .concat(day.departures, day.inHouse)
+            .map((b) => ({
+              roomId: b.roomId,
+              status: b.status,
+              arrival: b.arrival,
+              departure: b.departure,
+              adults: b.adults,
+              children: b.children,
+            })),
+        }),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Mark one room clean, or put it back. */
+app.post(
+  '/api/housekeeping/rooms/:id',
+  requireTenant,
+  requireShift,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      const state = housekeeping.usableState(req.body?.state);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such room.' });
+      }
+      if (!state) return res.status(400).json({ error: 'Clean or dirty.' });
+
+      const room = await rooms.setHousekeeping({
+        subscriberId: req.subscriber.id,
+        id,
+        state,
+      });
+      res.json({ room: { id: room.id, name: room.name, housekeeping: room.housekeeping } });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 /* ------------------------------------------------------------ guest routes */
 

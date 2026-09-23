@@ -483,7 +483,28 @@ async function importLegacyFile(slug = 'venue', name = 'Venue') {
   return create({ slug, name, ...values });
 }
 
+/**
+ * The housekeeping board's PIN, hashed, or null to switch the board off.
+ *
+ * Its own function rather than a field on the settings patch: it is a
+ * credential, it is written from one place, and putting it through the same
+ * path as colours and links would eventually get it echoed back in a describe.
+ */
+async function setHousekeepingPin({ id, hash }) {
+  const row = await one(
+    `UPDATE subscribers
+        SET housekeeping_pin = $2,
+            housekeeping_pin_at = CASE WHEN $2 IS NULL THEN NULL ELSE now() END,
+            updated_at = now()
+      WHERE id = $1
+      RETURNING housekeeping_pin_at`,
+    [id, hash]
+  );
+  return { changedAt: row?.housekeeping_pin_at ?? null };
+}
+
 module.exports = {
+  setHousekeepingPin,
   SLUG_RE,
   RESERVED,
   checkSlug,

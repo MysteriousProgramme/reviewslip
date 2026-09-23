@@ -40,6 +40,8 @@ const inbound = require('../inbound');
 const connectors = require('../connectors');
 const listingreader = require('../listingreader');
 const sitecolours = require('../sitecolours');
+const housekeeping = require('../housekeeping');
+const shift = require('../shift');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -2652,6 +2654,266 @@ test('the brief reads as evidence rather than as a list of numbers', () => {
   assert.match(text, /theme customiser/);
   // The point of the whole module: the model is told these were measured.
   assert.ok(!/most used first/.test(text), 'frequency is not the argument');
+});
+
+
+/* ------------------------------------------------------ the housekeeping board */
+
+/**
+ * The board's only real job is the order. A list of rooms is a list of rooms;
+ * what makes it worth opening is that the room a guest walks into at two
+ * o'clock is at the top of it at nine.
+ */
+
+const DAY = '2026-09-23';
+const ROOMS = [
+  { id: 1, name: 'G01', groupName: 'Garden', status: 'active', housekeeping: 'dirty' },
+  { id: 2, name: 'G02', groupName: 'Garden', status: 'active', housekeeping: 'dirty' },
+  { id: 3, name: 'G03', groupName: 'Garden', status: 'active', housekeeping: 'clean' },
+  { id: 4, name: 'G04', groupName: 'Garden', status: 'active', housekeeping: 'dirty' },
+  { id: 5, name: 'G05', groupName: 'Garden', status: 'active', housekeeping: 'clean' },
+];
+
+function stay(roomId, arrival, departure, extra = {}) {
+  return { roomId, arrival, departure, status: 'confirmed', adults: 2, children: 0, ...extra };
+}
+
+test('the room a guest walks into today comes first', () => {
+  const { jobs } = housekeeping.board({
+    date: DAY,
+    rooms: ROOMS,
+    bookings: [
+      // G02: somebody still in, leaving tomorrow.
+      stay(2, '2026-09-20', '2026-09-25'),
+      // G04: arriving today into a dirty room.
+      stay(4, DAY, '2026-09-26'),
+      // G01: out this morning, in this afternoon. The one with a deadline.
+      stay(1, '2026-09-20', DAY, { status: 'checked_out' }),
+      stay(1, DAY, '2026-09-27'),
+      // G03: somebody left today, nobody following.
+      stay(3, '2026-09-19', DAY, { status: 'checked_out' }),
+    ],
+  });
+
+  assert.deepEqual(
+    jobs.map((j) => `${j.room}:${j.kind}`),
+    ['G01:turnaround', 'G04:arrival', 'G03:departure', 'G02:stayover', 'G05:free']
+  );
+});
+
+test('a dirty room outranks a clean one doing the same job', () => {
+  const { jobs } = housekeeping.board({
+    date: DAY,
+    rooms: [
+      { id: 1, name: 'A', groupName: 'X', status: 'active', housekeeping: 'clean' },
+      { id: 2, name: 'B', groupName: 'X', status: 'active', housekeeping: 'dirty' },
+    ],
+    bookings: [stay(1, DAY, '2026-09-25'), stay(2, DAY, '2026-09-25')],
+  });
+  assert.deepEqual(jobs.map((j) => j.room), ['B', 'A']);
+});
+
+test('the number being chased is rooms a guest is coming into today', () => {
+  const { counts } = housekeeping.board({
+    date: DAY,
+    rooms: ROOMS,
+    bookings: [
+      stay(1, '2026-09-20', DAY, { status: 'checked_out' }),
+      stay(1, DAY, '2026-09-27'),      // turnaround, dirty  -> due
+      stay(4, DAY, '2026-09-26'),      // arrival, dirty     -> due
+      stay(2, '2026-09-20', '2026-09-25'), // stayover, dirty -> not due
+    ],
+  });
+
+  // G01 and G04. G02 is dirty and nobody is coming into it today, so it is
+  // work but not a deadline — counting it here would cry wolf every morning.
+  assert.equal(counts.due, 2);
+  assert.equal(counts.dirty, 3);
+  assert.equal(counts.turnarounds, 1);
+  assert.equal(counts.rooms, 5);
+});
+
+test('ready means a guest could walk in, which is not the same as clean', () => {
+  const { jobs } = housekeeping.board({
+    date: DAY,
+    rooms: [
+      { id: 1, name: 'A', groupName: 'X', status: 'active', housekeeping: 'clean' },
+      { id: 2, name: 'B', groupName: 'X', status: 'active', housekeeping: 'clean' },
+    ],
+    // B is clean on the system and this morning's guest is still checking out
+    // of it, so it is not a room anybody can be put into yet.
+    bookings: [stay(2, '2026-09-20', DAY, { status: 'checked_out' })],
+  });
+
+  assert.equal(jobs.find((j) => j.room === 'A').ready, true);
+  assert.equal(jobs.find((j) => j.room === 'B').ready, false);
+});
+
+test('a room out of service is not on the list at all', () => {
+  const { jobs, counts } = housekeeping.board({
+    date: DAY,
+    rooms: [
+      { id: 1, name: 'A', groupName: 'X', status: 'active', housekeeping: 'dirty' },
+      { id: 2, name: 'B', groupName: 'X', status: 'out_of_service', housekeeping: 'dirty' },
+    ],
+    bookings: [],
+  });
+  // Leaving it on only invites somebody to tick off a room being refurbished.
+  assert.deepEqual(jobs.map((j) => j.room), ['A']);
+  assert.equal(counts.rooms, 1);
+});
+
+test('a cancelled booking is not somebody to clean up after', () => {
+  const { jobs } = housekeeping.board({
+    date: DAY,
+    rooms: [{ id: 1, name: 'A', groupName: 'X', status: 'active', housekeeping: 'clean' }],
+    bookings: [stay(1, DAY, '2026-09-25', { status: 'cancelled' })],
+  });
+  assert.equal(jobs[0].kind, 'free');
+});
+
+test('the board carries headcount and no other thing about a guest', () => {
+  const { jobs } = housekeeping.board({
+    date: DAY,
+    rooms: [{ id: 1, name: 'A', groupName: 'X', status: 'active', housekeeping: 'dirty' }],
+    bookings: [
+      stay(1, DAY, '2026-09-25', {
+        adults: 2,
+        children: 2,
+        guestName: 'Anna Lindqvist',
+        guestEmail: 'anna@example.test',
+        guestPhone: '+66 000 000',
+        notes: 'allergic to feathers',
+      }),
+    ],
+  });
+
+  // Four people means an extra bed and more towels, which changes the work.
+  assert.equal(jobs[0].guests, 4);
+
+  /*
+   * And nothing else. The PIN is shared by a shift and ends up written on a
+   * whiteboard, so what this screen can show is what a stranger holding that
+   * PIN can read. A name adds nothing to stripping a bed.
+   */
+  const printed = JSON.stringify(jobs);
+  for (const leak of ['Anna', 'Lindqvist', 'example.test', '+66', 'feathers']) {
+    assert.ok(!printed.includes(leak), `${leak} reached the housekeeping board`);
+  }
+});
+
+test('an unassigned booking cleans nothing', () => {
+  // A booking with no room yet has no room to make up, and attributing it to
+  // one would send somebody to the wrong door.
+  const { jobs } = housekeeping.board({
+    date: DAY,
+    rooms: [{ id: 1, name: 'A', groupName: 'X', status: 'active', housekeeping: 'clean' }],
+    bookings: [stay(null, DAY, '2026-09-25')],
+  });
+  assert.equal(jobs[0].kind, 'free');
+});
+
+test('only clean or dirty is a state a room can be put into', () => {
+  assert.equal(housekeeping.usableState('clean'), 'clean');
+  assert.equal(housekeeping.usableState(' DIRTY '), 'dirty');
+  assert.equal(housekeeping.usableState('spotless'), null);
+  assert.equal(housekeeping.usableState(''), null);
+  assert.equal(housekeeping.usableState(undefined), null);
+});
+
+
+/* ------------------------------------------------------------ a shift's token */
+
+const SECRET = 'a'.repeat(64);
+
+function withSecret(run) {
+  const had = process.env.SECRET_KEY;
+  process.env.SECRET_KEY = SECRET;
+  try {
+    return run();
+  } finally {
+    if (had === undefined) delete process.env.SECRET_KEY;
+    else process.env.SECRET_KEY = had;
+  }
+}
+
+test('a shift opens for the venue it was issued to, and no other', () => {
+  withSecret(() => {
+    const token = shift.issue({ subscriberId: 7, pinHash: 'scrypt$aa$bb' });
+    assert.ok(token);
+
+    assert.equal(shift.open(token, { pinHash: 'scrypt$aa$bb', subscriberId: 7 }).ok, true);
+
+    // The same signed token pointed at somebody else's venue. This is the one
+    // that matters: every venue's board is on its own subdomain and a token is
+    // a string somebody could carry between them.
+    const elsewhere = shift.open(token, { pinHash: 'scrypt$aa$bb', subscriberId: 8 });
+    assert.equal(elsewhere.ok, false);
+    assert.equal(elsewhere.error, 'wrong venue');
+  });
+});
+
+test('changing the PIN ends every shift opened with the old one', () => {
+  withSecret(() => {
+    const token = shift.issue({ subscriberId: 7, pinHash: 'old' });
+    assert.equal(shift.open(token, { pinHash: 'old', subscriberId: 7 }).ok, true);
+    // Which is the revocation a manager reaches for after somebody leaves.
+    assert.equal(shift.open(token, { pinHash: 'new', subscriberId: 7 }).ok, false);
+  });
+});
+
+test('a shift ends, and says that rather than looking forged', () => {
+  withSecret(() => {
+    const issued = Date.now() - (shift.HOURS + 1) * 3_600_000;
+    const token = shift.issue({ subscriberId: 7, pinHash: 'p', now: issued });
+    const verdict = shift.open(token, { pinHash: 'p', subscriberId: 7 });
+    assert.equal(verdict.ok, false);
+    assert.equal(verdict.error, 'shift ended');
+  });
+});
+
+test('a tampered token is refused', () => {
+  withSecret(() => {
+    const token = shift.issue({ subscriberId: 7, pinHash: 'p' });
+    const [body, mac] = token.split('.');
+
+    // A body that says a different venue, with the signature left alone.
+    const forged = Buffer.from(
+      JSON.stringify({ v: 1, s: 8, x: Date.now() + 3_600_000 })
+    ).toString('base64url');
+    assert.equal(shift.open(`${forged}.${mac}`, { pinHash: 'p', subscriberId: 8 }).ok, false);
+
+    assert.equal(shift.open(`${body}.`, { pinHash: 'p', subscriberId: 7 }).ok, false);
+    assert.equal(shift.open('', { pinHash: 'p', subscriberId: 7 }).ok, false);
+    assert.equal(shift.open('rubbish', { pinHash: 'p', subscriberId: 7 }).ok, false);
+  });
+});
+
+test('without a usable SECRET_KEY nothing is signed and nothing opens', () => {
+  const had = process.env.SECRET_KEY;
+  delete process.env.SECRET_KEY;
+  try {
+    // Null rather than a token signed with a constant. A signing key that is
+    // the same on every deployment is worse than none, because it looks like
+    // it works.
+    assert.equal(shift.issue({ subscriberId: 1, pinHash: 'p' }), null);
+    assert.equal(shift.open('x.y', { pinHash: 'p', subscriberId: 1 }).ok, false);
+  } finally {
+    if (had !== undefined) process.env.SECRET_KEY = had;
+  }
+});
+
+test('a PIN somebody would actually guess is refused', () => {
+  assert.equal(shift.checkPin('4821'), null);
+  assert.equal(shift.checkPin('90210'), null);
+
+  assert.match(shift.checkPin('1111'), /repeated digit/);
+  assert.match(shift.checkPin('1234'), /in order/);
+  assert.match(shift.checkPin('4321'), /in order/);
+  assert.match(shift.checkPin('12'), /at least/);
+  assert.match(shift.checkPin('123456789'), /at most/);
+  assert.match(shift.checkPin('12a4'), /digits only/);
+  assert.match(shift.checkPin(''), /digits only/);
 });
 
 

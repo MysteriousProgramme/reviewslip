@@ -1,0 +1,243 @@
+/*
+ * The housekeeping board.
+ *
+ * Built on the venue's own palette, which /theme.css already serves — the same
+ * variables the guest page uses, so a property that has set its colours gets a
+ * board that matches without anybody configuring a second theme.
+ *
+ * Everything here assumes a phone held in one hand, in a corridor, by somebody
+ * whose other hand is full. Targets are large, the list is one column at every
+ * width, and the only thing that changes on a bigger screen is that the rows
+ * stop stretching.
+ */
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--shade, #0c1f19);
+  color: var(--ink, #f3ecdc);
+  font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Below the notch on a phone, and clear of the home indicator. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+  -webkit-text-size-adjust: 100%;
+}
+
+.hk {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 1rem 1rem 3rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* ------------------------------------------------------------------- gate */
+
+.hk-gate {
+  padding-top: 18vh;
+  text-align: center;
+}
+
+.hk-lede {
+  margin: 0.4rem 0 1.6rem;
+  color: var(--ink-soft, #b9b2a2);
+  font-size: 0.95rem;
+}
+
+/*
+ * Big, centred and spaced out. It is typed with a thumb, often wet, and the
+ * usual form-control size is a guess-and-check exercise at that point.
+ */
+.hk-pin {
+  display: block;
+  width: 100%;
+  max-width: 11rem;
+  margin: 0 auto 1rem;
+  padding: 0.7rem 0.5rem;
+  font: inherit;
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.4em;
+  /* The letter-spacing pushes the text right; this pulls it back to centre. */
+  text-indent: 0.4em;
+  text-align: center;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--jade-line, rgba(130, 180, 155, 0.24));
+  border-radius: 12px;
+}
+
+.hk-pin:focus-visible {
+  outline: 2px solid var(--marigold, #e9a03b);
+  outline-offset: 2px;
+}
+
+.hk-go,
+.hk-mark {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border: 0;
+  border-radius: 999px;
+  background: var(--marigold, #e9a03b);
+  color: var(--on-marigold, #24180a);
+  /* 48px, which is the smallest a thumb reliably hits. */
+  min-height: 3rem;
+  padding: 0 1.4rem;
+}
+
+.hk-go { width: 100%; max-width: 11rem; }
+.hk-go[disabled] { opacity: 0.6; }
+
+/* ------------------------------------------------------------------ board */
+
+.hk-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 0.6rem;
+}
+
+.hk-date {
+  margin: 0.15rem 0 0;
+  color: var(--ink-soft, #b9b2a2);
+  font-size: 0.9rem;
+}
+
+.hk-quiet {
+  font: inherit;
+  font-size: 1.3rem;
+  line-height: 1;
+  min-width: 3rem;
+  min-height: 3rem;
+  cursor: pointer;
+  border-radius: 999px;
+  border: 1px solid var(--jade-line, rgba(130, 180, 155, 0.24));
+  background: transparent;
+  color: inherit;
+}
+
+.hk-counts {
+  margin: 0 0 0.9rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft, #b9b2a2);
+}
+
+/* The one number worth interrupting somebody for. */
+.hk-counts.due {
+  color: var(--marigold, #e9a03b);
+  font-weight: 600;
+}
+
+.hk-note {
+  margin: 0 0 0.9rem;
+  min-height: 1.2rem;
+  font-size: 0.85rem;
+  color: var(--warn, #e9a03b);
+}
+
+.hk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.hk-job {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  /*
+   * The stripe carries the urgency, so it survives a phone in sunlight where
+   * a background tint would not. Colour is never the only signal — the label
+   * beside it says the same thing in words.
+   */
+  border-left: 4px solid transparent;
+}
+
+.hk-job.turnaround { border-left-color: var(--marigold, #e9a03b); }
+.hk-job.arrival { border-left-color: var(--jade, #82b49b); }
+.hk-job.departure { border-left-color: var(--jade-dim, rgba(130, 180, 155, 0.5)); }
+.hk-job.stayover,
+.hk-job.free { border-left-color: transparent; }
+
+/* Done recedes. It is still there to be undone, and no longer competing. */
+.hk-job.done {
+  opacity: 0.55;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.hk-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.5rem;
+  min-width: 0;
+}
+
+.hk-room {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.hk-what {
+  font-size: 0.85rem;
+  color: var(--ink-soft, #b9b2a2);
+}
+
+.hk-guests {
+  font-size: 0.75rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--jade-tint, rgba(130, 180, 155, 0.12));
+  color: var(--ink, #f3ecdc);
+}
+
+.hk-mark {
+  flex: 0 0 auto;
+  font-size: 0.85rem;
+  padding: 0 0.9rem;
+}
+
+/* Already done: quiet, and still a target, because undoing happens. */
+.hk-job.done .hk-mark {
+  background: transparent;
+  color: var(--ink-soft, #b9b2a2);
+  box-shadow: inset 0 0 0 1px var(--jade-line, rgba(130, 180, 155, 0.24));
+}
+
+.hk-foot {
+  margin: 1.6rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--ink-soft, #b9b2a2);
+}
+
+.hk-link {
+  font: inherit;
+  font-size: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--marigold, #e9a03b);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* Somebody who has asked for less movement gets none. */
+@media (prefers-reduced-motion: no-preference) {
+  .hk-job { transition: opacity 0.15s ease, background 0.15s ease; }
+}

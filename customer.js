@@ -36,6 +36,7 @@ const context = require('./context');
 const { buildSystemPrompt } = require('./config');
 const assets = require('./assets');
 const settingsRules = require('./settings');
+const shift = require('./shift');
 const sitefacts = require('./sitefacts');
 const { PLATFORMS } = require('./platforms');
 
@@ -560,6 +561,40 @@ router.post(
         state: String(req.body?.state || ''),
       });
       res.json({ room });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Switch the housekeeping board on, change its PIN, or switch it off.
+ *
+ * The PIN is never sent back, only whether one is set and when it was last
+ * changed. A venue that has forgotten it sets a new one — which is also the
+ * only revocation there is, and ends every shift opened with the old one.
+ */
+router.post(
+  '/businesses/:slug/housekeeping/pin',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const raw = req.body?.pin;
+
+      // Null switches the board off, which is a different thing from a bad
+      // PIN and has to be sayable.
+      if (raw === null || raw === '') {
+        await subscribers.setHousekeepingPin({ id: req.venue.id, hash: null });
+        return res.json({ on: false, changedAt: null });
+      }
+
+      const wrong = shift.checkPin(raw);
+      if (wrong) return res.status(400).json({ error: wrong });
+
+      const hash = await accounts.hashPassword(String(raw).trim());
+      const saved = await subscribers.setHousekeepingPin({ id: req.venue.id, hash });
+      res.json({ on: true, changedAt: saved.changedAt });
     } catch (err) {
       next(err);
     }
@@ -1312,6 +1347,13 @@ router.get(
           off: resolved.platformsOff,
         }),
         settings: subscribers.describe(req.venue),
+        // Whether the board is switched on, never the PIN itself. A dashboard
+        // that could show it would be a dashboard that had it in a response
+        // somebody could log.
+        housekeeping: {
+          on: Boolean(req.venue.housekeeping_pin),
+          changedAt: req.venue.housekeeping_pin_at ?? null,
+        },
         stats: {
           month: {
             reviews: month.reviews,
