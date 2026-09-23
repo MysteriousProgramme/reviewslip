@@ -2577,6 +2577,37 @@ test("a vendor's defaults do not outvote the site's own choice", () => {
   assert.ok(!hexes.includes('#337ab7'), "Bootstrap's default should not be offered beside it");
 });
 
+test('a comment above a rule is not mistaken for its selector', () => {
+  /*
+   * Found on a real site after it was rebuilt: entries attributed to
+   * "background on inst a 4.5:1 requirement: the gr", which is the tail of a
+   * comment. The ugly label is the symptom. The bug is that the selector
+   * decides a colour's role, so a comment mentioning a button would file the
+   * colour below it as the highlight — and a comment containing a brace splits
+   * the block in the wrong place altogether.
+   */
+  const css = `
+    /* A dark wash so the title holds its 4.5:1 against the photo behind it. */
+    .hero-overlay { background: #0f1a22; }
+    /* The book-now button { and a brace, to be difficult } */
+    .quiet-note { color: #b3261e; }
+  `;
+  const found = sitecolours.palette(css);
+
+  const wash = found.all.find((c) => c.hex === '#0f1a22');
+  assert.ok(wash, 'the colour itself was lost');
+  assert.match(wash.where, /\.hero-overlay/);
+  assert.ok(!/4\.5:1|wash so the title/.test(wash.where), 'comment text reached the label');
+
+  // And the colour after a comment that says "button" is not a highlight.
+  const note = found.all.find((c) => c.hex === '#b3261e');
+  assert.ok(note, 'the colour after an awkward comment was lost');
+  assert.ok(
+    !note.roles.includes('highlight'),
+    'a comment mentioning a button made the next colour a highlight'
+  );
+});
+
 test('a site that names nothing still gets read, from its rules', () => {
   // No custom properties at all, which is most of the web that is not
   // WordPress. The selector is the only evidence, so it has to be used.

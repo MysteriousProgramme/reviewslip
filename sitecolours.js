@@ -214,7 +214,18 @@ function fromVariables(css) {
  */
 function fromCss(css, { limit = 16 } = {}) {
   const found = new Map();
-  const text = String(css || '');
+  /*
+   * Comments out first, and this is not tidiness.
+   *
+   * A block is found by looking for `selector { declarations }`, and a comment
+   * sitting above a rule is swallowed into what looks like its selector. On a
+   * real site that produced entries attributed to "background on inst a 4.5:1
+   * requirement: the gr" — but the harm is worse than an ugly label, because
+   * the selector is what decides a colour's role. A comment that happens to
+   * mention a button would file the next colour as the highlight. Worse still,
+   * a comment containing a brace splits the block in the wrong place entirely.
+   */
+  const text = String(css || '').replace(/\/\*[\s\S]*?\*\//g, ' ');
 
   // selector { declarations }. Good enough for this: at-rule bodies get read
   // as if they were top level, which is what we want — a colour inside a
