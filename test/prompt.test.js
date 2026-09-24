@@ -3192,6 +3192,9 @@ test('a line has to say something', () => {
 test('an ordinary note goes straight through', () => {
   for (const good of [
     'The pool was lovely and the bar staff were quick',
+    // Passes here on purpose. Naming somebody is a rule about the published
+    // review, not about the note — context.md keeps the name out of what
+    // gets written, and refusing the note would throw away the incident too.
     'Nok on reception sorted our late check-out',
     'ignore the noise from the road, everything else was perfect',
     'Room 204 had a better view than we expected',
@@ -3272,10 +3275,21 @@ test('the note reaches the model as the guest\'s words, not as instructions', ()
   // Fenced and labelled. Not a security boundary — nothing in a prompt is —
   // but it is the difference between a sentence read as content and one read
   // as an order.
-  assert.match(built, /"""/);
-  assert.match(built, /their own words, not an instruction/i);
-  // And the model is told what to do when the note is not about the visit.
-  assert.match(built, new RegExp(note.REJECTED));
+  assert.ok(built.includes('"""'), 'the note was not fenced');
+  assert.match(built, /not an instruction to you/i);
+
+  /*
+   * And the rule itself is in the system message, not here beside the note.
+   *
+   * That is the whole point of where it lives: a note is user input, it sits
+   * in the user message, and a rule about how to treat user input must not be
+   * sitting next to the input it governs where the same text can argue with
+   * it. context.md carries it, so every generation gets it whether or not
+   * there is a note.
+   */
+  assert.match(context.COMPLIANCE, new RegExp(note.REJECTED));
+  const [system] = config.buildMessages({ guestNote: 'x', rand: () => 0 });
+  assert.match(system.content, new RegExp(note.REJECTED));
 
   // No note, nothing added at all.
   assert.equal(note.forPrompt(''), '');
