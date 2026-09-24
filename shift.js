@@ -102,27 +102,42 @@ function open(token, { pinHash, subscriberId, now = Date.now() } = {}) {
 
 /* -------------------------------------------------------------------- PINs */
 
-/** Short enough to be typed on a phone by somebody holding a mop. */
-const PIN_MIN = 4;
-const PIN_MAX = 8;
+/**
+ * Six digits. Not four to eight.
+ *
+ * A range meant the field had to explain itself — "4 to 8 digits" as
+ * placeholder text, which at the letter-spacing a PIN field wants read as a
+ * row of spread-out letters and left people thinking letters were allowed.
+ * One fixed length needs no explaining: the field can show six slots and be
+ * understood without a word.
+ *
+ * Six rather than four is also worth an order of magnitude against guessing.
+ * Four digits is ten thousand possibilities, which the eight-tries-per-ten-
+ * minutes throttle holds off for about a fortnight of continuous attempts; six
+ * is a million, which is years. This PIN is shared and rarely changed, so it
+ * has to survive being left alone.
+ */
+const PIN_LENGTH = 6;
 
 /**
  * @returns {string|null} the reason it will not do, or null if it will
  */
 function checkPin(value) {
   const pin = String(value ?? '').trim();
-  if (!/^\d+$/.test(pin)) return 'A PIN is digits only.';
-  if (pin.length < PIN_MIN) return `A PIN is at least ${PIN_MIN} digits.`;
-  if (pin.length > PIN_MAX) return `A PIN is at most ${PIN_MAX} digits.`;
+  if (!/^\d*$/.test(pin)) return 'A PIN is digits only.';
+  if (pin.length !== PIN_LENGTH) return `A PIN is ${PIN_LENGTH} digits.`;
 
-  // The four somebody picks when they are not thinking, and the four an
-  // attacker tries first. Refused here rather than warned about, because this
-  // one is shared and nobody is going to change it later.
+  // The ones somebody picks when they are not thinking, and the ones an
+  // attacker tries first. Refused rather than warned about, because this PIN
+  // is shared and nobody is going to come back and change it.
   if (/^(\d)\1+$/.test(pin)) return 'That PIN is one repeated digit.';
   if ('01234567890'.includes(pin) || '09876543210'.includes(pin)) {
     return 'That PIN is a run of digits in order.';
   }
+  // 123123, 121212, 454545 — a short pattern repeated. It looks random at a
+  // glance and is not, and a six-digit box invites exactly this.
+  if (/^(\d{1,3})\1+$/.test(pin)) return 'That PIN repeats a short pattern.';
   return null;
 }
 
-module.exports = { issue, open, checkPin, HOURS, PIN_MIN, PIN_MAX };
+module.exports = { issue, open, checkPin, HOURS, PIN_LENGTH };

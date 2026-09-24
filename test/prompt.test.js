@@ -2934,17 +2934,27 @@ test('without a usable SECRET_KEY nothing is signed and nothing opens', () => {
   }
 });
 
-test('a PIN somebody would actually guess is refused', () => {
-  assert.equal(shift.checkPin('4821'), null);
-  assert.equal(shift.checkPin('90210'), null);
+test('a PIN is six digits, and not one somebody would guess', () => {
+  assert.equal(shift.PIN_LENGTH, 6);
+  assert.equal(shift.checkPin('482913'), null);
+  assert.equal(shift.checkPin('905172'), null);
 
-  assert.match(shift.checkPin('1111'), /repeated digit/);
-  assert.match(shift.checkPin('1234'), /in order/);
-  assert.match(shift.checkPin('4321'), /in order/);
-  assert.match(shift.checkPin('12'), /at least/);
-  assert.match(shift.checkPin('123456789'), /at most/);
-  assert.match(shift.checkPin('12a4'), /digits only/);
-  assert.match(shift.checkPin(''), /digits only/);
+  // One fixed length rather than a range, so the field can show six slots
+  // instead of explaining itself in words that read as letters.
+  assert.match(shift.checkPin('4821'), /6 digits/);
+  assert.match(shift.checkPin('12345678'), /6 digits/);
+  assert.match(shift.checkPin(''), /6 digits/);
+
+  assert.match(shift.checkPin('111111'), /repeated digit/);
+  assert.match(shift.checkPin('123456'), /in order/);
+  assert.match(shift.checkPin('654321'), /in order/);
+
+  // Looks random at a glance and is not. A six-digit box invites these.
+  assert.match(shift.checkPin('123123'), /short pattern/);
+  assert.match(shift.checkPin('121212'), /short pattern/);
+  assert.match(shift.checkPin('454545'), /short pattern/);
+
+  assert.match(shift.checkPin('48a913'), /digits only/);
 });
 
 

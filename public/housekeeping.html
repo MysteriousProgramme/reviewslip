@@ -21,7 +21,7 @@
 <main class="hk" id="app">
   <section class="hk-gate" id="gate" hidden>
     <h1 id="gate-venue">Housekeeping</h1>
-    <p class="hk-lede">Enter today's PIN.</p>
+    <p class="hk-lede">Enter today&rsquo;s six-digit PIN.</p>
     <form id="pin-form" autocomplete="off">
       <input
         id="pin"
@@ -30,9 +30,9 @@
         inputmode="numeric"
         pattern="[0-9]*"
         autocomplete="one-time-code"
-        maxlength="8"
-        aria-label="PIN"
-        placeholder="••••">
+        maxlength="6"
+        aria-label="Six-digit PIN"
+        placeholder="••••••">
       <button type="submit" class="hk-go" id="pin-go">Start</button>
     </form>
     <p class="hk-note" id="gate-note" role="status"></p>

@@ -205,10 +205,23 @@ el.list.addEventListener('click', (e) => {
   if (button) void mark(button);
 });
 
+// Typed, pasted or dictated — only digits reach the box.
+el.pin.addEventListener('input', () => {
+  const cleaned = el.pin.value.replace(/\D/g, '').slice(0, 6);
+  if (cleaned !== el.pin.value) el.pin.value = cleaned;
+});
+
 el.form.addEventListener('submit', async (e) => {
   e.preventDefault();
-  const pin = el.pin.value.trim();
-  if (!pin) return;
+  // Digits only, six of them. The field is filtered as it is typed so a
+  // paste of "PIN: 482913" cannot be submitted as-is and refused by the
+  // server for a reason nobody can see from a corridor.
+  const pin = el.pin.value.replace(/\D/g, '').slice(0, 6);
+  el.pin.value = pin;
+  if (pin.length !== 6) {
+    el.gateNote.textContent = 'The PIN is six digits.';
+    return;
+  }
 
   el.go.disabled = true;
   el.gateNote.textContent = '';
