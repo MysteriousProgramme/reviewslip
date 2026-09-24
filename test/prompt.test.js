@@ -648,6 +648,10 @@ const PAIRS = [
   ['--paper', '--shade', theme.RATIOS.surface, 'paper against ground'],
   ['--card-ink', '#ffffff', theme.RATIOS.reviewText, 'card name'],
   ['--card-muted', '#ffffff', theme.RATIOS.softText, 'card small print'],
+  // The masthead is the one part of the card that is not on white stock, so its
+  // two colours are the only ones measured against the venue's own ground.
+  ['--card-on-panel', '--card-panel', theme.RATIOS.reviewText, 'card name on the block'],
+  ['--card-panel-rule', '--card-panel', theme.RATIOS.surface, 'card ornament on the block'],
 ];
 
 test('any palette that validates produces a readable page', () => {

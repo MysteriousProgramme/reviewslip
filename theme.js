@@ -378,6 +378,25 @@ function derive(theme, fonts = {}, { background = false } = {}) {
       // Checked separately for the same reason it exists separately — a theme
       // whose ground is pale reads fine on its own dark page and disappears on
       // white.
+      /*
+       * The panel at the top of the printed card, and what reads on it.
+       *
+       * The card was the venue's colours as hairlines on white, which prints
+       * beautifully and looks like a white card. One block of the ground
+       * colour behind the mark is what makes it theirs at arm's length.
+       *
+       * A block and not a full bleed, and inset rather than run to the edge:
+       * a full-bleed A5 costs a cartridge and leaves a white margin on any
+       * printer that cannot go borderless, which is most of the printers a
+       * small venue owns. Inside the frame it prints correctly on all of them.
+       */
+      '--card-panel': ground,
+      // Derived against the panel rather than against white, because that is
+      // what it sits on. The paper colour first, since a venue that chose a
+      // cream paper wants its cream here; white only if the cream cannot
+      // carry text on their own ground.
+      '--card-on-panel': readable(paper, ground, RATIOS.reviewText).colour,
+      '--card-panel-rule': readable(highlight, ground, RATIOS.surface).colour,
       '--card-ink': readable(ground, CARD, RATIOS.reviewText).colour,
       '--card-frame': readable(accent, CARD, RATIOS.surface).colour,
       '--card-rule': readable(highlight, CARD, RATIOS.surface).colour,
