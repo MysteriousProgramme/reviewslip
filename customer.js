@@ -593,6 +593,28 @@ router.post(
       if (wrong) return res.status(400).json({ error: wrong });
 
       const hash = await accounts.hashPassword(String(raw).trim());
+
+      /*
+       * Can a shift actually be signed with this?
+       *
+       * Asked here, before saying "Saved", because the answer depends on
+       * SECRET_KEY being present on the box and the owner is the only person
+       * who can do anything about that. Without this the PIN stored happily,
+       * the dashboard said On, and the first housekeeper to try the link got
+       * "the board is not set up" — told to go and tell the owner, who had
+       * just set it up and been told it worked.
+       */
+      const signable = shift.issue({ subscriberId: req.venue.id, pinHash: hash });
+      if (!signable) {
+        console.error(
+          'SECRET_KEY is missing or not 64 hex characters, so no housekeeping shift can be signed.'
+        );
+        return res.status(503).json({
+          error:
+            'The PIN was not saved. This server has no SECRET_KEY set, and a housekeeping shift cannot be signed without one. Set SECRET_KEY in the review app environment, restart it, and try again.',
+        });
+      }
+
       const saved = await subscribers.setHousekeepingPin({ id: req.venue.id, hash });
       res.json({ on: true, changedAt: saved.changedAt });
     } catch (err) {

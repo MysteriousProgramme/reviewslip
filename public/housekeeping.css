@@ -53,24 +53,40 @@ h1 {
 /*
  * Big, centred and spaced out. It is typed with a thumb, often wet, and the
  * usual form-control size is a guess-and-check exercise at that point.
+ *
+ * And wide enough for six digits, which it was not. At 2rem with 0.4em of
+ * tracking a digit costs about 1.9rem, so six need roughly 11.5rem of text
+ * plus the padding — and the box was capped at 11rem in total. The overflow
+ * went off the left edge, so somebody who typed 654421 saw 54421 with no way
+ * to tell which end was missing.
  */
 .hk-pin {
   display: block;
   width: 100%;
-  max-width: 11rem;
+  max-width: 15rem;
   margin: 0 auto 1rem;
-  padding: 0.7rem 0.5rem;
+  padding: 0.7rem 0.6rem;
   font: inherit;
-  font-size: 2rem;
+  font-size: 1.9rem;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.4em;
-  /* The letter-spacing pushes the text right; this pulls it back to centre. */
-  text-indent: 0.4em;
+  letter-spacing: 0.35em;
+  /* The tracking adds a gap after the last digit; this pulls the run back on
+     to centre so it does not sit right of the box it is in. */
+  text-indent: 0.35em;
   text-align: center;
   color: inherit;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--jade-line, rgba(130, 180, 155, 0.24));
   border-radius: 12px;
+}
+
+/* A narrow phone gets the digits closer together rather than a clipped PIN. */
+@media (max-width: 22rem) {
+  .hk-pin {
+    font-size: 1.6rem;
+    letter-spacing: 0.25em;
+    text-indent: 0.25em;
+  }
 }
 
 .hk-pin:focus-visible {
