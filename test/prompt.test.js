@@ -774,6 +774,9 @@ test('a stored theme resolves and survives a round trip', () => {
     display: theme.DEFAULT_DISPLAY,
     ui: theme.DEFAULT_UI,
     logo: '',
+    // Stored as "show it as well", so the absence of the field on every theme
+    // saved before today means the sensible default rather than a hidden name.
+    showName: false,
   });
 
   const described = settings.describe({ theme: palette });
@@ -786,6 +789,27 @@ test('a stored theme resolves and survives a round trip', () => {
   // And an unusable stored value falls back rather than throwing.
   assert.equal(settings.resolve({ theme: { ground: 'nonsense' } }).theme, null);
   assert.equal(settings.describe({}).theme.source, 'default');
+});
+
+test('a logo stands in for the name unless the name is asked for too', () => {
+  /*
+   * Most logos are a wordmark. Printing the name under one says it twice, and
+   * on a card the size of a postcard that is the first thing anybody notices.
+   * A venue whose mark is a symbol rather than a word turns the name back on.
+   */
+  const mark = 'data:image/png;base64,iVBORw0KGgo=';
+
+  assert.equal(theme.showsName({ logo: '' }), true, 'no logo, so the name is all there is');
+  assert.equal(theme.showsName({ logo: mark }), false, 'a wordmark should not be captioned');
+  assert.equal(theme.showsName({ logo: mark, showName: true }), true);
+
+  // A theme saved before the field existed, and no theme at all.
+  assert.equal(theme.showsName({ logo: mark, showName: undefined }), false);
+  assert.equal(theme.showsName(null), true);
+
+  // Stored as a real boolean whatever a form sent.
+  assert.equal(theme.validate({ ...theme.DEFAULT_THEME, showName: 'yes' }).theme.showName, false);
+  assert.equal(theme.validate({ ...theme.DEFAULT_THEME, showName: true }).theme.showName, true);
 });
 
 test('a font is an id from the list, or it is the shipped one', () => {

@@ -226,6 +226,15 @@ function describe(own) {
       source: source.theme,
       derived: derived.vars,
       adjusted: derived.adjusted,
+      /*
+       * Whether the venue's name is printed under its mark.
+       *
+       * Answered here rather than left to each screen to work out, because
+       * three of them ask — the guest page, the printed card and the preview
+       * — and the rule is not obvious: a logo hides the name unless somebody
+       * asked for both, and no logo always shows it.
+       */
+      showName: themes.showsName(palette),
       // What was actually taken off the business's own site, described rather
       // than included: the dashboard needs to say "Canela, 84kB, from your
       // stylesheet", not carry the file.

@@ -626,6 +626,14 @@ app.get('/api/config', requireTenant, (req, res) => {
     // Whether to draw the mark, not the mark itself — it is served from /logo,
     // where it can be cached instead of riding along with every config load.
     hasLogo: Boolean(resolved.theme?.logo),
+    /*
+     * Whether to print the name under the mark.
+     *
+     * Most logos are a wordmark, and setting the name under one says it twice.
+     * theme.js owns the rule so the guest page, the printed card and the
+     * dashboard preview cannot answer it three different ways.
+     */
+    showName: theme.showsName(resolved.theme),
     // Every topic, not the ten the guest first sees. The page samples ten and
     // keeps the rest behind its browse button, so sampling server-side would
     // cost a second request to show what is already in hand — and the sample

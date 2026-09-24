@@ -141,19 +141,41 @@ async function init() {
     renderSetup(config.setup);
     if (config.venue) {
       state.venue = config.venue;
-      el.eyebrow.textContent = config.venue;
+      /*
+       * The name goes under the mark only when the mark is not the name.
+       *
+       * Kept in state either way — the review text and the Proceed buttons
+       * both say it — but a wordmark with the name set underneath it reads as
+       * a mistake, and it is the first thing anybody notices.
+       */
+      el.eyebrow.textContent = config.showName === false ? '' : config.venue;
+      el.eyebrow.hidden = config.showName === false;
     }
 
-    // The mark, once we know there is one. Its alt is empty on purpose: the
-    // venue's name is already the line underneath it, and a screen reader
-    // announcing the name twice is noise, not access.
+    /*
+     * The mark, once we know there is one.
+     *
+     * Its alt depends on whether the name is printed underneath. When it is,
+     * an empty alt is right — a screen reader announcing the name twice is
+     * noise, not access. When the mark is standing in for the name, the mark
+     * has to carry it, or the page has no heading at all for anybody not
+     * looking at it.
+     */
     if (config.hasLogo) {
       el.logo.src = '/logo';
+      el.logo.alt = config.showName === false ? state.venue || '' : '';
       el.logo.hidden = false;
-      // A logo that 404s or is corrupt takes itself back off the page rather
-      // than leaving a broken-image icon above the venue's name.
+      /*
+       * A logo that 404s or is corrupt takes itself back off the page — and
+       * gives the name back, because otherwise a venue that hid its name
+       * behind a mark that failed to load has a page with neither on it.
+       */
       el.logo.addEventListener('error', () => {
         el.logo.hidden = true;
+        if (state.venue) {
+          el.eyebrow.textContent = state.venue;
+          el.eyebrow.hidden = false;
+        }
       });
     }
     // Languages first: the two below draw buttons whose words come out of the

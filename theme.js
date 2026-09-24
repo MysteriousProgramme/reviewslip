@@ -547,10 +547,39 @@ function validate(value) {
     };
   }
 
+  /*
+   * Whether the venue's name is printed under its logo.
+   *
+   * Most logos are a wordmark — the name, set. Printing the name again under
+   * one says it twice, which on a card the size of a postcard is the thing
+   * somebody notices before they notice the QR code. So a logo hides the name
+   * by default, and a venue whose mark is a symbol rather than a word turns it
+   * back on.
+   *
+   * Stored as "show it anyway" rather than "hide it", so the absence of the
+   * field — every theme saved before today — means the sensible default for
+   * whatever logo it has: hidden when there is one, and the name on its own
+   * when there is not.
+   */
+  theme.showName = value.showName === true;
+
   return { ok: true, theme };
 }
 
+/**
+ * Whether to print the venue's name, given its theme.
+ *
+ * One function so the card, the guest page and the preview cannot disagree —
+ * three places asking "is there a logo and did they ask for the name too" is
+ * three chances to answer it differently.
+ */
+function showsName(theme) {
+  if (!theme?.logo) return true;
+  return theme.showName === true;
+}
+
 module.exports = {
+  showsName,
   SLOTS,
   DEFAULT_THEME,
   RATIOS,
