@@ -42,6 +42,8 @@ const listingreader = require('../listingreader');
 const sitecolours = require('../sitecolours');
 const housekeeping = require('../housekeeping');
 const shift = require('../shift');
+const roomstatus = require('../roomstatus');
+const checklist = require('../checklist');
 const translate = require('../translate');
 const theme = require('../theme');
 const assets = require('../assets');
@@ -2955,6 +2957,139 @@ test('a PIN is six digits, and not one somebody would guess', () => {
   assert.match(shift.checkPin('454545'), /short pattern/);
 
   assert.match(shift.checkPin('48a913'), /digits only/);
+});
+
+
+/* ---------------------------------------------------- what state a room is in */
+
+/**
+ * There were two states and nothing ever set the second one. The point of
+ * having three is that they disagree with each other — a status is three
+ * answers, not a label, and the whole value is that "held back from sale" and
+ * "being retiled" stop different things.
+ */
+
+test('the three states stop different things', () => {
+  assert.deepEqual(
+    ['active', 'not_selling', 'renovating'].map((id) => ({
+      id,
+      sells: roomstatus.sells(id),
+      takes: roomstatus.takes(id),
+      cleaned: roomstatus.cleaned(id),
+    })),
+    [
+      { id: 'active', sells: true, takes: true, cleaned: true },
+      // Held back from sale, and somebody is still in it: staff, the owner's
+      // family, a long stay agreed on the telephone. It still gets cleaned,
+      // and the desk still has to be able to record who is there.
+      { id: 'not_selling', sells: false, takes: true, cleaned: true },
+      // Nobody can be put in it and nobody is cleaning it.
+      { id: 'renovating', sells: false, takes: false, cleaned: false },
+    ]
+  );
+});
+
+test('the old out_of_service reads as renovating', () => {
+  // It was the only other state there was, and a row somewhere may still say
+  // it. Reading it as nonsense would put a building site back on sale.
+  assert.equal(roomstatus.of('out_of_service').id, 'renovating');
+  assert.equal(roomstatus.cleaned('out_of_service'), false);
+  assert.equal(roomstatus.takes('out_of_service'), false);
+  assert.equal(roomstatus.usable('out_of_service'), 'renovating');
+});
+
+test('an unrecognised state reads as open, which is the safe direction', () => {
+  /*
+   * A room that cannot be sold because of a typo loses money silently. One
+   * that can be sold when it should not is visible the moment anybody looks
+   * at the calendar. So the failure goes the way somebody will notice.
+   */
+  assert.equal(roomstatus.of('bananas').id, 'active');
+  assert.equal(roomstatus.sells(''), true);
+  assert.equal(roomstatus.sells(undefined), true);
+
+  // Storing one is a different matter: that is refused outright.
+  assert.equal(roomstatus.usable('bananas'), null);
+  assert.equal(roomstatus.usable('renovating'), 'renovating');
+  assert.equal(roomstatus.usable('  RENOVATING '), 'renovating');
+});
+
+test('a room being renovated is not on the housekeeping board', () => {
+  const rooms = [
+    { id: 1, name: 'A', groupName: 'X', status: 'active', housekeeping: 'dirty' },
+    { id: 2, name: 'B', groupName: 'X', status: 'not_selling', housekeeping: 'dirty' },
+    { id: 3, name: 'C', groupName: 'X', status: 'renovating', housekeeping: 'dirty' },
+  ];
+  const { jobs, counts } = housekeeping.board({ date: '2026-09-24', rooms, bookings: [] });
+
+  // B is held back from sale and somebody still has to clean it.
+  assert.deepEqual(jobs.map((j) => j.room), ['A', 'B']);
+  assert.equal(counts.rooms, 2);
+  assert.equal(counts.dirty, 2);
+});
+
+
+/* ------------------------------------------------- what has to be done in it */
+
+const ITEMS = [
+  { id: 1, groupId: null, label: 'Bathroom clean', sort: 2 },
+  { id: 2, groupId: null, label: 'Beds made', sort: 1 },
+  { id: 3, groupId: 10, label: 'Sofa bed folded away', sort: 1 },
+  { id: 4, groupId: 20, label: 'Staircase swept', sort: 1 },
+];
+
+test("a room's list is the general lines plus its own type's", () => {
+  const family = checklist.forGroup(ITEMS, 10);
+  assert.deepEqual(family.map((i) => i.label), [
+    // General first, in their own order — that is the order the work happens
+    // in: clean the room, then the thing this room has that others do not.
+    'Beds made',
+    'Bathroom clean',
+    'Sofa bed folded away',
+  ]);
+
+  // A loft does not have a sofa bed and a bungalow has neither.
+  assert.deepEqual(checklist.forGroup(ITEMS, 20).map((i) => i.label), [
+    'Beds made',
+    'Bathroom clean',
+    'Staircase swept',
+  ]);
+  assert.deepEqual(checklist.forGroup(ITEMS, 99).map((i) => i.label), [
+    'Beds made',
+    'Bathroom clean',
+  ]);
+});
+
+test('ticks are counted, and an empty list is not "all done"', () => {
+  const list = checklist.forGroup(ITEMS, 10);
+
+  const started = checklist.forRoom(list, [2]);
+  assert.equal(started.done, 1);
+  assert.equal(started.total, 3);
+  assert.equal(started.all, false);
+  assert.equal(started.items.find((i) => i.label === 'Beds made').done, true);
+
+  assert.equal(checklist.forRoom(list, [1, 2, 3]).all, true);
+
+  /*
+   * A room with no standard written for it is not finished — it is a room
+   * nobody has written a standard for. Saying everything is done would be a
+   * claim nobody made, and the board shows nothing rather than a tick.
+   */
+  const none = checklist.forRoom([], []);
+  assert.equal(none.total, 0);
+  assert.equal(none.all, false);
+});
+
+test('a line has to say something', () => {
+  assert.equal(checklist.checkLabel('Bathroom clean'), null);
+  assert.match(checklist.checkLabel(''), /what needs doing/);
+  assert.match(checklist.checkLabel('   '), /what needs doing/);
+  assert.match(checklist.checkLabel('x'), /too short/);
+
+  // Tidied, not refused: somebody pasting from a document brings whitespace.
+  assert.equal(checklist.clean('  Beds   made  '), 'Beds made');
+  assert.equal(checklist.clean('a'.repeat(200)).length, checklist.MAX_LABEL);
 });
 
 

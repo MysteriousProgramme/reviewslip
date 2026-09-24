@@ -1038,6 +1038,58 @@ const MIGRATIONS = [
       'ALTER TABLE subscribers ADD COLUMN housekeeping_pin_at timestamptz'
     );
   },
+
+  async (c) => {
+    /*
+     * What has to be done in a room, and a record of it being done.
+     *
+     * The list is per room type, because the work genuinely differs — a loft
+     * has a staircase and a bungalow does not. group_id NULL means every room
+     * in the venue, which is where most items end up: the bathroom gets
+     * cleaned whatever the room is called.
+     */
+    await c.query(`
+      CREATE TABLE checklist_items (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        group_id      integer,
+        label         text NOT NULL,
+        sort          integer NOT NULL DEFAULT 0,
+        created_at    timestamptz NOT NULL DEFAULT now(),
+        FOREIGN KEY (group_id, subscriber_id)
+          REFERENCES room_groups (id, subscriber_id) ON DELETE CASCADE
+      )
+    `);
+    await c.query(`
+      CREATE INDEX checklist_items_venue
+        ON checklist_items (subscriber_id, sort, id)
+    `);
+
+    /*
+     * A tick, against a room and a day.
+     *
+     * The day and not a timestamp, because the unit of work is a morning: the
+     * same room is cleaned again tomorrow and yesterday's ticks must not carry
+     * over. The primary key is what makes a second tap on the same item
+     * harmless, which matters on a phone in a corridor with a bad signal.
+     *
+     * ON DELETE CASCADE from the item as well as the room: taking a line out
+     * of the standard should not leave ticks behind that refer to nothing.
+     */
+    await c.query(`
+      CREATE TABLE room_checks (
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        room_id       integer NOT NULL REFERENCES rooms (id) ON DELETE CASCADE,
+        item_id       integer NOT NULL REFERENCES checklist_items (id) ON DELETE CASCADE,
+        on_day        date NOT NULL,
+        done_at       timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (room_id, item_id, on_day)
+      )
+    `);
+    await c.query(`
+      CREATE INDEX room_checks_day ON room_checks (subscriber_id, on_day)
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

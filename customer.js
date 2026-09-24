@@ -37,6 +37,8 @@ const { buildSystemPrompt } = require('./config');
 const assets = require('./assets');
 const settingsRules = require('./settings');
 const shift = require('./shift');
+const checklists = require('./checklists');
+const roomstatus = require('./roomstatus');
 const sitefacts = require('./sitefacts');
 const { PLATFORMS } = require('./platforms');
 
@@ -561,6 +563,91 @@ router.post(
         state: String(req.body?.state || ''),
       });
       res.json({ room });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Open, not selling, or renovating.
+ *
+ * Per room rather than per type, because the reasons are per room: one
+ * bungalow is being retiled while the other four are selling.
+ */
+router.post(
+  '/businesses/:slug/rooms/:id/status',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such room.' });
+      }
+      const room = await rooms.setStatus({
+        subscriberId: req.venue.id,
+        id,
+        status: req.body?.status,
+      });
+      res.json({ room, states: roomstatus.list() });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/* ------------------------------------------------------- the cleaning standard */
+
+/** Every line, and the states a room can be in, for the screen that sets both. */
+router.get(
+  '/businesses/:slug/checklist',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json({
+        items: await checklists.items(req.venue.id),
+        states: roomstatus.list(),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Add a line. No room type means every room. */
+router.post(
+  '/businesses/:slug/checklist',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const item = await checklists.add({
+        subscriberId: req.venue.id,
+        groupId: req.body?.groupId ?? null,
+        label: req.body?.label,
+      });
+      res.status(201).json({ item });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Take a line out. Its ticks go with it. */
+router.delete(
+  '/businesses/:slug/checklist/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id)) {
+        return res.status(404).json({ error: 'No such item.' });
+      }
+      await checklists.remove({ subscriberId: req.venue.id, id });
+      res.status(204).end();
     } catch (err) {
       next(err);
     }

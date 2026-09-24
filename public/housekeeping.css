@@ -168,10 +168,6 @@ h1 {
 }
 
 .hk-job {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
   padding: 0.7rem 0.8rem;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.05);
@@ -188,6 +184,14 @@ h1 {
 .hk-job.departure { border-left-color: var(--jade-dim, rgba(130, 180, 155, 0.5)); }
 .hk-job.stayover,
 .hk-job.free { border-left-color: transparent; }
+
+/* The room's own line: name and state on the left, the button on the right. */
+.hk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
 
 /* Done recedes. It is still there to be undone, and no longer competing. */
 .hk-job.done {
@@ -233,6 +237,111 @@ h1 {
   background: transparent;
   color: var(--ink-soft, #b9b2a2);
   box-shadow: inset 0 0 0 1px var(--jade-line, rgba(130, 180, 155, 0.24));
+}
+
+/* ------------------------------------------------------------- checklist */
+
+/* How far through, on the room's own line. */
+.hk-progress {
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--ink-soft, #b9b2a2);
+}
+
+.hk-progress.all {
+  background: var(--jade-tint, rgba(130, 180, 155, 0.18));
+  color: var(--ink, #f3ecdc);
+}
+
+/*
+ * A quiet, full-width opener.
+ *
+ * Under the room rather than beside it: the row already has the one button
+ * that matters on it, and a second one of the same weight beside it makes
+ * somebody choose between two things when only one of them finishes the job.
+ */
+.hk-open {
+  font: inherit;
+  font-size: 0.78rem;
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  border-radius: 999px;
+  border: 1px solid var(--jade-line, rgba(130, 180, 155, 0.24));
+  background: transparent;
+  color: var(--ink-soft, #b9b2a2);
+}
+
+.hk-checks {
+  margin-top: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--jade-line, rgba(130, 180, 155, 0.18));
+  font-size: 0.85rem;
+  color: var(--ink-soft, #b9b2a2);
+}
+
+.hk-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+/*
+ * The whole line is the target, not a checkbox at the end of it.
+ *
+ * Twelve of these get tapped per room by somebody holding something, and a
+ * 20px box is a miss waiting to happen. 44px tall and full width means the
+ * line can be hit without looking at it.
+ */
+.hk-item {
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  width: 100%;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.4rem;
+  cursor: pointer;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink, #f3ecdc);
+}
+
+.hk-box {
+  flex: 0 0 auto;
+  width: 1.35rem;
+  height: 1.35rem;
+  display: grid;
+  place-items: center;
+  font-size: 0.85rem;
+  line-height: 1;
+  border-radius: 6px;
+  border: 1.5px solid var(--jade-line, rgba(130, 180, 155, 0.35));
+}
+
+/*
+ * Done is struck through as well as ticked. Colour alone would leave somebody
+ * who cannot see the difference reading a list with nothing marked on it.
+ */
+.hk-item.done {
+  color: var(--ink-soft, #b9b2a2);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.hk-item.done .hk-box {
+  background: var(--jade, #82b49b);
+  border-color: var(--jade, #82b49b);
+  color: var(--shade, #0c1f19);
+  text-decoration: none;
 }
 
 .hk-foot {

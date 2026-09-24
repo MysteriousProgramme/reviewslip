@@ -1,5 +1,7 @@
 'use strict';
 
+const roomstatus = require('./roomstatus');
+
 const { one, all, tx } = require('./db');
 const nights = require('./nights');
 const tariff = require('./tariff');
@@ -171,10 +173,25 @@ async function create(input) {
 
   if (roomId !== null && roomId !== undefined) {
     const room = await one(
-      'SELECT id FROM rooms WHERE id = $1 AND subscriber_id = $2 AND group_id = $3',
+      'SELECT id, status FROM rooms WHERE id = $1 AND subscriber_id = $2 AND group_id = $3',
       [roomId, subscriberId, groupId]
     );
     if (!room) throw fail(404, 'No such room in that room type.');
+
+    /*
+     * The same question update() asks, and it has to be asked here too.
+     *
+     * Moving a booking into a room being renovated was refused and creating
+     * one straight into it was not, which is the worse of the two: a stay
+     * booked into a building site is a guest arriving to a locked door, and
+     * nothing between here and the front desk would have said so.
+     */
+    if (!roomstatus.takes(room.status)) {
+      throw fail(
+        400,
+        `${roomstatus.of(room.status).label}: nobody can be put in that room.`
+      );
+    }
   }
 
   // The plan has to belong to this venue and to the type being booked. A plan
@@ -335,12 +352,26 @@ async function update(input) {
       if (wanted === null) {
         roomId = null;
       } else {
+        /*
+         * Any status that takes a booking, not only 'active'.
+         *
+         * A room held back from sale still has people in it — staff, the
+         * owner's family, a long stay somebody agreed by telephone — and the
+         * desk still has to be able to record that. What must be refused is a
+         * room that is being renovated, because nobody can be put in it.
+         */
         const room = await client.query(
-          `SELECT id, group_id FROM rooms
-            WHERE id = $1 AND subscriber_id = $2 AND status = 'active'`,
+          `SELECT id, group_id, status FROM rooms
+            WHERE id = $1 AND subscriber_id = $2`,
           [wanted, subscriberId]
         );
         if (!room.rows[0]) throw fail(404, 'No such room.');
+        if (!roomstatus.takes(room.rows[0].status)) {
+          throw fail(
+            400,
+            `${roomstatus.of(room.rows[0].status).label}: nobody can be put in that room.`
+          );
+        }
         roomId = room.rows[0].id;
         groupId = room.rows[0].group_id;
       }
@@ -921,7 +952,7 @@ async function onDate({ subscriberId, date }) {
   // arrivals rather than on another screen: "can I put them in yet" is the
   // question being asked, and the answer is a property of the room.
   const roomRows = await all(
-    `SELECT r.id, r.name, r.status, r.housekeeping, g.name AS group_name
+    `SELECT r.id, r.name, r.status, r.housekeeping, r.group_id, g.name AS group_name
        FROM rooms r
        JOIN room_groups g ON g.id = r.group_id
       WHERE r.subscriber_id = $1
@@ -942,6 +973,10 @@ async function onDate({ subscriberId, date }) {
     rooms: roomRows.map((row) => ({
       id: row.id,
       name: row.name,
+      // The type, by id as well as by name: the housekeeping checklist is
+      // per type, and matching on a name is a bug waiting for two types to
+      // be called the same thing.
+      groupId: row.group_id,
       groupName: row.group_name,
       status: row.status,
       housekeeping: row.housekeeping,

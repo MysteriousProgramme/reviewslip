@@ -133,6 +133,19 @@ function draw(board) {
       main.append(who);
     }
 
+    /*
+     * How far through the list, when there is one.
+     *
+     * Nothing at all when the venue has written no standard for this type —
+     * "0 of 0" is a number about an absence and reads as work outstanding.
+     */
+    if (job.checks && job.checks.total) {
+      const done = document.createElement('span');
+      done.className = `hk-progress${job.checks.all ? ' all' : ''}`;
+      done.textContent = `${job.checks.done}/${job.checks.total}`;
+      main.append(done);
+    }
+
     const mark = document.createElement('button');
     mark.type = 'button';
     mark.className = 'hk-mark';
@@ -141,7 +154,35 @@ function draw(board) {
     mark.setAttribute('aria-pressed', String(!job.dirty));
     mark.textContent = job.dirty ? 'Mark clean' : '✓ Clean';
 
-    li.append(main, mark);
+    const row = document.createElement('div');
+    row.className = 'hk-row';
+    row.append(main, mark);
+    li.append(row);
+
+    /*
+     * The list opens under the room rather than on its own screen.
+     *
+     * A housekeeper standing in the doorway wants the room and the list at
+     * once; a second screen means going back to find out which room they were
+     * in. Fetched on the first open, because the board draws twenty rooms and
+     * a dozen lines each is most of a payload nobody has asked for.
+     */
+    if (job.checks && job.checks.total) {
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'hk-open';
+      open.dataset.room = String(job.roomId);
+      open.setAttribute('aria-expanded', 'false');
+      open.textContent = 'What to do';
+      li.append(open);
+
+      const panel = document.createElement('div');
+      panel.className = 'hk-checks';
+      panel.dataset.for = String(job.roomId);
+      panel.hidden = true;
+      li.append(panel);
+    }
+
     el.list.append(li);
   }
 }
@@ -200,7 +241,114 @@ async function mark(button) {
   }
 }
 
+/* ------------------------------------------------------------- the checklist */
+
+function drawChecks(panel, data) {
+  panel.replaceChildren();
+
+  const list = document.createElement('ul');
+  list.className = 'hk-items';
+
+  for (const item of data.items) {
+    const li = document.createElement('li');
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `hk-item${item.done ? ' done' : ''}`;
+    button.dataset.item = String(item.id);
+    button.dataset.room = panel.dataset.for;
+    button.setAttribute('aria-pressed', String(item.done));
+
+    const box = document.createElement('span');
+    box.className = 'hk-box';
+    box.setAttribute('aria-hidden', 'true');
+    box.textContent = item.done ? '✓' : '';
+
+    const label = document.createElement('span');
+    label.textContent = item.label;
+
+    button.append(box, label);
+    li.append(button);
+    list.append(li);
+  }
+
+  panel.append(list);
+}
+
+/** The counter on the room's own row, kept in step without a reload. */
+function retally(roomId) {
+  const panel = el.list.querySelector(`.hk-checks[data-for="${roomId}"]`);
+  const li = panel?.closest('.hk-job');
+  const tally = li?.querySelector('.hk-progress');
+  if (!panel || !tally) return;
+
+  const items = [...panel.querySelectorAll('.hk-item')];
+  const done = items.filter((i) => i.classList.contains('done')).length;
+  tally.textContent = `${done}/${items.length}`;
+  tally.classList.toggle('all', items.length > 0 && done === items.length);
+}
+
+async function openChecks(button) {
+  const roomId = button.dataset.room;
+  const panel = el.list.querySelector(`.hk-checks[data-for="${roomId}"]`);
+  if (!panel) return;
+
+  const showing = !panel.hidden;
+  panel.hidden = showing;
+  button.setAttribute('aria-expanded', String(!showing));
+  button.textContent = showing ? 'What to do' : 'Hide';
+  if (showing || panel.dataset.loaded === 'yes') return;
+
+  panel.textContent = 'Loading…';
+  try {
+    const data = await call(`/api/housekeeping/rooms/${roomId}/checklist`);
+    drawChecks(panel, data);
+    panel.dataset.loaded = 'yes';
+  } catch (err) {
+    if (err.signedOut || err.status === 401) {
+      remember(null);
+      return showGate('That shift has ended. Enter the PIN again.');
+    }
+    panel.textContent = err.message;
+  }
+}
+
+async function tick(button) {
+  const done = !button.classList.contains('done');
+
+  // Moves under the thumb and goes back if the server disagrees. Somebody
+  // working down a list of twelve should not wait on a round trip for each.
+  button.classList.toggle('done', done);
+  button.setAttribute('aria-pressed', String(done));
+  button.querySelector('.hk-box').textContent = done ? '✓' : '';
+  retally(button.dataset.room);
+
+  try {
+    await call(
+      `/api/housekeeping/rooms/${button.dataset.room}/checklist/${button.dataset.item}`,
+      { method: 'POST', body: JSON.stringify({ done }) }
+    );
+    el.note.textContent = '';
+  } catch (err) {
+    button.classList.toggle('done', !done);
+    button.setAttribute('aria-pressed', String(!done));
+    button.querySelector('.hk-box').textContent = !done ? '✓' : '';
+    retally(button.dataset.room);
+    if (err.signedOut || err.status === 401) {
+      remember(null);
+      return showGate('That shift has ended. Enter the PIN again.');
+    }
+    el.note.textContent = err.message;
+  }
+}
+
 el.list.addEventListener('click', (e) => {
+  const item = e.target.closest('.hk-item');
+  if (item) return void tick(item);
+
+  const open = e.target.closest('.hk-open');
+  if (open) return void openChecks(open);
+
   const button = e.target.closest('.hk-mark');
   if (button) void mark(button);
 });

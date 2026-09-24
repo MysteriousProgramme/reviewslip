@@ -1,5 +1,7 @@
 'use strict';
 
+const roomstatus = require('./roomstatus');
+
 const { one, all } = require('./db');
 
 /**
@@ -221,8 +223,43 @@ async function setHousekeeping({ subscriberId, id, state }) {
   return { ...toRoom({ ...row, group_name: null }), housekeeping: row.housekeeping };
 }
 
+/** One room, with the type it belongs to. Null rather than a throw. */
+async function byId({ subscriberId, id }) {
+  const row = await one(
+    `SELECT r.*, g.name AS group_name
+       FROM rooms r
+       JOIN room_groups g ON g.id = r.group_id
+      WHERE r.id = $1 AND r.subscriber_id = $2`,
+    [id, subscriberId]
+  );
+  return row ? toRoom(row) : null;
+}
+
+/**
+ * Open, not selling, or renovating.
+ *
+ * What each of those stops lives in roomstatus.js, because three screens ask
+ * the question and a fourth will — the answer has to be in one place or they
+ * will drift into disagreeing about whether a held-back room gets cleaned.
+ */
+async function setStatus({ subscriberId, id, status }) {
+  const wanted = roomstatus.usable(status);
+  if (!wanted) throw fail(400, 'That is not a state a room can be in.');
+
+  const row = await one(
+    `UPDATE rooms SET status = $3, updated_at = now()
+      WHERE id = $1 AND subscriber_id = $2
+      RETURNING *`,
+    [id, subscriberId, wanted]
+  );
+  if (!row) throw fail(404, 'No such room.');
+  return toRoom({ ...row, group_name: null });
+}
+
 module.exports = {
   checkName,
+  byId,
+  setStatus,
   setHousekeeping,
   listGroups,
   createGroup,

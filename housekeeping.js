@@ -1,5 +1,7 @@
 'use strict';
 
+const roomstatus = require('./roomstatus');
+
 /**
  * What each room needs doing today.
  *
@@ -56,9 +58,10 @@ function heads(booking) {
  * @param {string} args.date - the day being worked, YYYY-MM-DD
  * @param {Array} args.rooms - id, name, groupName, status, housekeeping
  * @param {Array} args.bookings - anything overlapping the day, with roomId
+ * @param {Map} [args.progress] - room id to {done, total, all}, from checklists
  * @returns {{date: string, jobs: object[], counts: object}}
  */
-function board({ date, rooms = [], bookings = [] }) {
+function board({ date, rooms = [], bookings = [], progress = new Map() }) {
   const byRoom = new Map();
   for (const b of bookings) {
     if (!b || !b.roomId) continue;
@@ -69,9 +72,14 @@ function board({ date, rooms = [], bookings = [] }) {
   }
 
   const jobs = rooms
-    // A room being refurbished is not a room anybody is cleaning today, and
-    // leaving it on the list only invites somebody to tick it off.
-    .filter((r) => r.status === 'active')
+    /*
+     * Whether this room gets cleaned is a property of its status, and the
+     * three statuses do not agree about it: a room held back from sale still
+     * has to be cleaned — staff, family, a long stay — and a room being
+     * retiled does not. Asking roomstatus rather than comparing to 'active'
+     * is what keeps this screen and the calendar from drifting apart.
+     */
+    .filter((r) => roomstatus.cleaned(r.status))
     .map((room) => {
       const mine = byRoom.get(room.id) ?? [];
 
@@ -87,6 +95,16 @@ function board({ date, rooms = [], bookings = [] }) {
 
       const job = JOBS[kind];
       const dirty = room.housekeeping !== 'clean';
+
+      /*
+       * How far through the list this room is.
+       *
+       * Counts only, not the list itself: the board draws twenty rooms and
+       * sending every line of every standard would be most of the payload for
+       * something nobody has opened yet. The list arrives when a room is
+       * tapped.
+       */
+      const checks = progress.get(room.id) ?? null;
 
       /*
        * Ready means "a guest could walk into it now", which is not the same as
@@ -111,6 +129,7 @@ function board({ date, rooms = [], bookings = [] }) {
          * one thing about a guest this screen has any business knowing.
          */
         guests: coming ? heads(coming) : staying ? heads(staying) : null,
+        checks: checks ? { done: checks.done, total: checks.total, all: checks.all } : null,
         // Sorted on, not shown: see the comment on JOBS.
         rank: job.rank + (dirty ? 0 : 0.5),
       };
@@ -135,6 +154,14 @@ function board({ date, rooms = [], bookings = [] }) {
       due: jobs.filter((j) => j.dirty && (j.kind === 'turnaround' || j.kind === 'arrival'))
         .length,
       turnarounds: jobs.filter((j) => j.kind === 'turnaround').length,
+      /*
+       * Rooms somebody has started and not finished.
+       *
+       * The one number the list itself cannot show at a glance, and the one a
+       * supervisor walks the corridor looking for: a room half done is a room
+       * where something was interrupted.
+       */
+      started: jobs.filter((j) => j.checks && j.checks.done > 0 && !j.checks.all).length,
       arrivals: jobs.filter((j) => j.kind === 'arrival' || j.kind === 'turnaround').length,
       departures: jobs.filter((j) => j.kind === 'departure' || j.kind === 'turnaround')
         .length,

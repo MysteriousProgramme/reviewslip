@@ -36,6 +36,7 @@ const rooms = require('./rooms');
 const accounts = require('./accounts');
 const nights = require('./nights');
 const housekeeping = require('./housekeeping');
+const checklists = require('./checklists');
 const shift = require('./shift');
 const adminRouter = require('./admin');
 const customerRouter = require('./customer');
@@ -438,10 +439,19 @@ app.get(
 
       const day = await bookings.onDate({ subscriberId: req.subscriber.id, date });
 
+      // How far through its list each room is. Counts only — the lines
+      // themselves arrive when somebody taps a room open.
+      const progress = await checklists.progress({
+        subscriberId: req.subscriber.id,
+        day: date,
+        rooms: day.rooms,
+      });
+
       res.json({
         venue: req.subscriber.name,
         ...housekeeping.board({
           date,
+          progress,
           rooms: day.rooms,
           // onDate returns whole bookings; the board takes only what it needs
           // and never sees a name, an email or a phone number.
@@ -457,6 +467,81 @@ app.get(
             })),
         }),
       });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * What has to be done in one room, and what has been.
+ *
+ * Fetched when a room is tapped rather than sent with the board: twenty rooms
+ * times a dozen lines is most of a payload for a list nobody has opened.
+ */
+app.get(
+  '/api/housekeeping/rooms/:id/checklist',
+  requireTenant,
+  requireShift,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id) || id <= 0) {
+        return res.status(404).json({ error: 'No such room.' });
+      }
+
+      const room = await rooms.byId({ subscriberId: req.subscriber.id, id });
+      if (!room) return res.status(404).json({ error: 'No such room.' });
+
+      const date =
+        nights.parse(String(req.query.date || '')) ||
+        nights.todayAt(req.subscriber.timezone || 'Asia/Bangkok');
+
+      res.json({
+        roomId: id,
+        room: room.name,
+        ...(await checklists.forRoom({
+          subscriberId: req.subscriber.id,
+          roomId: id,
+          groupId: room.groupId,
+          day: date,
+        })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** Tick one line, or untick it. */
+app.post(
+  '/api/housekeeping/rooms/:id/checklist/:itemId',
+  requireTenant,
+  requireShift,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      const itemId = Number(req.params.itemId);
+      if (!Number.isSafeInteger(id) || !Number.isSafeInteger(itemId)) {
+        return res.status(404).json({ error: 'No such item.' });
+      }
+
+      const date =
+        nights.parse(String(req.body?.date || '')) ||
+        nights.todayAt(req.subscriber.timezone || 'Asia/Bangkok');
+
+      const saved = await checklists.setChecked({
+        subscriberId: req.subscriber.id,
+        roomId: id,
+        itemId,
+        day: date,
+        // Anything but an explicit false is a tick. The board sends a boolean;
+        // being lenient here costs nothing and a missing field should not
+        // silently untick something somebody just did.
+        done: req.body?.done !== false,
+      });
+
+      res.json(saved);
     } catch (err) {
       next(err);
     }
@@ -482,6 +567,26 @@ app.post(
         id,
         state,
       });
+
+      /*
+       * Putting a room back to dirty starts its list again.
+       *
+       * The ticks described a room that no longer exists in that state —
+       * somebody has been in it since, or the first pass was wrong. Leaving
+       * them would tell whoever picks the room up next that the work was
+       * already done.
+       */
+      if (state === 'dirty') {
+        const date =
+          nights.parse(String(req.body?.date || '')) ||
+          nights.todayAt(req.subscriber.timezone || 'Asia/Bangkok');
+        await checklists.clearRoom({
+          subscriberId: req.subscriber.id,
+          roomId: id,
+          day: date,
+        });
+      }
+
       res.json({ room: { id: room.id, name: room.name, housekeeping: room.housekeeping } });
     } catch (err) {
       next(err);
