@@ -490,15 +490,25 @@ async function importLegacyFile(slug = 'venue', name = 'Venue') {
  * credential, it is written from one place, and putting it through the same
  * path as colours and links would eventually get it echoed back in a describe.
  */
+/*
+ * Two different nows on adjacent lines, which is not a slip.
+ *
+ * `housekeeping_pin_at` is a real timestamptz, so SQL's now() belongs there.
+ * `updated_at` is text — it predates the timestamptz columns and every other
+ * write in this file passes it an ISO string. Asking Postgres to put a
+ * timestamptz into a text column is refused outright, and it refused this one:
+ * setting a PIN failed with nothing on the screen but "Something went wrong."
+ */
 async function setHousekeepingPin({ id, hash }) {
   const row = await one(
     `UPDATE subscribers
-        SET housekeeping_pin = $2,
-            housekeeping_pin_at = CASE WHEN $2 IS NULL THEN NULL ELSE now() END,
-            updated_at = now()
+        SET housekeeping_pin = $2::text,
+            housekeeping_pin_at =
+              CASE WHEN $2::text IS NULL THEN NULL ELSE now() END,
+            updated_at = $3
       WHERE id = $1
       RETURNING housekeeping_pin_at`,
-    [id, hash]
+    [id, hash, now()]
   );
   return { changedAt: row?.housekeeping_pin_at ?? null };
 }
