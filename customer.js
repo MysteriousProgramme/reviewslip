@@ -2294,6 +2294,7 @@ router.use((err, req, res, _next) => {
   if (err?.expose && err.status) {
     return res.status(err.status).json({ error: err.message });
   }
+
   console.error('Customer API error:', err);
   res.status(500).json({ error: 'Something went wrong.' });
 });

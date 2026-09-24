@@ -30,6 +30,7 @@ const openrouter = require('./openrouter');
 const { readWebsite, openrouterHeaders } = require('./reader');
 const { PLATFORMS } = require('./platforms');
 const setup = require('./setup');
+const assets = require('./assets');
 const bookings = require('./bookings');
 const rooms = require('./rooms');
 const accounts = require('./accounts');
@@ -65,6 +66,28 @@ if (process.env.TRUST_PROXY) {
   app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
 }
 
+/*
+ * Two body limits, because two very different things post here.
+ *
+ * A guest asking for a review sends a few hundred bytes, and 16kB is a
+ * generous ceiling that keeps an open endpoint from being used as a pipe.
+ *
+ * A settings save is a different animal entirely. It carries the venue's
+ * logo, its background photograph and up to two font files, each as base64 —
+ * and the caps on those live in assets.js, so the ceiling is worked out from
+ * them rather than picked. Picking a number is how this went wrong in the
+ * first place: 16kB was right for the only thing that posted here when it was
+ * written, and a theme with a photograph in it is nearly two megabytes.
+ */
+const ASSET_BYTES =
+  assets.MAX_BYTES + assets.MAX_BACKGROUND_BYTES + 2 * assets.MAX_FONT_BYTES;
+// base64 is four bytes for every three, and the rest of the settings — topics,
+// links, an About paragraph — are small beside that. A fifth on top covers
+// them and the JSON around it all.
+const DASHBOARD_LIMIT = `${Math.ceil((ASSET_BYTES * 4) / 3 / 1024 / 1024 * 1.2)}mb`;
+
+app.use('/api/customer', express.json({ limit: DASHBOARD_LIMIT }));
+app.use('/api/admin', express.json({ limit: DASHBOARD_LIMIT }));
 app.use(express.json({ limit: '16kb' }));
 // No max-age: the files are small and served off the same box, and a stale
 // index.html on a guest's phone is far more annoying than a revalidation.
@@ -1071,6 +1094,24 @@ function clean(raw) {
 // being unreachable, since tenant resolution now touches it on every request.
 // Without this, express 4 would answer an HTML error page to an API client.
 app.use((err, req, res, _next) => {
+  /*
+   * Before the expose branch, deliberately.
+   *
+   * body-parser marks its own refusals expose:true with the message "request
+   * entity too large", so that branch passed those words straight to the
+   * screen — which is what a customer saw on the settings page when their
+   * theme grew a background photograph. It is a true sentence about HTTP and
+   * tells nobody what to do about it.
+   */
+  if (err?.type === 'entity.too.large') {
+    console.error('Payload too large:', req.originalUrl, err.length ?? '?', 'bytes');
+    return res.status(413).json({
+      error: String(req.originalUrl || '').startsWith('/api/customer')
+        ? 'That is too much to save at once — usually a background photo or a font file. Remove one of them and save again.'
+        : 'That request was too large.',
+    });
+  }
+
   if (err?.expose && err.status) {
     return res.status(err.status).json({ error: err.message });
   }
