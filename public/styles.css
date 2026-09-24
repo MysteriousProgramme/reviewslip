@@ -192,6 +192,50 @@ body {
   color: var(--marigold);
 }
 
+/*
+ * Rule, lozenge, rule — the table card's ornament, on the screen it leads to.
+ *
+ * Left-aligned rather than centred, because this page is left-aligned and the
+ * card is not; copying the geometry instead of the placement is how a motif
+ * travels between two layouts without looking pasted.
+ *
+ * Hairlines and one hollow mark, the same as the card, so a venue whose accent
+ * is pale gets an ornament that is still there rather than one that has
+ * vanished into the background.
+ */
+.ornament {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.9rem 0 0.15rem;
+}
+
+.ornament::before,
+.ornament::after {
+  content: "";
+  height: 1px;
+  background: var(--jade-line);
+}
+
+.ornament::before {
+  width: 2.25rem;
+}
+
+/* The trailing rule fades out rather than stopping, so the ornament reads as
+   the start of the page's text rather than as a divider across it. */
+.ornament::after {
+  flex: 1;
+  max-width: 7rem;
+  background: linear-gradient(to right, var(--jade-line), transparent);
+}
+
+.ornament span {
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--marigold);
+  transform: rotate(45deg);
+}
+
 .lede {
   margin: 0.25rem 0 0;
   max-width: 30ch;
