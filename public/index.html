@@ -137,6 +137,28 @@
           </div>
         </div>
         <p class="notice" id="notice" role="status" aria-live="polite"></p>
+
+        <!--
+          The guest's own note.
+
+          Under the review rather than above the topics, because it is the
+          thing somebody reaches for after reading what came back: the chips
+          say what the review is about and this says what actually happened.
+          Optional, always — most guests will never touch it.
+        -->
+        <div class="note-wrap">
+          <label class="label label-note" for="note" id="note-label">Anything to add?</label>
+          <input
+            id="note"
+            class="note"
+            type="text"
+            maxlength="200"
+            autocomplete="off"
+            enterkeyhint="go"
+            aria-describedby="note-help"
+            placeholder="The pool, the man on the desk, breakfast…" />
+          <p class="note-help" id="note-help"></p>
+        </div>
       </section>
 
       <div class="actions">

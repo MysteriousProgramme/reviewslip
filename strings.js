@@ -71,6 +71,9 @@ const STRINGS = {
     outOfTries:
       'You have used the reviews available for now. Edit the one you have — it is yours to change.',
     writerDown: "The writer is unavailable right now. Try again.",
+    noteLabel: 'Anything to add?',
+    notePlaceholder: 'The pool, the man on the desk, breakfast…',
+    noteOffTopic: 'That note does not look like it is about your visit. Tell us what happened here and try again.',
     writerEmpty: "The writer came back empty. Try again.",
   },
 
@@ -115,6 +118,9 @@ const STRINGS = {
     outOfTries:
       'ใช้จำนวนรีวิวที่มีครบแล้วในตอนนี้ แก้ไขรีวิวที่มีอยู่ได้ตามต้องการ เพราะเป็นของคุณ',
     writerDown: "ระบบเขียนรีวิวไม่พร้อมใช้งานในขณะนี้ ลองอีกครั้ง",
+    noteLabel: 'อยากเพิ่มอะไรไหม?',
+    notePlaceholder: 'สระว่ายน้ำ พนักงานต้อนรับ อาหารเช้า…',
+    noteOffTopic: 'ข้อความนี้ดูไม่เกี่ยวกับการเข้าพักของคุณ ลองเล่าสิ่งที่เกิดขึ้นที่นี่อีกครั้ง',
     writerEmpty: "ระบบเขียนรีวิวไม่ได้ส่งข้อความกลับมา ลองอีกครั้ง",
   },
 
@@ -158,6 +164,9 @@ const STRINGS = {
     tooFast: '操作过于频繁，请稍候再试。',
     outOfTries: '目前的次数已用完。您可以修改现有的评价，它是您的。',
     writerDown: "生成服务暂时不可用，请重试。",
+    noteLabel: '还想补充什么吗？',
+    notePlaceholder: '泳池、前台的服务、早餐……',
+    noteOffTopic: '这段备注看起来与您这次的体验无关。请说说在这里发生的事情，然后再试一次。',
     writerEmpty: "生成服务没有返回内容，请重试。",
   },
 
@@ -204,6 +213,9 @@ const STRINGS = {
     outOfTries:
       '今回分のレビューをすべて使いました。今あるものを自由に編集してください。',
     writerDown: "生成サービスは現在利用できません。もう一度お試しください。",
+    noteLabel: '付け加えることはありますか？',
+    notePlaceholder: 'プール、フロントの方、朝食など…',
+    noteOffTopic: 'このメモはご滞在についての内容ではないようです。ここでの出来事を書いて、もう一度お試しください。',
     writerEmpty: "生成サービスから何も返りませんでした。もう一度お試しください。",
   },
 
@@ -248,6 +260,9 @@ const STRINGS = {
     outOfTries:
       '지금 사용할 수 있는 횟수를 모두 썼습니다. 있는 리뷰를 자유롭게 수정하세요.',
     writerDown: "생성 서비스를 지금 사용할 수 없습니다. 다시 시도해 주세요.",
+    noteLabel: '덧붙일 내용이 있나요?',
+    notePlaceholder: '수영장, 프런트 직원, 조식…',
+    noteOffTopic: '이 메모는 이번 방문에 대한 내용이 아닌 것 같습니다. 여기에서 있었던 일을 적어 다시 시도해 주세요.',
     writerEmpty: "생성 서비스가 빈 응답을 보냈습니다. 다시 시도해 주세요.",
   },
 
@@ -294,6 +309,9 @@ const STRINGS = {
     outOfTries:
       'Has usado las reseñas disponibles por ahora. Edita la que tienes: es tuya.',
     writerDown: "El generador no está disponible ahora mismo. Inténtalo de nuevo.",
+    noteLabel: '¿Algo que añadir?',
+    notePlaceholder: 'La piscina, la persona de recepción, el desayuno…',
+    noteOffTopic: 'Esa nota no parece ser sobre tu visita. Cuéntanos qué pasó aquí e inténtalo de nuevo.',
     writerEmpty: "El generador no devolvió nada. Inténtalo de nuevo.",
   },
 
@@ -340,6 +358,9 @@ const STRINGS = {
     outOfTries:
       "Vous avez utilisé les avis disponibles pour le moment. Modifiez celui que vous avez : il est à vous.",
     writerDown: "Le générateur est indisponible pour le moment. Réessayez.",
+    noteLabel: 'Quelque chose à ajouter ?',
+    notePlaceholder: "La piscine, la personne à l'accueil, le petit-déjeuner…",
+    noteOffTopic: "Cette note ne semble pas concerner votre séjour. Dites-nous ce qui s'est passé ici et réessayez.",
     writerEmpty: "Le générateur n'a rien renvoyé. Réessayez.",
   },
 
@@ -386,6 +407,9 @@ const STRINGS = {
     outOfTries:
       'Sie haben die vorerst verfügbaren Bewertungen aufgebraucht. Bearbeiten Sie die vorhandene — sie gehört Ihnen.',
     writerDown: "Der Generator ist gerade nicht verfügbar. Bitte erneut versuchen.",
+    noteLabel: 'Noch etwas hinzuzufügen?',
+    notePlaceholder: 'Der Pool, die Person an der Rezeption, das Frühstück…',
+    noteOffTopic: 'Diese Notiz scheint nicht von Ihrem Besuch zu handeln. Schreiben Sie, was hier passiert ist, und versuchen Sie es erneut.',
     writerEmpty: "Der Generator hat nichts zurückgegeben. Bitte erneut versuchen.",
   },
 
@@ -432,6 +456,9 @@ const STRINGS = {
     outOfTries:
       'Hai usato le recensioni disponibili per ora. Modifica quella che hai: è tua.',
     writerDown: "Il generatore non è disponibile in questo momento. Riprova.",
+    noteLabel: 'Qualcosa da aggiungere?',
+    notePlaceholder: 'La piscina, la persona alla reception, la colazione…',
+    noteOffTopic: 'Questa nota non sembra riguardare la tua visita. Raccontaci cosa è successo qui e riprova.',
     writerEmpty: "Il generatore non ha restituito nulla. Riprova.",
   },
 
@@ -478,6 +505,9 @@ const STRINGS = {
     outOfTries:
       'Usou as avaliações disponíveis por agora. Edite a que tem — é sua.',
     writerDown: "O gerador está indisponível neste momento. Tente novamente.",
+    noteLabel: 'Algo a acrescentar?',
+    notePlaceholder: 'A piscina, a pessoa na receção, o pequeno-almoço…',
+    noteOffTopic: 'Essa nota não parece ser sobre a sua visita. Conte-nos o que aconteceu aqui e tente novamente.',
     writerEmpty: "O gerador não devolveu nada. Tente novamente.",
   },
 
@@ -524,6 +554,9 @@ const STRINGS = {
     outOfTries:
       'Je hebt de beschikbare reviews voorlopig gebruikt. Pas de review die je hebt gerust aan — hij is van jou.',
     writerDown: "De generator is nu niet beschikbaar. Probeer het opnieuw.",
+    noteLabel: 'Nog iets toe te voegen?',
+    notePlaceholder: 'Het zwembad, de persoon bij de balie, het ontbijt…',
+    noteOffTopic: 'Deze notitie lijkt niet over je bezoek te gaan. Vertel wat hier gebeurde en probeer het opnieuw.',
     writerEmpty: "De generator gaf niets terug. Probeer het opnieuw.",
   },
 };

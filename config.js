@@ -1,5 +1,7 @@
 'use strict';
 
+const note = require('./note');
+
 /**
  * The built-in fallback venue.
  *
@@ -224,6 +226,8 @@ function buildMessages({
   language = DEFAULT_LANGUAGE,
   length = DEFAULT_LENGTH,
   platformIds = [],
+  /** The guest's own words about their visit, already checked by note.js. */
+  guestNote = '',
   rand = Math.random,
 }) {
   // No fallback to a built-in set. A business with no topics has none, and the
@@ -317,6 +321,18 @@ function buildMessages({
       .join('\n');
     user += `\n\nThese reviews already exist for this business. Make this one clearly different in wording, structure and opening — someone reading the listing must not see the same review twice:\n${sample}`;
   }
+
+  /*
+   * The guest's note, after the samples and before the language.
+   *
+   * After the samples because it outranks them: the samples say how a review
+   * of this place tends to read, and the note says what happened to this
+   * person. Where the two pull apart, what happened wins — that is the whole
+   * reason the box exists.
+   *
+   * Before the language instruction, which stays last for the reason below.
+   */
+  user += note.forPrompt(guestNote);
 
   // Last, and stated plainly: a language instruction buried above the examples
   // gets ignored, and the examples are almost certainly in a different language

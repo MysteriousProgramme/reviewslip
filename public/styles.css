@@ -244,6 +244,72 @@ body {
   color: var(--jade);
 }
 
+/* ----------------------------------------------------------------- note -- */
+
+/*
+ * The guest's own note.
+ *
+ * Quiet, because most guests will never use it: the review is already written
+ * by the time anybody reads this far, and a box competing with it would make
+ * the page look like a form. It asks a question rather than labelling a field,
+ * which is what gets somebody to answer.
+ */
+.note-wrap {
+  margin-top: 1rem;
+}
+
+.label-note {
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.note {
+  width: 100%;
+  font: inherit;
+  font-size: 0.938rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  /*
+   * --paper, not --ink.
+   *
+   * --ink is the text colour derived for the paper surface — the review card
+   * — and this box sits on the dark ground instead. Using it here put dark
+   * text on a dark background at a contrast of 1.24, which is a box a guest
+   * can type into and not see what they typed. The ground's text colour is
+   * --paper, which is what the title above it uses.
+   */
+  color: var(--paper);
+  background: rgba(243, 236, 220, 0.06);
+  border: 1px solid var(--jade-line);
+}
+
+.note::placeholder {
+  color: var(--jade-dim);
+}
+
+.note:focus-visible {
+  outline: 2px solid var(--marigold);
+  outline-offset: 2px;
+}
+
+/*
+ * Why a note was turned down, under the box that caused it.
+ *
+ * Not in the notice line at the top, where the writer's own failures go: a
+ * guest has to be able to see which thing they typed is being objected to,
+ * and the notice is nowhere near it.
+ */
+.note-help:empty {
+  display: none;
+}
+
+.note-help {
+  margin: 0.45rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--warn);
+}
+
 /* ---------------------------------------------------------------- chips -- */
 
 .label {

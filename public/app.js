@@ -1,6 +1,9 @@
 'use strict';
 
 const el = {
+  note: document.getElementById('note'),
+  noteLabel: document.getElementById('note-label'),
+  noteHelp: document.getElementById('note-help'),
   logo: document.getElementById('logo'),
   eyebrow: document.getElementById('eyebrow'),
   chips: document.getElementById('chips'),
@@ -111,6 +114,23 @@ async function init() {
   autosize();
   el.review.addEventListener('input', autosize);
   el.regenerate.addEventListener('click', () => generate());
+
+  /*
+   * Enter in the note runs it, because on a phone the keyboard covers the
+   * button and pressing "go" is what everybody does anyway.
+   */
+  el.note.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!state.busy) void generate();
+    }
+  });
+
+  // A refused note leaves its message under the box; typing is the guest
+  // answering it, so the message goes once they do.
+  el.note.addEventListener('input', () => {
+    if (el.noteHelp.textContent) el.noteHelp.textContent = '';
+  });
   el.copy.addEventListener('click', onCopy);
   el.browse.addEventListener('click', onBrowse);
   el.topicsDone.addEventListener('click', () => el.dialog.close());
@@ -747,6 +767,9 @@ function applyStrings() {
   el.topicsSearch.setAttribute('aria-label', t('searchTopics'));
   el.topicsEmpty.textContent = t('noMatches');
 
+  el.noteLabel.textContent = t('noteLabel');
+  el.note.setAttribute('placeholder', t('notePlaceholder'));
+
   // Mid-copy: the button says "Copied" for a moment and must not be reset to
   // "Copy" by a language change landing inside that window.
   if (!copyResetTimer) el.copy.textContent = t('copy');
@@ -886,6 +909,9 @@ async function generate() {
         language: state.language,
         length: state.length,
         recent: state.recent,
+        // Whatever is in the box right now. Empty is the normal case and the
+        // server treats it as no note at all.
+        note: el.note.value,
       }),
     });
 
@@ -897,6 +923,21 @@ async function generate() {
     // untouched, `setBusy(false)` re-enabled the button, and the guest could
     // tap it forever against a server that would never say yes again.
     applyQuota(data);
+
+    /*
+     * A refused note is not a failure of the page.
+     *
+     * It goes under the box that caused it rather than into the notice line at
+     * the top, where errors about the writer being down go — somebody has to
+     * be able to see which thing they typed is being objected to, and the
+     * notice is nowhere near it.
+     */
+    if (data.noteRejected) {
+      el.noteHelp.textContent = data.error || t('noteOffTopic');
+      el.note.focus();
+      setBusy(false);
+      return;
+    }
 
     if (!res.ok) throw new Error(data.error || 'Something went wrong.');
 

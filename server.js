@@ -36,6 +36,7 @@ const rooms = require('./rooms');
 const accounts = require('./accounts');
 const nights = require('./nights');
 const housekeeping = require('./housekeeping');
+const note = require('./note');
 const checklists = require('./checklists');
 const shift = require('./shift');
 const adminRouter = require('./admin');
@@ -772,6 +773,24 @@ app.post('/api/review', requireTenant, async (req, res) => {
     req.body?.language || strings.fromHeader(req.get('accept-language'))
   ).code;
 
+  /*
+   * The guest's note, before the key, the throttle and the quota.
+   *
+   * Before the quota above all. This check reads a string and costs nothing —
+   * no tokens, no upstream call — and it sat after the counter, so a guest
+   * who typed a telephone number lost one of their ten tries to a refusal
+   * that cost the business nothing. Ten tries is not many when three of them
+   * went on learning what the box will not take.
+   *
+   * What it cannot judge is whether the note is about this visit, which needs
+   * reading it. The model is asked that directly, further down, and that one
+   * does cost a completion.
+   */
+  const guestNote = note.check(req.body?.note);
+  if (!guestNote.ok) {
+    return res.status(422).json({ error: guestNote.reason, noteRejected: true });
+  }
+
   if (!apiKey) {
     return res.status(500).json({ error: strings.t(lang, 'noKey') });
   }
@@ -862,6 +881,7 @@ app.post('/api/review', requireTenant, async (req, res) => {
     examples,
     realism,
     rejected,
+    guestNote: guestNote.note,
     // Which listing the review is bound for, when the business has only one and
     // so there is no doubt. A Google review and a Xiaohongshu post are different
     // genres; see context.js.
@@ -896,6 +916,26 @@ app.post('/api/review', requireTenant, async (req, res) => {
     if (!review) {
       console.error('Empty completion:', JSON.stringify(data).slice(0, 500));
       return res.status(502).json({ error: strings.t(lang, 'writerEmpty') });
+    }
+
+    /*
+     * The second layer: the model read the note and says it is not about this
+     * visit.
+     *
+     * Not recorded as a review, and deliberately not charged against the
+     * guest's remaining tries either — the tokens are spent, but taking a go
+     * away from somebody whose note was misjudged turns one refusal into a
+     * page they cannot use. The count on the button comes from the quota,
+     * which was incremented on the way in; this leaves it alone rather than
+     * pretending it did not happen.
+     */
+    if (note.wasRejected(review)) {
+      return res.status(422).json({
+        error: strings.t(lang, 'noteOffTopic'),
+        noteRejected: true,
+        left: spend.left,
+        max: MAX_REGENERATIONS,
+      });
     }
 
     // Awaited now, unlike before, because the guest needs the row id to rate
