@@ -155,4 +155,7 @@ function wasRejected(text) {
   );
 }
 
-module.exports = { MAX, check, clean, forPrompt, wasRejected, REJECTED };
+// `AIMED_AT_THE_MODEL` and `clean` are shared with themenote.js, which has the
+// same shape of problem — free text going into a prompt — and a different one
+// underneath it. See the note at the top of that file.
+module.exports = { MAX, AIMED_AT_THE_MODEL, check, clean, forPrompt, wasRejected, REJECTED };

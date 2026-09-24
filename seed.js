@@ -3,6 +3,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const themenote = require('./themenote');
+
 /**
  * Drafting: read a business's own website and propose what a review may be
  * written from.
@@ -365,10 +367,12 @@ Return a single JSON object of this shape:
 }
 
 What each one is for:
-- "ground" is the deep background of the whole page. It must be DARK. Take the site's darkest brand colour — a header, a footer, a hero overlay. If the site is entirely pale, deepen its main brand colour until it is dark rather than returning a light one.
-- "paper" is the light card the review is written on, and the printed table card. It must be LIGHT and close to neutral: an off-white, a cream, a very pale tint of the brand. Never a saturated colour — text has to sit on it.
+- "ground" is the deep background of the whole page, and the block at the top of the printed table card that the logo and the name sit on. It must be DARK. Take the site's darkest brand colour — a header, a footer, a hero overlay. If the site is entirely pale, deepen its main brand colour until it is dark rather than returning a light one.
+- "paper" is the light card the review is written on, and the text that reads on the block at the top of the printed table card. It must be LIGHT and close to neutral: an off-white, a cream, a very pale tint of the brand. Never a saturated colour — text has to sit on it, and it has to read on the ground as well.
 - "accent" is the quiet furniture: labels, borders, the topic buttons. A mid-tone brand colour.
 - "highlight" is spent once, on the button that opens the review listing. The site's most attention-seeking colour — the one on its main call to action.
+
+On the printed table card the same four are the frame and corner marks ("accent"), the divider under the name ("highlight"), and the block behind the mark ("ground") with the name reversed out of it in "paper". The card's own stock stays white whatever you choose. So an instruction about the table card is an instruction about these four, and not a fifth thing to return.
 
 Rules:
 - Every value must be a full six-digit hex like #1b2a23. No colour names, no rgb(), no shorthand.
@@ -422,7 +426,7 @@ Output only the JSON object. Nothing before it, nothing after it.`;
  * @param {object[]} args.displayFonts - the allowlist, from theme.js
  * @param {object[]} args.uiFonts - likewise
  */
-function buildThemeMessages({ url, displayFonts, uiFonts, brief = '' }) {
+function buildThemeMessages({ url, displayFonts, uiFonts, brief = '', note = '' }) {
   /*
    * The page, and what we already went and read off it.
    *
@@ -440,11 +444,22 @@ function buildThemeMessages({ url, displayFonts, uiFonts, brief = '' }) {
     ? `\n\nWhat we have already read out of this site's own stylesheets:\n\n${brief}\n\nUse this. It was measured rather than guessed, and it beats anything you infer from how the page looks described in text. Fetch the page as well, for the typefaces and for a sense of the place — but do not overrule a colour above with one you thought you saw.`
     : `\n\nRead the stylesheet and the inline styles as well as the visible text: that is where the colours, the font-family stacks and the logo's real address are.`;
 
+  /*
+   * And what the owner asked for, last.
+   *
+   * After the evidence deliberately. Measuring a site tells you what it is
+   * painted with, which is not the same as what the business wants to be seen
+   * in — a site built in 2014 that everybody is embarrassed by measures
+   * perfectly accurately. Where the two disagree, the person who owns the
+   * brand is the better source. See themenote.js.
+   */
+  const asked = themenote.forPrompt(note);
+
   return [
     { role: 'system', content: themeSystem({ displayFonts, uiFonts }) },
     {
       role: 'user',
-      content: `Read ${url} and choose the look. Fetch the page before answering — do not guess from the business name or the domain. Prefer something you can point at over something that merely feels right.${evidence}`,
+      content: `Read ${url} and choose the look. Fetch the page before answering — do not guess from the business name or the domain. Prefer something you can point at over something that merely feels right.${evidence}${asked}`,
     },
   ];
 }

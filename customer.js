@@ -40,6 +40,7 @@ const shift = require('./shift');
 const checklists = require('./checklists');
 const roomstatus = require('./roomstatus');
 const sitefacts = require('./sitefacts');
+const themenote = require('./themenote');
 const { PLATFORMS } = require('./platforms');
 
 /**
@@ -2046,6 +2047,10 @@ router.post(
  * checks have run, and which of them the checks had to move — so the customer is
  * looking at the palette the guest will actually see rather than the one their
  * brand guide specifies.
+ *
+ * `note` is what the owner asked for in their own words, and it is optional.
+ * Reading a site measures what it is painted with, which is not the same as
+ * what the business wants to be seen in — see themenote.js.
  */
 router.post(
   '/businesses/:slug/theme/draft',
@@ -2055,6 +2060,16 @@ router.post(
     try {
       const resolved = readable(req.venue, res);
       if (!resolved) return;
+
+      /*
+       * Before anything is fetched or paid for.
+       *
+       * The reasons this refuses are all things somebody can fix in the box
+       * they just typed into, and every one of them is cheaper to say now than
+       * after twenty seconds of reading a website.
+       */
+      const asked = themenote.check(req.body?.note);
+      if (!asked.ok) return res.status(400).json({ error: asked.reason });
 
       /*
        * Read the site ourselves first.
@@ -2075,6 +2090,7 @@ router.post(
           displayFonts: theme.DISPLAY_FONTS,
           uiFonts: theme.UI_FONTS,
           brief: facts.brief,
+          note: asked.note,
         }),
         maxTokens: 1200,
       });
