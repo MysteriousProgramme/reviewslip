@@ -131,6 +131,86 @@ function sheetsOf(html, base) {
   return out.slice(0, MAX_SHEETS);
 }
 
+/**
+ * How many pages of a site to read, beyond the one we were given.
+ *
+ * A front page is a hero photograph and a sentence. The rooms are on the
+ * rooms page, the food is on the restaurant page, and a site that loads an
+ * extra stylesheet does it on the page that needs it — so reading only the
+ * front page was reading the smallest part of the site and calling it the
+ * whole.
+ *
+ * Four is a compromise with the customer's own server: this runs while
+ * somebody watches a spinner, each page is a request, and the returns fall
+ * away quickly once the shared stylesheet has been seen. Ordered by what a
+ * page is likely to be, not by where it sits in the navigation.
+ */
+const MAX_PAGES = 4;
+
+/**
+ * What a link is probably for, lower being read first.
+ *
+ * Rooms and food before contact and terms, because this is looking for
+ * photographs of the place and the colours the site actually paints with. A
+ * privacy policy has neither and is often the longest page on the site.
+ */
+const WORTH_READING = [
+  /\b(rooms?|accommodation|suites?|villas?|chalets?|stay)\b/i,
+  /\b(restaurant|dining|food|menu|bar|eat)\b/i,
+  /\b(gallery|photos?|facilities|amenities|about)\b/i,
+  /\b(events?|weddings?|activities|experiences?)\b/i,
+];
+
+const NOT_WORTH_READING =
+  /\b(privacy|terms|cookie|legal|sitemap|login|account|cart|checkout|feed|rss|wp-admin|wp-login)\b|\.(pdf|jpe?g|png|webp|gif|svg|zip|docx?)($|\?)/i;
+
+/**
+ * Pages on the same site worth reading, best first.
+ *
+ * Same origin only, and never more than one per path: a site with a language
+ * switcher offers the same page in eight languages, and reading all eight is
+ * eight requests for one page's worth of colours.
+ */
+function otherPages(html, base) {
+  let origin;
+  try {
+    origin = new URL(base).origin;
+  } catch {
+    return [];
+  }
+
+  const seen = new Set([new URL(base).pathname.replace(/\/$/, '')]);
+  const ranked = [];
+
+  for (const m of String(html).matchAll(/<a\b[^>]*href=["']([^"']+)["']/gi)) {
+    let url;
+    try {
+      url = new URL(m[1], base);
+    } catch {
+      continue;
+    }
+
+    if (url.origin !== origin) continue;
+    if (NOT_WORTH_READING.test(url.pathname)) continue;
+
+    // The fragment and the query are the same page wearing a hat.
+    url.hash = '';
+    url.search = '';
+    const path = url.pathname.replace(/\/$/, '');
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+
+    const rank = WORTH_READING.findIndex((re) => re.test(path));
+    if (rank === -1) continue;
+    ranked.push({ url: url.toString(), rank });
+  }
+
+  return ranked
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, MAX_PAGES)
+    .map((p) => p.url);
+}
+
 /** Whatever the page inlines, which on a cached WordPress site is most of it. */
 function inlineCss(html) {
   return [...String(html).matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)]
@@ -149,38 +229,102 @@ function inlineCss(html) {
  *   backgrounds: object[], read: string[], note: string}>}
  */
 async function gather(pageUrl) {
-  const empty = { brief: '', colours: [], logos: [], backgrounds: [], read: [], note: '' };
+  const empty = {
+    brief: '',
+    colours: [],
+    logos: [],
+    backgrounds: [],
+    read: [],
+    pages: [],
+    note: '',
+  };
   if (!pageUrl) return empty;
 
-  const page = await fetchText(pageUrl);
-  if (!page.ok) {
-    return { ...empty, note: `The site's own files could not be read — ${page.error}.` };
+  const front = await fetchText(pageUrl);
+  if (!front.ok) {
+    return { ...empty, note: `The site's own files could not be read — ${front.error}.` };
   }
 
-  const base = page.url ?? pageUrl;
-  let css = inlineCss(page.text);
-  const read = [];
+  const base = front.url ?? pageUrl;
 
-  for (const href of sheetsOf(page.text, base)) {
-    const sheet = await fetchText(href, { maxBytes: MAX_SHEET_BYTES });
-    if (sheet.ok) {
-      css += '\n' + sheet.text;
-      read.push(href);
+  /*
+   * The front page, then a few of the pages it links to.
+   *
+   * Reading one page was reading the smallest part of a site: the front page
+   * is a hero and a sentence, and the rooms, the food and half the
+   * photographs are behind the navigation. Each page also brings whatever
+   * stylesheet it loads that the front page did not.
+   */
+  const pages = [{ url: base, html: front.text }];
+  for (const href of otherPages(front.text, base)) {
+    const next = await fetchText(href);
+    if (next.ok) pages.push({ url: next.url ?? href, html: next.text });
+  }
+
+  let css = '';
+  const read = [];
+  const sheets = new Set();
+
+  for (const page of pages) {
+    css += '\n' + inlineCss(page.html);
+
+    for (const href of sheetsOf(page.html, page.url)) {
+      // Once per file, not once per page that links it. Every page on a site
+      // loads the same theme stylesheet, and reading it five times would be
+      // five requests and five copies of the same colours to weigh.
+      if (sheets.has(href)) continue;
+      sheets.add(href);
+
+      const sheet = await fetchText(href, { maxBytes: MAX_SHEET_BYTES });
+      if (sheet.ok) {
+        css += '\n' + sheet.text;
+        read.push(href);
+      }
     }
   }
 
-  const found = sitecolours.palette(css);
-  const images = sitecolours.images(page.text, base);
+  /*
+   * Images from every page, the front page's first.
+   *
+   * Order matters here in a way it does not for colours: the candidates are
+   * tried in turn until one downloads, and the picture a site puts on its own
+   * front page is the one it would choose.
+   */
+  const logos = [];
+  const backgrounds = [];
+  for (const page of pages) {
+    const found = sitecolours.images(page.html, page.url);
+    for (const l of found.logos) if (!logos.some((x) => x.url === l.url)) logos.push(l);
+    for (const b of found.backgrounds) {
+      if (!backgrounds.some((x) => x.url === b.url)) backgrounds.push(b);
+    }
+  }
+
+  const palette = sitecolours.palette(css);
 
   return {
-    brief: sitecolours.brief({ colours: found.all, ...images }),
-    colours: found.all,
-    named: found.named,
-    logos: images.logos,
-    backgrounds: images.backgrounds,
+    brief: sitecolours.brief({
+      colours: palette.all,
+      logos: logos.slice(0, 6),
+      backgrounds: backgrounds.slice(0, 8),
+    }),
+    colours: palette.all,
+    named: palette.named,
+    logos: logos.slice(0, 6),
+    backgrounds: backgrounds.slice(0, 8),
     read,
+    pages: pages.map((p) => p.url),
     note: '',
   };
 }
 
-module.exports = { gather, fetchText, sheetsOf, inlineCss, MAX_SHEETS, VENDOR_SHEET };
+module.exports = {
+  gather,
+  fetchText,
+  sheetsOf,
+  otherPages,
+  inlineCss,
+  MAX_SHEETS,
+  MAX_PAGES,
+  VENDOR_SHEET,
+};

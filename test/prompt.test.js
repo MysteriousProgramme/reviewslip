@@ -40,6 +40,7 @@ const inbound = require('../inbound');
 const connectors = require('../connectors');
 const listingreader = require('../listingreader');
 const sitecolours = require('../sitecolours');
+const sitefacts = require('../sitefacts');
 const housekeeping = require('../housekeeping');
 const shift = require('../shift');
 const roomstatus = require('../roomstatus');
@@ -2602,6 +2603,64 @@ test("a vendor's defaults do not outvote the site's own choice", () => {
   const hexes = found.all.map((c) => c.hex);
   assert.ok(hexes.includes('#2b7bb9'), 'the real accent should be there');
   assert.ok(!hexes.includes('#337ab7'), "Bootstrap's default should not be offered beside it");
+});
+
+test('the whole site is read, not just the page it was pointed at', () => {
+  /*
+   * A front page is a hero photograph and a sentence. The rooms are on the
+   * rooms page and the food is on the restaurant page, so reading only the
+   * front page was reading the smallest part of a site and calling it all of
+   * it. On the site this was built against it took the photograph candidates
+   * from three to eight — a bed, a sofa, the pool.
+   */
+  const html = `
+    <a href="/chalets/">Rooms</a>
+    <a href="/restaurant/">Restaurant</a>
+    <a href="/about-us">About</a>
+    <a href="/privacy-policy">Privacy</a>
+    <a href="/terms">Terms</a>
+    <a href="https://facebook.com/someone">Facebook</a>
+    <a href="/brochure.pdf">Brochure</a>
+    <a href="/chalets/#gallery">The same page, lower down</a>
+    <a href="/chalets/?lang=th">The same page in Thai</a>
+    <a href="/">Home</a>
+  `;
+  const found = sitefacts.otherPages(html, 'https://h.test/');
+
+  // Rooms before food before about: this is hunting for photographs of the
+  // place and the colours it paints with, and that is the order they live in.
+  // Kept exactly as the site writes them, trailing slash and all: fetching
+  // /chalets when the site links /chalets/ is a redirect somebody pays for.
+  assert.deepEqual(found, [
+    'https://h.test/chalets/',
+    'https://h.test/restaurant/',
+    'https://h.test/about-us',
+  ]);
+
+  // A privacy policy has no photographs and is often the longest page on the
+  // site. Somebody else's domain is somebody else's site.
+  assert.ok(!found.some((u) => /privacy|terms|facebook|\.pdf/.test(u)));
+  // The page we started on is not read twice, however it is linked.
+  assert.ok(!found.includes('https://h.test/'));
+});
+
+test('a language switcher does not cost four requests for one page', () => {
+  // The same path with a query or a fragment is the same page wearing a hat.
+  const html = `
+    <a href="/rooms?lang=en">EN</a>
+    <a href="/rooms?lang=th">TH</a>
+    <a href="/rooms#top">Top</a>
+    <a href="/rooms/">Rooms</a>
+  `;
+  const once = sitefacts.otherPages(html, 'https://h.test/');
+  assert.equal(once.length, 1, `read the same page ${once.length} times`);
+  assert.match(once[0], /^https:\/\/h\.test\/rooms\/?$/);
+});
+
+test('no more pages than the cap, however many are linked', () => {
+  const many = Array.from({ length: 30 }, (_, i) => `<a href="/room-${i}">Room ${i}</a>`).join('');
+  const found = sitefacts.otherPages(many, 'https://h.test/');
+  assert.equal(found.length, sitefacts.MAX_PAGES);
 });
 
 test('a comment above a rule is not mistaken for its selector', () => {
