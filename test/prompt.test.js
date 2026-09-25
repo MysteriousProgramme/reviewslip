@@ -745,6 +745,75 @@ test('direction outranks the measurements, and sits after them to say so', () =>
   assert.doesNotMatch(bare[1].content, /owner of this business/i);
 });
 
+test('adjusting works from the colours on screen, and reads nothing', () => {
+  /*
+   * Reading the site is several requests to the customer's own server and a
+   * model call with a page attached — the right price for a first draft and
+   * an absurd one for "warmer". It is also a worse answer: a fresh read makes
+   * the model decide the whole palette again, so a small change comes back
+   * with colours that moved for no reason anybody asked for.
+   */
+  const current = {
+    ground: '#1c2b36',
+    paper: '#efe9e0',
+    accent: '#1f5a87',
+    highlight: '#2b7bb9',
+    display: 'fraunces',
+    ui: 'inter',
+  };
+
+  const messages = seed.buildAdjustMessages({
+    current,
+    note: 'the table card is too dark',
+    displayFonts: theme.DISPLAY_FONTS,
+    uiFonts: theme.UI_FONTS,
+  });
+
+  const [system, user] = messages.map((m) => m.content);
+
+  // Every colour it has, so it can leave alone the ones nobody mentioned.
+  for (const hex of Object.values(current)) assert.ok(user.includes(hex), hex);
+  assert.match(user, /too dark/);
+
+  // Nothing about going and looking at anything.
+  assert.doesNotMatch(system, /Fetch the page/i);
+  assert.doesNotMatch(user, /Fetch the page/i);
+  assert.doesNotMatch(system, /stylesheet/i);
+
+  // The instruction is fenced as the owner's words, like every other piece of
+  // text that arrives from outside and goes into a prompt.
+  assert.match(user, /"""/);
+
+  // And it knows what it is changing, both of them.
+  assert.match(system, /review page/i);
+  assert.match(system, /printed table card/i);
+  assert.match(system, /white and stays white/i);
+});
+
+test('an adjusted answer parses the same way a read one does', () => {
+  // One parser, so the two paths cannot disagree about what came back. The
+  // adjust prompt asks for no logo, background or font files, and parseTheme
+  // treats all three as optional already.
+  const parsed = seed.parseTheme(
+    JSON.stringify({
+      ground: { hex: '#101820', source: 'deepened, as asked' },
+      paper: { hex: '#efe9e0', source: 'unchanged' },
+      accent: { hex: '#1f5a87', source: 'unchanged' },
+      highlight: { hex: '#2b7bb9', source: 'unchanged' },
+      display: { id: 'fraunces' },
+      ui: { id: 'inter' },
+    })
+  );
+
+  assert.equal(parsed.theme.ground, '#101820');
+  assert.equal(parsed.theme.display, 'fraunces');
+  assert.equal(parsed.sources.paper, 'unchanged');
+  // Nothing to download, and nothing pretending there is.
+  assert.equal(parsed.logoUrl, '');
+  assert.equal(parsed.backgroundUrl, '');
+  assert.deepEqual(parsed.files, {});
+});
+
 test('the reader is told what the four colours become on the printed card', () => {
   /*
    * So that "make the table card calmer" lands on the right slot instead of
@@ -758,8 +827,13 @@ test('the reader is told what the four colours become on the printed card', () =
   });
 
   assert.match(system, /table card/i);
-  assert.match(system, /block behind the mark|block at the top/i);
-  assert.match(system, /stock stays white/i);
+  // The structure, not just the words "table card": a block of the ground
+  // colour at the top with the mark and the name reversed out of it.
+  assert.match(system, /block of "ground"/i);
+  assert.match(system, /reversed out of it in "paper"/i);
+  // And the two things a palette may not touch.
+  assert.match(system, /white and stays white/i);
+  assert.match(system, /always pure black on white/i);
 });
 
 

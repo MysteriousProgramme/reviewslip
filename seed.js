@@ -329,6 +329,10 @@ function parseDescription(raw, { maxChars = 600 } = {}) {
 
 /* ------------------------------------------------------------- the theme */
 
+/** The allowlist as the prompt shows it. Both theme prompts offer it. */
+const fontList = (fonts) =>
+  fonts.map((f) => `  "${f.id}" — ${f.name}: ${f.note}`).join('\n');
+
 /**
  * Four colours, read off the business's own site.
  *
@@ -349,9 +353,6 @@ function parseDescription(raw, { maxChars = 600 } = {}) {
  * do WCAG arithmetic produces confident wrong numbers.
  */
 function themeSystem({ displayFonts, uiFonts }) {
-  const list = (fonts) =>
-    fonts.map((f) => `  "${f.id}" — ${f.name}: ${f.note}`).join('\n');
-
   return `You read a business's own website and choose how its review page should look: four colours, two typefaces, and its logo.
 
 Return a single JSON object of this shape:
@@ -366,13 +367,7 @@ Return a single JSON object of this shape:
   "background": { "url": "https://example.com/hero.jpg", "source": "the full-width photo behind the front-page headline" }
 }
 
-What each one is for:
-- "ground" is the deep background of the whole page, and the block at the top of the printed table card that the logo and the name sit on. It must be DARK. Take the site's darkest brand colour — a header, a footer, a hero overlay. If the site is entirely pale, deepen its main brand colour until it is dark rather than returning a light one.
-- "paper" is the light card the review is written on, and the text that reads on the block at the top of the printed table card. It must be LIGHT and close to neutral: an off-white, a cream, a very pale tint of the brand. Never a saturated colour — text has to sit on it, and it has to read on the ground as well.
-- "accent" is the quiet furniture: labels, borders, the topic buttons. A mid-tone brand colour.
-- "highlight" is spent once, on the button that opens the review listing. The site's most attention-seeking colour — the one on its main call to action.
-
-On the printed table card the same four are the frame and corner marks ("accent"), the divider under the name ("highlight"), and the block behind the mark ("ground") with the name reversed out of it in "paper". The card's own stock stays white whatever you choose. So an instruction about the table card is an instruction about these four, and not a fifth thing to return.
+${SURFACES}
 
 Rules:
 - Every value must be a full six-digit hex like #1b2a23. No colour names, no rgb(), no shorthand.
@@ -396,10 +391,10 @@ The real font, in "family" and "url":
 The fallback, in "id" — always required, whether or not you found a file. It must be one of these exactly:
 
 "display" choose from:
-${list(displayFonts)}
+${fontList(displayFonts)}
 
 "ui" choose from:
-${list(uiFonts)}
+${fontList(uiFonts)}
 
 - Match the character of what the site uses, not the name. A site set in Canela or Tiempos wants a warm contemporary serif; one set in Helvetica or Circular wants a neutral or geometric sans.
 - If the site's own type is unremarkable or you cannot tell, say so in "source" and pick the closest neutral rather than guessing at something distinctive.
@@ -419,6 +414,32 @@ Background. Give the absolute https URL of one photograph from the site, to sit 
 
 Output only the JSON object. Nothing before it, nothing after it.`;
 }
+
+/**
+ * What these four colours actually become, on both things they are used for.
+ *
+ * One block shared by the two prompts — reading a website and adjusting what
+ * came back — because a business asking for "a calmer table card" is asking
+ * about these four and nothing else, and a model that does not know what the
+ * card is made of will either invent a fifth field or ignore the request.
+ *
+ * Written as two screens rather than four slots on purpose. "Accent is a
+ * mid-tone brand colour" tells a model nothing about what it will look like;
+ * "the frame and the corner marks on a printed card" tells it everything.
+ */
+const SURFACES = `What each one is for:
+- "ground" is the deep background of the whole page. It must be DARK. Take the site's darkest brand colour — a header, a footer, a hero overlay. If the site is entirely pale, deepen its main brand colour until it is dark rather than returning a light one.
+- "paper" is the light card the review is written on. It must be LIGHT and close to neutral: an off-white, a cream, a very pale tint of the brand. Never a saturated colour — text has to sit on it.
+- "accent" is the quiet furniture: labels, borders, the topic buttons. A mid-tone brand colour.
+- "highlight" is spent once, on the button that opens the review listing. The site's most attention-seeking colour — the one on its main call to action.
+
+These four make two different things, and an instruction is usually about one of them.
+
+The review page, which a guest opens on their phone: "ground" fills the screen behind everything. A card in "paper" sits on it holding the review itself. The topic buttons, the labels and the hairlines round them are "accent". One button — the one that opens the listing where the review gets posted — is "highlight", and it is the only place that colour appears.
+
+The printed table card, an A5 that stands on a table: the paper it is printed on is white and stays white whatever you choose, because a full-bleed colour costs a cartridge and leaves a white margin on any printer that cannot go borderless. Inside a frame and corner marks drawn in "accent", a block of "ground" sits at the top holding the venue's logo and name, which are reversed out of it in "paper". A small divider under the name is "highlight". The QR code is always pure black on white so a phone can read it in a dim room.
+
+So: "the table card is too dark" means the ground is too dark. "The card should be calmer" means less contrast between ground and paper, or a quieter highlight. "The review page is too cold" means the whole palette. None of them mean a fifth colour — there are four, and both things are made from them.`;
 
 /**
  * @param {object} args
@@ -460,6 +481,81 @@ function buildThemeMessages({ url, displayFonts, uiFonts, brief = '', note = '' 
     {
       role: 'user',
       content: `Read ${url} and choose the look. Fetch the page before answering — do not guess from the business name or the domain. Prefer something you can point at over something that merely feels right.${evidence}${asked}`,
+    },
+  ];
+}
+
+/**
+ * Changing the colours that are already there, without reading anything.
+ *
+ * The other path reads the whole website — several requests to the customer's
+ * own server, then a model call with a page attached — and takes the better
+ * part of a minute. That is the right price for the first draft and an absurd
+ * one for "warmer", which is what most presses of that button actually mean
+ * once a palette exists.
+ *
+ * It is also a better answer, not merely a faster one. Re-reading the site
+ * makes the model decide the palette again from scratch, so a small change
+ * comes back with colours that moved for no reason anybody asked for. Given
+ * the four it already has, it can move the one that was mentioned.
+ *
+ * The logo, the photograph and the typefaces are not touched: they were
+ * downloaded and approved already, and nothing about "less blue" is a reason
+ * to go and fetch them again.
+ */
+function buildAdjustMessages({ current, note, displayFonts, uiFonts }) {
+  const system = `You adjust the colours a business already has for its review page and its printed table card.
+
+${SURFACES}
+
+Typefaces. You may change the two font ids if — and only if — the instruction is about type. Leave them exactly as they are otherwise.
+
+"display" choose from:
+${fontList(displayFonts)}
+
+"ui" choose from:
+${fontList(uiFonts)}
+
+Answer with one JSON object and nothing else:
+
+{
+  "ground": { "hex": "#0c1f19", "source": "deepened, as asked" },
+  "paper": { "hex": "#f3ecdc", "source": "unchanged" },
+  "accent": { "hex": "#82b49b", "source": "unchanged" },
+  "highlight": { "hex": "#e9a03b", "source": "warmed towards amber" },
+  "display": { "id": "${displayFonts[0]?.id ?? 'lora'}" },
+  "ui": { "id": "${uiFonts[0]?.id ?? 'inter'}" }
+}
+
+Rules:
+- All four colours every time, whether or not you changed them. Full six-digit hex like #1b2a23 — no colour names, no rgb(), no shorthand.
+- Change what was asked for and leave the rest alone. A colour nobody mentioned should come back exactly as it went in, and "source" should say "unchanged".
+- Where a colour did change, "source" says what you did to it in a few words. It is shown to the business.
+- "ground" stays dark and "paper" stays light. If an instruction would break that — "make the background white" — move as far as you can while keeping them apart, and say so in "source".
+- Do not return four near-identical colours. This is a palette, not a monochrome study.
+
+Output only the JSON object. Nothing before it, nothing after it.`;
+
+  return [
+    { role: 'system', content: system },
+    {
+      role: 'user',
+      content: `These are the colours now:
+
+ground: ${current.ground}
+paper: ${current.paper}
+accent: ${current.accent}
+highlight: ${current.highlight}
+display font: ${current.display}
+ui font: ${current.ui}
+
+The business asked for this:
+
+"""
+${note}
+"""
+
+Change what they asked for and leave everything else as it is.`,
     },
   ];
 }
@@ -527,6 +623,7 @@ module.exports = {
   buildDescribeMessages,
   parseDescription,
   buildThemeMessages,
+  buildAdjustMessages,
   parseTheme,
   themeSystem,
   buildTopicMessages,

@@ -29,6 +29,7 @@ const {
   parseDescription,
   parseTopics,
   buildThemeMessages,
+  buildAdjustMessages,
   parseTheme,
 } = require('./seed');
 const theme = require('./theme');
@@ -2109,6 +2110,92 @@ router.post(
 );
 
 /**
+ * The cheap half of the theme draft: change what is there, read nothing.
+ *
+ * Returns the same shape the full draft does minus everything that needs the
+ * network — no logo, no photograph, no font files. The dashboard keeps what
+ * it already had for those, which is right: they were downloaded and approved
+ * once, and "less blue" is not a reason to fetch them again.
+ */
+async function adjustTheme(req, res, { own, note, resolved }) {
+  const current = own.theme;
+  const answer = await readWebsite(req.venue, resolved, {
+    messages: buildAdjustMessages({
+      current,
+      note,
+      displayFonts: theme.DISPLAY_FONTS,
+      uiFonts: theme.UI_FONTS,
+    }),
+    maxTokens: 700,
+    // The whole point. Without this the web_fetch tool is attached and the
+    // model goes and reads the site anyway.
+    fetchPage: false,
+  });
+
+  if (!answer.ok) return res.status(answer.status).json({ error: answer.error });
+
+  const parsed = parseTheme(answer.content);
+  if (!parsed) {
+    console.error(
+      'Theme adjustment produced nothing usable:',
+      String(answer.content).slice(0, 500)
+    );
+    return res.status(502).json({
+      error: 'Nothing usable came back. Try saying it a different way.',
+    });
+  }
+
+  /*
+   * The mark carried through, because this reply replaces the palette.
+   *
+   * The dashboard takes what comes back wholesale — that is right for a fresh
+   * read, which returns everything — so a reply with no logo in it would take
+   * the venue's logo off on the next Save. It was never the model's to change
+   * here and it is not being re-fetched; it is only being kept.
+   */
+  const verdict = theme.validate({
+    ...parsed.theme,
+    logo: current.logo ?? '',
+    showName: current.showName === true,
+  });
+  if (!verdict.ok) {
+    return res.status(502).json({
+      error: `The colours that came back are not usable: ${verdict.error}`,
+    });
+  }
+
+  /*
+   * Derived against what this venue actually has.
+   *
+   * The scrim only exists when there is a photograph behind the page, and the
+   * grabbed typefaces change what the preview renders in — so deriving with
+   * empty ones here would show a preview that is not the page. They are not
+   * being changed, only accounted for.
+   */
+  const fonts = {};
+  if (own.fontDisplay) fonts.display = own.fontDisplay;
+  if (own.fontUi) fonts.ui = own.fontUi;
+
+  const derived = theme.derive(verdict.theme, fonts, {
+    background: Boolean(own.background),
+  });
+
+  res.json({
+    theme: verdict.theme,
+    sources: parsed.sources,
+    derived: derived.vars,
+    adjusted: derived.adjusted,
+    /*
+     * Said plainly, because the two paths look identical from the dashboard
+     * and behave differently: this one did not touch the mark, the photograph
+     * or the typefaces, and somebody who pressed it expecting a fresh read
+     * should be able to tell which they got.
+     */
+    adjustedOnly: true,
+  });
+}
+
+/**
  * The theme, drafted from the business's own website.
  *
  * A draft like the rest: it fills the swatches and Save stores it. What comes
@@ -2120,6 +2207,10 @@ router.post(
  * `note` is what the owner asked for in their own words, and it is optional.
  * Reading a site measures what it is painted with, which is not the same as
  * what the business wants to be seen in — see themenote.js.
+ *
+ * `adjust` asks for the cheap path instead: change the colours that are
+ * already there and read nothing. See adjustTheme above for why that is the
+ * better answer and not only the faster one.
  */
 router.post(
   '/businesses/:slug/theme/draft',
@@ -2139,6 +2230,33 @@ router.post(
        */
       const asked = themenote.check(req.body?.note);
       if (!asked.ok) return res.status(400).json({ error: asked.reason });
+
+      /*
+       * Adjusting what is already there, rather than reading the site again.
+       *
+       * Reading it is several requests to the customer's own server followed
+       * by a model call with a page attached, and takes the better part of a
+       * minute. That is the right price for a first draft and an absurd one
+       * for "warmer" — which is what most presses of that button mean once a
+       * palette exists.
+       *
+       * It is the better answer as well as the faster one. A fresh read makes
+       * the model decide the whole palette again, so a small change comes
+       * back with colours that moved for no reason anybody asked for. This
+       * way it is handed the four it has and moves the one that was named.
+       *
+       * Asked for, not inferred. The dashboard has two buttons and the person
+       * pressing one of them knows which they meant; deciding here from the
+       * presence of a note would mean somebody who wanted the site read again
+       * silently got an adjustment instead, with no way to say otherwise.
+       *
+       * Still refused without an instruction and an existing palette: there
+       * would be nothing to adjust, and nothing to adjust it towards.
+       */
+      const own = subscribers.settingsFor(req.venue);
+      if (req.body?.adjust === true && asked.note && own.theme) {
+        return void (await adjustTheme(req, res, { own, note: asked.note, resolved }));
+      }
 
       /*
        * Read the site ourselves first.
