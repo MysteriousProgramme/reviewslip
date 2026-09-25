@@ -17,6 +17,9 @@ const el = {
   gate: document.getElementById('gate'),
   gateVenue: document.getElementById('gate-venue'),
   gateNote: document.getElementById('gate-note'),
+  shotView: document.getElementById('shot-view'),
+  shotImage: document.getElementById('shot-image'),
+  shotCaption: document.getElementById('shot-caption'),
   form: document.getElementById('pin-form'),
   pin: document.getElementById('pin'),
   go: document.getElementById('pin-go'),
@@ -243,6 +246,59 @@ async function mark(button) {
 
 /* ------------------------------------------------------------- the checklist */
 
+/*
+ * Reference photographs, fetched rather than linked.
+ *
+ * The shift token is an Authorization header and nothing else — deliberately,
+ * because a token in a URL ends up in the server's access log and in the
+ * Referer of anything the page later loads. An <img src> cannot send a
+ * header, so the bytes are fetched the same way every other call is and
+ * handed to the tag as an object URL.
+ *
+ * Kept in a map because the same line appears on every room of its type: one
+ * request for a picture, not one per room. They are released at the end of
+ * the shift, which is the only point at which the token they were fetched
+ * with stops being valid anyway.
+ */
+const shots = new Map();
+
+async function shotFor(itemId) {
+  if (shots.has(itemId)) return shots.get(itemId);
+
+  try {
+    const res = await fetch(`/api/housekeeping/checklist/${itemId}/photo`, {
+      headers: token() ? { Authorization: `Shift ${token()}` } : {},
+    });
+    if (!res.ok) return null;
+
+    const url = URL.createObjectURL(await res.blob());
+    shots.set(itemId, url);
+    return url;
+  } catch {
+    // A picture that will not load is not a reason to lose the checklist. The
+    // line still says what to do; it just says it in words.
+    return null;
+  }
+}
+
+function releaseShots() {
+  for (const url of shots.values()) URL.revokeObjectURL(url);
+  shots.clear();
+}
+
+function openShot(button) {
+  el.shotImage.src = button.dataset.shot;
+  el.shotImage.alt = button.dataset.label || '';
+  el.shotCaption.textContent = button.dataset.label || '';
+  el.shotView.hidden = false;
+}
+
+function closeShot() {
+  el.shotView.hidden = true;
+  // Left in place rather than cleared: the object URL is still ours and still
+  // in the map, and blanking it makes reopening the same picture flicker.
+}
+
 function drawChecks(panel, data) {
   panel.replaceChildren();
 
@@ -268,7 +324,42 @@ function drawChecks(panel, data) {
     label.textContent = item.label;
 
     button.append(box, label);
-    li.append(button);
+
+    const row = document.createElement('div');
+    row.className = 'hk-line';
+    row.append(button);
+
+    /*
+     * The picture beside the line, never inside it.
+     *
+     * Everything in the tick button is a tap that marks the line done, so a
+     * thumbnail in there would mean that looking at the photograph ticks the
+     * job off — and the room gets reported clean by somebody who was trying
+     * to find out what clean meant.
+     */
+    if (item.hasPhoto) {
+      const shot = document.createElement('button');
+      shot.type = 'button';
+      shot.className = 'hk-shot';
+      shot.dataset.label = item.label;
+      shot.setAttribute('aria-label', `Photo: ${item.label}`);
+
+      const img = document.createElement('img');
+      img.alt = '';
+      shot.append(img);
+      row.append(shot);
+
+      shotFor(item.id).then((url) => {
+        // Removed rather than left as a broken square. A thumbnail that will
+        // not load is worse than no thumbnail: it reads as something to press
+        // and does nothing.
+        if (!url) return shot.remove();
+        img.src = url;
+        shot.dataset.shot = url;
+      });
+    }
+
+    li.append(row);
     list.append(li);
   }
 
@@ -343,6 +434,12 @@ async function tick(button) {
 }
 
 el.list.addEventListener('click', (e) => {
+  // Before the line, so a tap on the picture opens the picture. It is not
+  // inside the tick button — see drawChecks — but reading it first makes that
+  // impossible to undo by accident later.
+  const shot = e.target.closest('.hk-shot');
+  if (shot?.dataset.shot) return openShot(shot);
+
   const item = e.target.closest('.hk-item');
   if (item) return void tick(item);
 
@@ -390,8 +487,19 @@ el.form.addEventListener('submit', async (e) => {
   }
 });
 
+/* Anywhere, because somebody holding a stack of linen should not have to find
+   a button. Escape as well, for whoever is doing this on a desk. */
+el.shotView.addEventListener('click', closeShot);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !el.shotView.hidden) closeShot();
+});
+
 el.refresh.addEventListener('click', () => void load());
 el.out.addEventListener('click', () => {
+  // The token these were fetched with stops being valid here, so holding the
+  // pictures in memory past this point buys nothing.
+  releaseShots();
+  closeShot();
   remember(null);
   showGate('');
 });

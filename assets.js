@@ -28,6 +28,17 @@ const MAX_BYTES = 120 * 1024;
  * mobile data, before the page is any use to them.
  */
 const MAX_BACKGROUND_BYTES = 500 * 1024;
+
+/**
+ * A photograph showing what a line of the cleaning standard means.
+ *
+ * Bigger than a logo because it is a photograph somebody looks at closely —
+ * that is its whole job — and smaller than a background because a housekeeper
+ * opens a roomful of them on mobile data every morning. The dashboard scales
+ * the picture down before it is sent, so this is a backstop rather than the
+ * thing that decides the size.
+ */
+const MAX_REFERENCE_BYTES = 250 * 1024;
 const TIMEOUT_MS = 8000;
 const MAX_REDIRECTS = 3;
 
@@ -384,6 +395,59 @@ function isStoredImage(value, maxBytes = MAX_BYTES) {
 }
 
 /**
+ * The same, minus SVG.
+ *
+ * SVG is allowed for a logo because a logo is only ever rendered through an
+ * <img> tag or a CSS background, and neither runs script. A reference
+ * photograph is served from our own origin as a file, where a browser that
+ * opens it directly *is* in a context that runs script — so an SVG there is
+ * stored cross-site scripting under our own domain. Photographs are
+ * photographs; nothing is lost by refusing it.
+ */
+function isStoredPhoto(value, maxBytes = MAX_REFERENCE_BYTES) {
+  return isStoredImage(value, maxBytes) && !value.startsWith('data:image/svg');
+}
+
+/**
+ * A stored image, back into bytes and a type, for serving.
+ *
+ * @returns {{type: string, buffer: Buffer}|null}
+ */
+function decodeStoredImage(value) {
+  const match = typeof value === 'string' ? value.match(DATA_URI_RE) : null;
+  if (!match) return null;
+
+  return {
+    type: match[1],
+    buffer: Buffer.from(value.slice(value.indexOf(',') + 1), 'base64'),
+  };
+}
+
+/**
+ * The headers a stored photograph is served under.
+ *
+ * Here rather than in a route because two routes serve the same bytes — the
+ * dashboard's, behind a session, and the housekeeping board's, behind a shift
+ * — and the headers are the part that must not drift between them.
+ *
+ * `nosniff` and the locked-down CSP are the point. This serves bytes somebody
+ * uploaded, from our own origin: nothing gets the chance to be treated as a
+ * document, and anything that somehow did can load and run nothing. `private`
+ * because a photograph of one venue's linen cupboard has no business in a
+ * shared cache.
+ */
+function photoHeaders(image) {
+  return {
+    'Content-Type': image.type,
+    'Content-Length': String(image.buffer.length),
+    'Cache-Control': 'private, max-age=300',
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'; sandbox",
+    'Content-Disposition': 'inline',
+  };
+}
+
+/**
  * A stored font, for validation on the way back in.
  *
  * The bytes are kept base64 without a data: wrapper, unlike the logo: they are
@@ -421,6 +485,7 @@ function size(bytes) {
 module.exports = {
   MAX_BYTES,
   MAX_BACKGROUND_BYTES,
+  MAX_REFERENCE_BYTES,
   MAX_FONT_BYTES,
   TYPES,
   FONT_FORMATS,
@@ -433,5 +498,8 @@ module.exports = {
   fetchFont,
   size,
   isStoredImage,
+  isStoredPhoto,
+  decodeStoredImage,
+  photoHeaders,
   isStoredFont,
 };

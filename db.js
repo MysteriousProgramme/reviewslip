@@ -1090,6 +1090,29 @@ const MIGRATIONS = [
       CREATE INDEX room_checks_day ON room_checks (subscriber_id, on_day)
     `);
   },
+
+  /*
+   * A photograph of what the line means.
+   *
+   * "Bathroom clean" is not an instruction, it is a word that every person
+   * reading it fills in differently — and the people reading it here are
+   * often working in their second or third language, at seven in the morning,
+   * on a phone. A picture of the shelf as the owner wants it left settles in
+   * one glance what a sentence cannot settle at all.
+   *
+   * Stored as a data URI in the row, like the logo and the background, rather
+   * than as a file on disk or a link to the venue's own server. The reasons
+   * are the ones assets.js already gives: a link means a request to somebody
+   * else's host from a housekeeper's phone every morning, and a file on disk
+   * means the backup is no longer one dump.
+   *
+   * Nullable, and most will stay null. A line like "check the minibar" does
+   * not need a photograph and a standard where every line has one is a
+   * standard nobody scrolls to the bottom of.
+   */
+  async (c) => {
+    await c.query('ALTER TABLE checklist_items ADD COLUMN photo text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

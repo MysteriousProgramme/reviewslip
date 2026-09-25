@@ -514,6 +514,43 @@ app.get(
   }
 );
 
+/**
+ * The photograph for one line, behind the same shift the board is behind.
+ *
+ * Not part of the checklist payload: a standard runs to two dozen lines and
+ * each picture is up to 250kB, so inlining them would make opening a room a
+ * six megabyte download on a corridor signal. As its own route each one is
+ * fetched once and cached.
+ *
+ * Scoped to the tenant, like every other route here. An item id is a small
+ * integer, and guessing one belonging to another venue has to return nothing
+ * rather than a photograph of their linen cupboard.
+ */
+app.get(
+  '/api/housekeeping/checklist/:itemId/photo',
+  requireTenant,
+  requireShift,
+  async (req, res, next) => {
+    try {
+      const itemId = Number(req.params.itemId);
+      if (!Number.isSafeInteger(itemId) || itemId <= 0) {
+        return res.status(404).json({ error: 'No such item.' });
+      }
+
+      const stored = await checklists.photo({
+        subscriberId: req.subscriber.id,
+        id: itemId,
+      });
+      const image = stored && assets.decodeStoredImage(stored);
+      if (!image) return res.status(404).json({ error: 'No photo on that item.' });
+
+      res.set(assets.photoHeaders(image)).end(image.buffer);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 /** Tick one line, or untick it. */
 app.post(
   '/api/housekeeping/rooms/:id/checklist/:itemId',

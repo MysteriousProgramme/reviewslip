@@ -366,3 +366,107 @@ h1 {
 @media (prefers-reduced-motion: no-preference) {
   .hk-job { transition: opacity 0.15s ease, background 0.15s ease; }
 }
+
+/* ------------------------------------------------------------ reference photos */
+
+/*
+ * A line and its picture, side by side.
+ *
+ * The picture sits outside the tick button, not inside it. Everything in
+ * `.hk-item` is a tap that marks the line done, and a thumbnail in there
+ * would mean looking at the photograph ticks the job off — the one mistake
+ * this screen must not make, because the room is then marked clean by
+ * somebody who was trying to find out what clean meant.
+ */
+.hk-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.hk-line .hk-item {
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+ * 2.75rem square, matching the line's own height.
+ *
+ * The same reasoning as the line: this is tapped by somebody holding
+ * something, and a thumbnail small enough to be tidy is small enough to miss.
+ */
+.hk-shot {
+  flex: 0 0 auto;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--line, rgba(243, 236, 220, 0.18));
+  border-radius: 8px;
+  background: rgba(243, 236, 220, 0.06);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.hk-shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Nothing is struck through here. A line being done does not make the picture
+   of what it meant any less the picture of what it meant. */
+.hk-shot-view {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(8, 12, 10, 0.94);
+}
+
+.hk-shot-view[hidden] {
+  display: none;
+}
+
+.hk-shot-figure {
+  margin: 0;
+  max-width: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.hk-shot-figure img {
+  max-width: 100%;
+  /* Room left for the caption under it, which is the line this picture is of
+     — without it a photograph of a shelf is a photograph of a shelf. */
+  max-height: calc(100vh - 7rem);
+  object-fit: contain;
+  border-radius: 10px;
+}
+
+.hk-shot-figure figcaption {
+  font-size: 0.95rem;
+  text-align: center;
+  color: var(--ink, #f3ecdc);
+}
+
+.hk-shot-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: 1.6rem;
+  line-height: 1;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(243, 236, 220, 0.12);
+  color: var(--ink, #f3ecdc);
+  cursor: pointer;
+}

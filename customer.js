@@ -600,6 +600,7 @@ router.post(
 
 /* ------------------------------------------------------- the cleaning standard */
 
+
 /** Every line, and the states a room can be in, for the screen that sets both. */
 router.get(
   '/businesses/:slug/checklist',
@@ -630,6 +631,74 @@ router.post(
         label: req.body?.label,
       });
       res.status(201).json({ item });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * The photograph for one line, served as a file.
+ *
+ * Not inlined into the listing, because a standard runs to two dozen lines
+ * and each picture is up to 250kB. As its own route the browser fetches each
+ * one once and caches it, which is what makes a roomful of them usable on a
+ * phone. The housekeeping board has the same route behind its own sign-in.
+ */
+router.get(
+  '/businesses/:slug/checklist/:id/photo',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id)) {
+        return res.status(404).json({ error: 'No such item.' });
+      }
+
+      const stored = await checklists.photo({ subscriberId: req.venue.id, id });
+      const image = stored && assets.decodeStoredImage(stored);
+      if (!image) return res.status(404).json({ error: 'No photo on that item.' });
+
+      res.set(assets.photoHeaders(image)).end(image.buffer);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/**
+ * Attach a photograph to a line, or take it off with null.
+ *
+ * "Bathroom clean" is not an instruction. It is a word that every person
+ * reading it fills in differently, and the people reading it are often
+ * working in their second or third language at seven in the morning. A
+ * picture of the shelf as the owner wants it left settles in one glance what
+ * the sentence cannot settle at all.
+ */
+router.put(
+  '/businesses/:slug/checklist/:id/photo',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isSafeInteger(id)) {
+        return res.status(404).json({ error: 'No such item.' });
+      }
+
+      const value = req.body?.photo ?? null;
+
+      // Raster only, and capped. The dashboard scales the picture down before
+      // sending it, so reaching this limit means something went wrong there
+      // rather than somebody choosing a large file.
+      if (value !== null && !assets.isStoredPhoto(value)) {
+        return res.status(400).json({
+          error: `That photo could not be used. It must be a PNG, JPEG or WebP under ${assets.MAX_REFERENCE_BYTES / 1024}kB.`,
+        });
+      }
+
+      res.json(await checklists.setPhoto({ subscriberId: req.venue.id, id, photo: value }));
     } catch (err) {
       next(err);
     }

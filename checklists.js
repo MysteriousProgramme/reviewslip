@@ -21,13 +21,26 @@ function toItem(row) {
     groupName: row.group_name ?? null,
     label: row.label,
     sort: row.sort,
+    /*
+     * Whether there is a photograph, not the photograph.
+     *
+     * A standard can run to two dozen lines and each picture is up to 250kB;
+     * inlining them would make one list a six megabyte download, every
+     * morning, on a phone in a corridor. They are served from their own route
+     * instead, so the browser fetches each one once and caches it.
+     */
+    hasPhoto: Boolean(row.has_photo),
   };
 }
 
 /** Every item a venue has, whatever type it belongs to. */
 async function items(subscriberId) {
   const rows = await all(
-    `SELECT c.*, g.name AS group_name
+    // Named columns rather than c.*, so the photograph is not read out of the
+    // database on every listing only to be thrown away.
+    `SELECT c.id, c.group_id, c.label, c.sort,
+            (c.photo IS NOT NULL) AS has_photo,
+            g.name AS group_name
        FROM checklist_items c
        LEFT JOIN room_groups g ON g.id = c.group_id
       WHERE c.subscriber_id = $1
@@ -35,6 +48,41 @@ async function items(subscriberId) {
     [subscriberId]
   );
   return rows.map(toItem);
+}
+
+/**
+ * The picture itself, for the route that serves it.
+ *
+ * Scoped to the venue like everything else here: an item id is a small
+ * integer and guessing one belonging to another business must return nothing
+ * rather than somebody else's photograph.
+ *
+ * @returns {Promise<string|null>} the stored data URI
+ */
+async function photo({ subscriberId, id }) {
+  const row = await one(
+    'SELECT photo FROM checklist_items WHERE id = $1 AND subscriber_id = $2',
+    [id, subscriberId]
+  );
+  return row?.photo ?? null;
+}
+
+/**
+ * Attach a photograph to a line, or take it off with null.
+ *
+ * The bytes are checked by the caller against assets.isStoredPhoto — raster
+ * only, and capped — because this module does not know what a picture is.
+ */
+async function setPhoto({ subscriberId, id, photo: value }) {
+  const row = await one(
+    `UPDATE checklist_items
+        SET photo = $3
+      WHERE id = $1 AND subscriber_id = $2
+      RETURNING id, (photo IS NOT NULL) AS has_photo`,
+    [id, subscriberId, value ?? null]
+  );
+  if (!row) throw fail(404, 'No such item.');
+  return { id: row.id, hasPhoto: Boolean(row.has_photo) };
 }
 
 /**
@@ -194,4 +242,14 @@ async function clearRoom({ subscriberId, roomId, day }) {
   );
 }
 
-module.exports = { items, add, remove, forRoom, progress, setChecked, clearRoom };
+module.exports = {
+  items,
+  add,
+  remove,
+  photo,
+  setPhoto,
+  forRoom,
+  progress,
+  setChecked,
+  clearRoom,
+};

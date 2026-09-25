@@ -57,6 +57,23 @@
       <button type="button" class="hk-link" id="out">Finish shift</button>
     </p>
   </section>
+
+  <!--
+    A line of the standard, shown as the owner meant it.
+
+    Full screen rather than a bigger thumbnail: the reason a photograph is
+    here at all is that somebody needs to see which way the towels are folded,
+    and that is not a decision anybody makes from a 40px square. Closed by
+    tapping anywhere, because a housekeeper holding a stack of linen should
+    not have to find a button.
+  -->
+  <div class="hk-shot-view" id="shot-view" hidden>
+    <button type="button" class="hk-shot-close" id="shot-close" aria-label="Close">×</button>
+    <figure class="hk-shot-figure">
+      <img id="shot-image" alt="" />
+      <figcaption id="shot-caption"></figcaption>
+    </figure>
+  </div>
 </main>
 
 <script src="/housekeeping.js"></script>

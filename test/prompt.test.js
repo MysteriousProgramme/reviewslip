@@ -3278,6 +3278,74 @@ test('ticks are counted, and an empty list is not "all done"', () => {
   assert.equal(none.all, false);
 });
 
+test('a line carries whether it has a picture, never the picture', () => {
+  /*
+   * A standard runs to two dozen lines and each photograph is up to 250kB.
+   * Inlined, opening one room would be a six megabyte download on a corridor
+   * signal — so the list carries a flag and the pictures come from their own
+   * route, fetched once each and cached.
+   */
+  const withShot = [
+    { id: 1, groupId: null, label: 'Bathroom clean', sort: 0, hasPhoto: true },
+    { id: 2, groupId: null, label: 'Check the minibar', sort: 1 },
+  ];
+
+  const room = checklist.forRoom(checklist.forGroup(withShot, 10), []);
+  assert.equal(room.items[0].hasPhoto, true);
+
+  // Absent means false, not undefined: the board tests it to decide whether to
+  // draw a thumbnail at all.
+  assert.equal(room.items[1].hasPhoto, false);
+
+  const carried = JSON.stringify(room);
+  assert.doesNotMatch(carried, /data:image/, 'a picture reached the listing');
+});
+
+test('a reference photograph may not be an SVG, though a logo may', () => {
+  /*
+   * A logo is only ever rendered through an <img> tag or a CSS background,
+   * and neither runs script. A reference photograph is served from our own
+   * origin as a file, where a browser that opens it directly *is* in a
+   * context that runs script — so an SVG there is stored cross-site
+   * scripting under our own domain.
+   */
+  const png = 'data:image/png;base64,' + Buffer.from('x'.repeat(64)).toString('base64');
+  const svg = 'data:image/svg+xml;base64,' + Buffer.from('<svg/>').toString('base64');
+
+  assert.equal(assets.isStoredPhoto(png), true);
+  assert.equal(assets.isStoredPhoto(svg), false);
+  // And nothing was taken away from the logo, which is why this is a separate
+  // check rather than a change to the old one.
+  assert.equal(assets.isStoredImage(svg), true);
+
+  // Oversize is refused whatever the type.
+  assert.equal(
+    assets.isStoredPhoto('data:image/png;base64,' + 'A'.repeat(400 * 1024)),
+    false
+  );
+
+  const decoded = assets.decodeStoredImage(png);
+  assert.equal(decoded.type, 'image/png');
+  assert.equal(decoded.buffer.length, 64);
+  assert.equal(assets.decodeStoredImage('not a data uri'), null);
+});
+
+test('uploaded bytes are served under headers that stop them being a document', () => {
+  // Two routes serve these — the dashboard's and the housekeeping board's —
+  // and the headers are the part that must not drift between them, which is
+  // why they are one function rather than two copies.
+  const headers = assets.photoHeaders({ type: 'image/jpeg', buffer: Buffer.alloc(9) });
+
+  assert.equal(headers['Content-Type'], 'image/jpeg');
+  assert.equal(headers['Content-Length'], '9');
+  assert.equal(headers['X-Content-Type-Options'], 'nosniff');
+  assert.match(headers['Content-Security-Policy'], /default-src 'none'/);
+  assert.match(headers['Content-Security-Policy'], /sandbox/);
+  // A photograph of one venue's linen cupboard has no business in a shared
+  // cache.
+  assert.match(headers['Cache-Control'], /private/);
+});
+
 test('a line has to say something', () => {
   assert.equal(checklist.checkLabel('Bathroom clean'), null);
   assert.match(checklist.checkLabel(''), /what needs doing/);

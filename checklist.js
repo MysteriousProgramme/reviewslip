@@ -80,6 +80,11 @@ function forRoom(items, done) {
     id: item.id,
     label: item.label,
     groupId: item.groupId ?? null,
+    // A flag, not the picture. "Bathroom clean" means something different to
+    // everybody reading it, and a photograph settles in one glance what the
+    // words cannot — but it is fetched from its own route, so a roomful of
+    // them is not one download. See checklists.js.
+    hasPhoto: Boolean(item.hasPhoto),
     done: ticked.has(item.id),
   }));
 
