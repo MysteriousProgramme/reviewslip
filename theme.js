@@ -132,6 +132,55 @@ function readable(colour, against, target) {
  * furniture around it is AA. The paper against the ground is not text at all —
  * it only has to read as a separate surface, so it takes the non-text ratio.
  */
+/* ------------------------------------------------- telling two colours apart */
+
+/**
+ * Perceptual distance, which is a different question from contrast.
+ *
+ * Contrast is a ratio of luminance, so it answers "can this be read on that".
+ * It cannot answer "are these two different colours", and the difference is
+ * not academic: teal and coral sit at almost the same luminance and measure
+ * 1.09:1 against each other while being about as distinct as two colours get.
+ * Using contrast for this would have pushed a perfectly good palette around
+ * to fix a problem it did not have.
+ *
+ * So, Lab and a plain CIE76 distance. Not the most modern formula — CIEDE2000
+ * is better and is a great deal more code — but this is a floor check, not a
+ * colour-matching system, and 76 is more than accurate enough to tell a
+ * collapsed palette from a deliberate one.
+ */
+function lab(colour) {
+  const [r, g, b] = rgb(colour).map((c) => {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+
+  // sRGB to XYZ, then XYZ to Lab against the D65 white point.
+  const x = (r * 0.4124 + g * 0.3576 + b * 0.1805) / 0.95047;
+  const y = r * 0.2126 + g * 0.7152 + b * 0.0722;
+  const z = (r * 0.0193 + g * 0.1192 + b * 0.9505) / 1.08883;
+
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  const [fx, fy, fz] = [f(x), f(y), f(z)];
+
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function distance(a, b) {
+  const [l1, a1, b1] = lab(a);
+  const [l2, a2, b2] = lab(b);
+  return Math.sqrt((l1 - l2) ** 2 + (a1 - a2) ** 2 + (b1 - b2) ** 2);
+}
+
+/**
+ * How far apart two of the palette's own colours have to be.
+ *
+ * Around 22 is where two colours stop being mistakable for one another at a
+ * glance on a phone. Low on purpose: this exists to catch a palette that has
+ * collapsed into a single wash, not to police a venue's taste in colour.
+ */
+const APART = 22;
+
 const RATIOS = {
   reviewText: 7, // ink on paper
   softText: 4.5, // ink-soft on paper
@@ -309,21 +358,53 @@ function derive(theme, fonts = {}, { background = false } = {}) {
   if (paperFix.moved) adjusted.push('the paper colour, to separate it from the background');
   const paper = paperFix.colour;
 
-  const accentFix = readable(
-    hex(theme?.accent) || DEFAULT_THEME.accent,
-    ground,
-    RATIOS.bodyText
-  );
+  /*
+   * The two chosen colours, kept.
+   *
+   * What follows moves them to work on this venue's *page*, which is dark.
+   * The printed card is white, and a colour lightened to carry text on a dark
+   * ground is the wrong colour for a hairline on white — a deep navy accent
+   * came out a washed sky blue on the card, which is not the colour anybody
+   * typed in. So the card is derived from these, against its own stock.
+   */
+  const chosenAccent = hex(theme?.accent) || DEFAULT_THEME.accent;
+  const chosenHighlight = hex(theme?.highlight) || DEFAULT_THEME.highlight;
+
+  const accentFix = readable(chosenAccent, ground, RATIOS.bodyText);
   if (accentFix.moved) adjusted.push('the accent, so labels stay readable on the background');
   const accent = accentFix.colour;
 
-  const highlightFix = readable(
-    hex(theme?.highlight) || DEFAULT_THEME.highlight,
-    ground,
-    RATIOS.actionText
-  );
-  if (highlightFix.moved) adjusted.push('the highlight, so the post button stays readable');
-  const highlight = highlightFix.colour;
+  const highlightFix = readable(chosenHighlight, ground, RATIOS.actionText);
+  let highlight = highlightFix.colour;
+  let highlightWhy = highlightFix.moved
+    ? 'the highlight, so the post button stays readable'
+    : '';
+
+  /*
+   * And far enough from the accent to be a different colour.
+   *
+   * Every ratio here measures a colour against what is behind it, and nothing
+   * measured the four against each other — so a venue whose site is three
+   * blues got an accent and a highlight that both cleared their targets and
+   * landed 1.09:1 apart. The labels and the one button that matters were the
+   * same colour, and the page read as a single wash.
+   *
+   * The highlight gives, because it is the one that is supposed to lead: it
+   * is pushed further from the ground until it separates. Reported like every
+   * other move, so a business can see their colour changed and why.
+   */
+  if (distance(highlight, accent) < APART) {
+    for (const target of [5.5, 7, 8.5, 10, 12, 14]) {
+      highlight = readable(chosenHighlight, ground, target).colour;
+      if (distance(highlight, accent) >= APART) break;
+    }
+    // Replaces the readability line rather than adding to it. Two sentences
+    // about the same colour reads as it having been changed twice.
+    highlightWhy =
+      'the highlight, so the post button is not the same colour as the labels';
+  }
+
+  if (highlightWhy) adjusted.push(highlightWhy);
 
   // Ink is never chosen, only derived: it is whatever reads on the paper. Start
   // from the ground so the text keeps the palette's cast rather than going flat
@@ -349,6 +430,22 @@ function derive(theme, fonts = {}, { background = false } = {}) {
       // every rule in the file for no behavioural gain, so the names stayed and
       // the meaning generalised.
       '--jade': accent,
+      /*
+       * The softer accent the page sets most of its secondary text in.
+       *
+       * `--jade-dim` is the accent at half alpha, and over the ground that
+       * composites to about 2.3:1 — while the guarantee in the tests was
+       * measured on the solid `--jade` at 4.5:1, which nothing paints text
+       * with. Thirteen rules in the stylesheet were quietly under AA, and had
+       * been since before any of this was themeable.
+       *
+       * So: a real colour, mixed toward the ground so it still reads as
+       * quieter than `--jade`, then pushed back until it clears the ratio.
+       * `--jade-dim` stays as it was for the borders and rules that use it,
+       * where alpha is the right tool and nothing is being read.
+       */
+      '--jade-soft': readable(mix(accent, ground, 0.4), ground, RATIOS.softText)
+        .colour,
       '--jade-dim': rgbaOf(accent, 0.5),
       '--jade-line': rgbaOf(accent, 0.24),
       '--jade-wash': rgbaOf(accent, 0.08),
@@ -398,8 +495,18 @@ function derive(theme, fonts = {}, { background = false } = {}) {
       '--card-on-panel': readable(paper, ground, RATIOS.reviewText).colour,
       '--card-panel-rule': readable(highlight, ground, RATIOS.surface).colour,
       '--card-ink': readable(ground, CARD, RATIOS.reviewText).colour,
-      '--card-frame': readable(accent, CARD, RATIOS.surface).colour,
-      '--card-rule': readable(highlight, CARD, RATIOS.surface).colour,
+      /*
+       * From the colours the venue chose, against the stock they print on.
+       *
+       * Not from `accent` and `highlight` above: those have been lightened to
+       * carry text on a dark page, and reusing them here put a washed sky
+       * blue on the card of a business whose accent is a deep navy — 7.3:1 on
+       * white before, 3.2:1 after, for no reason that applies to paper. A
+       * pale brand colour is still darkened, because that check runs against
+       * the stock rather than against the page.
+       */
+      '--card-frame': readable(chosenAccent, CARD, RATIOS.surface).colour,
+      '--card-rule': readable(chosenHighlight, CARD, RATIOS.surface).colour,
       '--card-muted': readable(
         mix(readable(ground, CARD, RATIOS.reviewText).colour, CARD, 0.55),
         CARD,
@@ -602,6 +709,8 @@ module.exports = {
   SLOTS,
   DEFAULT_THEME,
   RATIOS,
+  APART,
+  distance,
   DISPLAY_FONTS,
   UI_FONTS,
   DEFAULT_DISPLAY,

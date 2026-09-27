@@ -17,6 +17,10 @@
   --ink: #1b2a23;
   --ink-soft: #5d6b62;
   --jade: #82b49b;
+  /* Secondary text. A real colour rather than the accent at half alpha: over
+     the ground that composited to about 2.3:1, while every rule in the page
+     assumed the 4.5:1 the solid accent clears. See theme.js. */
+  --jade-soft: #6d8c7e;
   --jade-dim: rgba(130, 180, 155, 0.5);
   --jade-line: rgba(130, 180, 155, 0.24);
   --marigold: #e9a03b;
@@ -124,7 +128,7 @@ body {
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
   cursor: pointer;
   transition:
     color 0.18s var(--ease),
@@ -175,7 +179,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 .title {
@@ -284,7 +288,7 @@ body {
 }
 
 .note::placeholder {
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 .note:focus-visible {
@@ -318,7 +322,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 .chips {
@@ -373,7 +377,7 @@ body {
   padding: 0.5rem 0.1rem;
   border: 0;
   background: transparent;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
   font-family: inherit;
   font-size: 0.813rem;
   font-weight: 500;
@@ -451,7 +455,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 .sheet-close {
@@ -499,7 +503,7 @@ body {
 }
 
 .sheet-search::placeholder {
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 .sheet-search:focus-visible {
@@ -524,7 +528,7 @@ body {
 .sheet-empty {
   margin: 0.4rem 0.2rem;
   font-size: 0.875rem;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 /* Wide enough for the sheet to sit as a panel rather than an edge. */
@@ -675,7 +679,7 @@ body {
   min-height: 1.25rem;
   font-size: 0.875rem;
   line-height: 1.45;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 .notice[data-tone='error'] {
@@ -819,7 +823,7 @@ body {
   margin: 0.125rem 0 0;
   text-align: center;
   font-size: 0.813rem;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 /* ---------------------------------------------------------------- focus -- */
@@ -1002,7 +1006,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.28em;
   text-transform: uppercase;
-  color: var(--jade-dim);
+  color: var(--jade-soft);
 }
 
 /* The numeral. Optical size rather than a fixed one: it is the whole design at

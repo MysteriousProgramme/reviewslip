@@ -643,6 +643,10 @@ const PAIRS = [
   ['--ink', '--paper', theme.RATIOS.reviewText, 'review text'],
   ['--ink-soft', '--paper', theme.RATIOS.softText, 'soft text'],
   ['--jade', '--shade', theme.RATIOS.bodyText, 'labels'],
+  // The one the stylesheet actually sets secondary text in. `--jade` was the
+  // colour this table measured and `--jade-dim` — the accent at half alpha,
+  // about 2.3:1 over the ground — was the colour eleven rules painted with.
+  ['--jade-soft', '--shade', theme.RATIOS.softText, 'secondary text'],
   ['--marigold', '--shade', theme.RATIOS.actionText, 'action text'],
   ['--on-marigold', '--marigold', theme.RATIOS.onHighlight, 'button label'],
   ['--warn', '--shade', theme.RATIOS.bodyText, 'error notice'],
@@ -866,6 +870,104 @@ test('any palette that validates produces a readable page', () => {
       );
     }
   }
+});
+
+test('the palette never collapses into one colour', () => {
+  /*
+   * Every ratio in the table above measures a colour against what is behind
+   * it. Nothing measured the four against each other — so a venue whose site
+   * is three blues got an accent and a highlight that each cleared their own
+   * target and landed 1.09:1 apart: the labels and the one button that
+   * matters were the same colour, and the page read as a single wash.
+   */
+  const monochrome = {
+    'three blues': { ground: '#1c2b36', paper: '#efe9e0', accent: '#1f5a87', highlight: '#2b7bb9' },
+    'three greens': { ground: '#0c1f19', paper: '#f3ecdc', accent: '#2f5c4a', highlight: '#356b55' },
+    'accent and highlight identical': {
+      ground: '#101820',
+      paper: '#f6f2ea',
+      accent: '#3a7ca5',
+      highlight: '#3a7ca5',
+    },
+  };
+
+  for (const [name, palette] of Object.entries(monochrome)) {
+    assert.ok(theme.validate(palette).ok, `${name} should validate`);
+    const { vars, adjusted } = theme.derive(palette);
+
+    const apart = theme.distance(vars['--jade'], vars['--marigold']);
+    assert.ok(
+      apart >= theme.APART - 0.005,
+      `${name}: the labels and the button are only ${apart.toFixed(1)} apart`
+    );
+
+    // And it is reported, because a business whose colour was changed should
+    // be able to see that it was and read why.
+    assert.ok(
+      adjusted.some((line) => /post button/.test(line)),
+      `${name}: the highlight moved without saying so`
+    );
+  }
+
+  /*
+   * And a palette that is already two colours is left entirely alone.
+   *
+   * This is why the check is a perceptual distance and not a contrast ratio.
+   * Teal and coral sit at almost the same luminance and measure 1.06:1
+   * against each other — by contrast they are indistinguishable, and by eye
+   * they are about as different as two colours get. Measuring this with
+   * contrast would have shoved a perfectly good palette around to fix a
+   * problem it did not have.
+   */
+  const fine = theme.derive({
+    ground: '#0b1b33',
+    paper: '#fbf7f0',
+    accent: '#3fa7a0',
+    highlight: '#ff6f5e',
+  });
+  assert.equal(
+    fine.adjusted.some((line) => /not the same colour/.test(line)),
+    false
+  );
+  assert.ok(theme.contrast(fine.vars['--jade'], fine.vars['--marigold']) < 1.2);
+  assert.ok(theme.distance(fine.vars['--jade'], fine.vars['--marigold']) > 60);
+});
+
+test('the printed card uses the colours that were chosen, not the page ones', () => {
+  /*
+   * The card is white. The page is dark, so the accent is lightened until it
+   * carries text on it — and the card was reusing that lightened value, which
+   * put a washed sky blue on the card of a business whose accent is a deep
+   * navy. 7.3:1 against the stock became 3.2:1 for no reason that applies to
+   * paper.
+   */
+  const { vars } = theme.derive({
+    ground: '#1c2b36',
+    paper: '#efe9e0',
+    accent: '#1f5a87',
+    highlight: '#2b7bb9',
+  });
+
+  assert.equal(vars['--card-frame'], '#1f5a87', 'the frame is not the chosen accent');
+  assert.equal(vars['--card-rule'], '#2b7bb9', 'the rule is not the chosen highlight');
+  // The page's own versions did move, and are a different thing.
+  assert.notEqual(vars['--jade'], vars['--card-frame']);
+
+  /*
+   * And a colour too pale for white paper is still darkened, because that
+   * check runs against the stock rather than against the page. A pale gold
+   * hairline on white is invisible however good it looks on a dark screen.
+   */
+  const pale = theme.derive({
+    ground: '#2b0a1e',
+    paper: '#fff0f6',
+    accent: '#ffe9a8',
+    highlight: '#ffd166',
+  });
+  assert.ok(
+    theme.contrast(pale.vars['--card-frame'], '#ffffff') >= theme.RATIOS.surface - 0.005,
+    'a pale accent was left invisible on the card'
+  );
 });
 
 test('a photograph behind the page cannot break the contrast guarantees', () => {
