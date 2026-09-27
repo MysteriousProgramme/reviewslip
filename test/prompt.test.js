@@ -2873,7 +2873,59 @@ test("a theme's own named colours are read, and read as what they are", () => {
   const ground = found.named.find((c) => c.hex === '#f2f2f2');
   assert.ok(ground.roles.includes('ground'));
   const accent = found.named.find((c) => c.hex === '#2b7bb9');
-  assert.ok(accent.roles.includes('highlight'));
+  assert.ok(accent.roles.includes('brand'));
+
+  /*
+   * A token's role is read off the name with its namespace stripped and the
+   * match anchored on a segment boundary, so the two conventions that cover
+   * most of the web both work: a theme prefix in front of the role word
+   * (`--fl-body-bg`) and a namespace in front of everything (`--color-page`).
+   *
+   * The second of those matched nothing at all before. On a site whose tokens
+   * are `--color-*` the page background, the body text and every border were
+   * invisible to the reader, and the model picked a dark heading colour for
+   * the background of a site that is white — the right answer to the question
+   * it was actually being asked.
+   */
+  const conventions = sitecolours.palette(`:root{
+    --color-page: #101010;
+    --color-text: #202020;
+    --color-primary: #303030;
+    --color-border: #404040;
+    --fl-topbar-bg: #505050;
+    --color-error: #606060;
+  }`);
+  const role = (hex) =>
+    conventions.named.find((c) => c.hex === hex)?.roles[0] ?? null;
+
+  assert.equal(role('#101010'), 'ground', 'the page background was missed');
+  assert.equal(role('#202020'), 'text');
+  assert.equal(role('#303030'), 'brand');
+  assert.equal(role('#404040'), 'border');
+  // Header before ground: this ends in `-bg` and is not the page background.
+  assert.equal(role('#505050'), 'header');
+  // Every design system has an error red, and it says nothing about a brand.
+  assert.equal(
+    conventions.named.some((c) => c.hex === '#606060'),
+    false,
+    'a state colour was offered as brand evidence'
+  );
+});
+
+test('a colour the theme named but gave no slot to is still evidence', () => {
+  // `--color-navy` is not one of the four slots, but somebody sat down and
+  // named a colour navy — which makes it one of this site's colours in a way
+  // that a hex swept off a selector is not.
+  const found = sitecolours.palette(':root{--color-navy:#1c3040;--color-page:#ffffff;}');
+  const navy = found.named.find((c) => c.hex === '#1c3040');
+
+  assert.ok(navy, 'a named colour with no slot was thrown away');
+  // Empty rather than [null]: every reader would otherwise filter the hole.
+  assert.deepEqual(navy.roles, []);
+
+  const text = sitecolours.brief({ colours: found.all, logos: [], backgrounds: [] });
+  assert.match(text, /#1c3040/);
+  assert.doesNotMatch(text, /the {2}\(/, 'an empty role printed as "the  ("');
 });
 
 test('white survives, although WordPress also declares it as a preset', () => {
@@ -3001,7 +3053,7 @@ test('a site that names nothing still gets read, from its rules', () => {
   const ground = found.all.find((c) => c.hex === '#1b2a23');
   assert.ok(ground.roles.includes('ground'), 'body background is the ground');
   const cta = found.all.find((c) => c.hex === '#c9a227');
-  assert.ok(cta.roles.includes('highlight'), 'a book button is the highlight');
+  assert.ok(cta.roles.includes('action'), 'a book button is the action colour');
 });
 
 test('colours are read however they are written', () => {
@@ -3056,7 +3108,7 @@ test('the brief reads as evidence rather than as a list of numbers', () => {
   const text = sitecolours.brief({ colours: found.all, logos: [], backgrounds: [] });
 
   assert.match(text, /#2b7bb9/);
-  assert.match(text, /the highlight/);
+  assert.match(text, /the brand/);
   assert.match(text, /theme customiser/);
   // The point of the whole module: the model is told these were measured.
   assert.ok(!/most used first/.test(text), 'frequency is not the argument');

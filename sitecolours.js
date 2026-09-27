@@ -65,17 +65,99 @@ const CHROME = /^--(wp-admin|wp-block|wp-bound|wp--style)/i;
  * stock names above are the noise; everything else under that prefix is a
  * theme the owner has configured.
  */
+/**
+ * The namespace a design system puts in front of every token.
+ *
+ * `--color-page`, `--c-text`, `--theme-primary`. This is the single most
+ * common naming convention there is, and the role patterns below were all
+ * anchored as though a variable began with the role word — so on a site whose
+ * tokens are `--color-*`, the page background, the body text and the borders
+ * matched nothing at all and never reached the model. It chose a dark heading
+ * colour for the page background of a site that is white, which was the right
+ * answer to the question it was actually asked.
+ */
+const NAMESPACE = /^(?:colou?rs?|c|clr|col|theme|palette|token|global|ui)[-_]{1,2}/i;
+
+function bare(name) {
+  let out = String(name || '').toLowerCase();
+  // Twice, for `--theme-color-page`. Not more: past two, what is left is a
+  // word that happens to look like a namespace.
+  for (let i = 0; i < 2 && NAMESPACE.test(out); i++) out = out.replace(NAMESPACE, '');
+  return out;
+}
+
+/**
+ * Tokens that are states rather than brand.
+ *
+ * Every design system has an error red and a success green, and neither says
+ * anything about what the business looks like. They were arriving as unroled
+ * colours and sitting in the evidence beside the real palette.
+ */
+const NOISE =
+  /^(error|success|warning|warn|danger|info|caution|alert|disabled|muted-?state|focus|shadow|overlay|scrim|white|black|transparent|inherit|current)([-_]|$)/i;
+
+/**
+ * What a token's own name says it is for.
+ *
+ * Matched against the name with its namespace stripped, so `--color-page` is
+ * read as `page`. Order matters where two could match: a `--btn-primary` is
+ * an action before it is a brand colour, and `--color-text-strong` is text
+ * before anything else.
+ */
 const NAMED = [
-  { role: 'ground', re: /(body|page|site|content)[-_]?(bg|background)|^(bg|background)$/i },
-  { role: 'header', re: /(header|topbar|nav|menu)[-_]?(bg|background)/i },
-  { role: 'text', re: /(body|content)[-_]?(text|color|colour)|^text$/i },
-  { role: 'heading', re: /heading|title/i },
-  { role: 'highlight', re: /accent|primary|brand|cta|button|btn|link|action/i },
-  { role: 'surface', re: /(card|panel|surface|well|box)[-_]?(bg|background)?/i },
+  // Header first. `--fl-topbar-bg` ends in `-bg` and would otherwise be read
+  // as the page's own background, which is a different colour on most sites.
+  {
+    role: 'header',
+    re: /(^|[-_])(header|topbar|nav|navbar|menu)([-_](bg|background|colou?r))?$/i,
+  },
+  {
+    role: 'ground',
+    re: /(^|[-_])(bg|background|page|canvas|base|body|content|shell|backdrop)([-_](bg|background|colou?r))?$/i,
+  },
+  { role: 'heading', re: /heading|title|display/i },
+  {
+    role: 'text',
+    re: /(^|[-_])(text|ink|body|content|foreground|fg|copy)([-_](colou?r|strong|muted|soft|light|dim|subtle|secondary|inverse))?$/i,
+  },
+  { role: 'action', re: /cta|button|btn|submit|action|link/i },
+  { role: 'brand', re: /accent|primary|brand|highlight|secondary/i },
+  { role: 'border', re: /border|divider|rule|outline|hairline|stroke/i },
+  { role: 'surface', re: /(card|panel|surface|well|box|tile|sheet)([-_](bg|background))?/i },
 ];
 
+/**
+ * How much a role says about what a colour is for, lower being more.
+ *
+ * Only used to choose which of a colour's several names to quote. White is
+ * often `--color-page`, `--color-surface` and `--color-text-inverse` at once,
+ * and the last of those is the one that tells the model least.
+ *
+ * Its own order rather than the matching order above, because the two answer
+ * different questions: matching is about which pattern is more specific, and
+ * this is about which label says more about what a colour is for.
+ */
+const INFORMATIVE = [
+  'ground',
+  'brand',
+  'action',
+  'surface',
+  'header',
+  'heading',
+  'text',
+  'border',
+];
+
+function rank(role) {
+  const at = INFORMATIVE.indexOf(role);
+  return at === -1 ? INFORMATIVE.length : at;
+}
+
 function namedRole(variable) {
-  const found = NAMED.find((n) => n.re.test(variable));
+  const name = bare(variable);
+  if (NOISE.test(name)) return null;
+
+  const found = NAMED.find((n) => n.re.test(name));
   return found ? found.role : null;
 }
 
@@ -93,7 +175,9 @@ const COLOUR_PROPERTY =
 const ROLES = [
   { role: 'ground', weight: 100, re: /(^|,)\s*(html|body)\s*(,|\{|$)/i },
   { role: 'header', weight: 80, re: /(^|[\s,.#])(site-header|masthead|page-header|navbar|topbar|header|nav)\b/i },
-  { role: 'highlight', weight: 90, re: /(^|[\s,.#])(btn|button|cta|book|reserve|primary|accent|highlight|submit)\b/i },
+  // `action`, matching the named vocabulary above: the brief prints both
+  // lists, and two words for one thing reads as two separate findings.
+  { role: 'action', weight: 90, re: /(^|[\s,.#])(btn|button|cta|book|reserve|primary|accent|highlight|submit)\b/i },
   { role: 'footer', weight: 50, re: /(^|[\s,.#])(site-footer|footer)\b/i },
   { role: 'surface', weight: 40, re: /(^|[\s,.#])(card|panel|content|main|wrapper|container|section)\b/i },
 ];
@@ -163,8 +247,18 @@ function fromVariables(css) {
     if (/^wp--preset--gradient/.test(variable)) continue;
 
     const name = preset ? preset[1] : variable;
+    if (NOISE.test(bare(name))) continue;
+
+    /*
+     * Kept even when the name says nothing about a role.
+     *
+     * `--color-navy` is not a slot, but somebody sat down and named a colour
+     * navy, which makes it one of this site's colours in a way that a hex
+     * swept off a selector is not. Dropping it threw away the evidence along
+     * with the label. The state colours are already gone above, which is what
+     * that filter was really protecting against.
+     */
     const role = namedRole(name);
-    if (!role) continue;
 
     const hex = toHex(m[2].trim());
     if (!hex) continue;
@@ -184,13 +278,29 @@ function fromVariables(css) {
     const seen = byHex.get(entry.hex);
     if (seen) {
       seen.uses += 1;
-      if (!seen.roles.includes(entry.role)) seen.roles.push(entry.role);
+      if (entry.role && !seen.roles.includes(entry.role)) seen.roles.push(entry.role);
+      /*
+       * The name that says the most, not the first one read.
+       *
+       * White is often `--color-page`, `--color-surface` and
+       * `--color-text-inverse` all at once, and quoting the last of those at
+       * the model is the one that tells it least about what the colour is
+       * for.
+       */
+      if (rank(entry.role) < rank(seen.role)) {
+        seen.role = entry.role;
+        seen.where = entry.where;
+      }
       continue;
     }
     byHex.set(entry.hex, {
       hex: entry.hex,
       uses: 1,
-      roles: [entry.role],
+      // Empty, not `[null]`. A token can be named without naming a slot —
+      // `--color-navy` — and every reader of this would otherwise have to
+      // filter the hole out for itself.
+      roles: entry.role ? [entry.role] : [],
+      role: entry.role,
       where: entry.where,
       named: true,
     });
@@ -405,7 +515,13 @@ function brief({ colours = [], logos = [], backgrounds = [] }) {
   if (named.length) {
     lines.push("The palette this site's theme publishes about itself:");
     for (const c of named) {
-      lines.push(`  ${c.hex}  the ${c.roles.join(' and ')} (${c.where})`);
+      // A token whose name says nothing about a slot is still one of this
+      // site's colours — somebody named it. "the " with nothing after it is
+      // not a sentence, so it says what it is instead.
+      const what = c.roles.filter(Boolean).length
+        ? `the ${c.roles.filter(Boolean).join(' and ')}`
+        : 'named, no slot of its own';
+      lines.push(`  ${c.hex}  ${what} (${c.where})`);
     }
     lines.push(
       'Somebody chose these in a theme customiser and the theme wrote them out by name, so they are the site\'s real colours and the names are its own words for them. Use them. Only depart from one if it cannot do the job the slot needs — a pale background where a dark ground is required, say — and say so in "source" when you do.'
@@ -418,7 +534,7 @@ function brief({ colours = [], logos = [], backgrounds = [] }) {
       ...(named.length ? ['Other colours painted on the site, in case a slot is still empty:'] : []),
     );
     for (const c of swept) {
-      const roles = c.roles.length ? ` — looks like the ${c.roles.join(' and ')}` : '';
+      const roles = c.roles.length ? ` — looks like the ${c.roles.join(' and ')}` : '';  // eslint-disable-line
       lines.push(`  ${c.hex}  ${c.where}, ${c.uses} time${c.uses === 1 ? '' : 's'}${roles}`);
     }
     if (!named.length) {
@@ -467,7 +583,12 @@ function palette(css, { limit = 14 } = {}) {
    * the whole answer. The sweep is for sites that publish nothing.
    */
   const roles = new Set(named.flatMap((c) => c.roles));
-  const enough = named.length >= 4 && roles.has('ground') && roles.has('highlight');
+  // `brand` or `action`, which is what `highlight` became when the one role
+  // covering accents, primaries, buttons and links was split in two.
+  const enough =
+    named.length >= 4 &&
+    roles.has('ground') &&
+    (roles.has('brand') || roles.has('action'));
   if (enough) return { named, swept: [], all: named.slice(0, limit) };
 
   const swept = fromCss(css, { limit: limit * 2 }).filter((c) => !taken.has(c.hex));
