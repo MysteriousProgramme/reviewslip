@@ -850,6 +850,8 @@ verified. A failed or skipped run then alerts by *not* arriving.
 | `server.js` | Serves the page, calls OpenRouter, cleans up the completion. |
 | `public/` | The page itself. |
 | `scripts/import-sqlite.js` | One-off: copies subscribers out of the old `data/app.db` into Postgres. |
+| `scripts/clone-venue.js` | Copies a venue and everything hanging off it to a new slug. Touches nothing in the original. |
+| `scripts/blank-venue.js` | Empties a venue and resets its settings, keeping the slug so printed QR codes go on working. Refuses without `--confirm`. |
 | `.env` | Installation settings, plus the fallbacks under every venue. |
 
 ## Notes
