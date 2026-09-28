@@ -647,10 +647,20 @@ const PAIRS = [
   // colour this table measured and `--jade-dim` — the accent at half alpha,
   // about 2.3:1 over the ground — was the colour eleven rules painted with.
   ['--jade-soft', '--shade', theme.RATIOS.softText, 'secondary text'],
+  /*
+   * The page is a gradient, and `--shade-deep` is the end that is not named
+   * in any of the pairs above. On a dark page it is darker and only helps the
+   * light text on it; on a light page it is darker too, and there it is the
+   * harder case — measured against `--shade` the labels cleared 4.5 and on
+   * the screen they were 4.31.
+   */
+  ['--jade-soft', '--shade-deep', theme.RATIOS.softText, 'secondary text, far end'],
+  ['--jade', '--shade-deep', theme.RATIOS.bodyText, 'labels, far end'],
+  ['--marigold', '--shade-deep', theme.RATIOS.actionText, 'action text, far end'],
+  ['--on-shade', '--shade-deep', theme.RATIOS.bodyText, 'text on the page'],
   ['--marigold', '--shade', theme.RATIOS.actionText, 'action text'],
   ['--on-marigold', '--marigold', theme.RATIOS.onHighlight, 'button label'],
   ['--warn', '--shade', theme.RATIOS.bodyText, 'error notice'],
-  ['--paper', '--shade', theme.RATIOS.surface, 'paper against ground'],
   ['--card-ink', '#ffffff', theme.RATIOS.reviewText, 'card name'],
   ['--card-muted', '#ffffff', theme.RATIOS.softText, 'card small print'],
   // The masthead is the one part of the card that is not on white stock, so its
@@ -854,11 +864,43 @@ test('any palette that validates produces a readable page', () => {
     'light ground': { ground: '#f7f4ee', paper: '#1a1a1a', accent: '#7a5c2e', highlight: '#0057b8' },
     'maximum contrast': { ground: '#000000', paper: '#ffffff', accent: '#ffff00', highlight: '#ffff00' },
     'pale brand on dark': { ground: '#101010', paper: '#f6f6f6', accent: '#fff8d0', highlight: '#fffbe0' },
+    /*
+     * Light pages, which this table could not reach until the module stopped
+     * refusing them. A white site's palette is the case the whole product was
+     * getting wrong: every one of these was either refused outright or had
+     * its card pushed to mid-grey to satisfy a contrast rule that a light
+     * page separates with a hairline instead.
+     */
+    'white page, near-white card': { ground: '#ffffff', paper: '#fcfbf9', accent: '#1f5a87', highlight: '#2b7bb9' },
+    'white page, sand card': { ground: '#ffffff', paper: '#efe9e0', accent: '#1c3040', highlight: '#2b7bb9' },
+    'cream page': { ground: '#f7f4ee', paper: '#ffffff', accent: '#7a5c2e', highlight: '#0057b8' },
+    'light page, pale brand': { ground: '#f4f6f8', paper: '#ffffff', accent: '#9fb4c4', highlight: '#ffd166' },
   };
 
   for (const [name, palette] of Object.entries(palettes)) {
     assert.ok(theme.validate(palette).ok, `${name} should validate`);
     const { vars } = theme.derive(palette);
+
+    /*
+     * The card has to be findable, and there are two ways to do that.
+     *
+     * A dark page does it with contrast — the card is the pale rectangle. A
+     * light page does it with a hairline, the way light websites do, because
+     * two near-whites cannot be 3:1 apart and forcing them pushed the card to
+     * grey. So this asks the question the old `--paper` against `--shade`
+     * pair was really asking, without assuming the answer.
+     */
+    const surface = theme.contrast(vars['--paper'], vars['--shade']);
+    const edge =
+      vars['--paper-edge'] === 'transparent'
+        ? 0
+        : theme.contrast(vars['--paper-edge'], vars['--shade']);
+
+    assert.ok(
+      surface >= theme.RATIOS.surface - 0.005 || edge >= 1.4,
+      `${name}: the card is ${surface.toFixed(2)}:1 against the page with a ` +
+        `${edge.toFixed(2)}:1 edge — there is nothing to find it by`
+    );
 
     for (const [a, b, target, what] of PAIRS) {
       const front = vars[a];
@@ -1017,14 +1059,60 @@ test('no photograph means no scrim and no backdrop', () => {
   assert.doesNotMatch(theme.css(theme.DEFAULT_THEME), /--scrim/);
 });
 
-test('a ground and paper too close to tell apart is refused', () => {
-  // The one case derivation cannot rescue: every text colour is pushed toward
-  // white or black, and that needs a direction to push in.
-  const flat = { ground: '#ffffff', paper: '#fffdf5', accent: '#f5e6b8', highlight: '#ffe9a8' };
+test('a dark ground and paper too close to tell apart is refused', () => {
+  // On a dark page contrast is the only thing telling a guest where the card
+  // ends, so two colours that cannot be told apart leave nothing to look at.
+  const flat = { ground: '#1b2a23', paper: '#22302a', accent: '#82b49b', highlight: '#e9a03b' };
   const verdict = theme.validate(flat);
 
   assert.equal(verdict.ok, false);
   assert.match(verdict.error, /too close to tell apart/);
+});
+
+test('a light page may have a card the same shade as the page', () => {
+  /*
+   * Which is how every light website does it — a white card on a white page,
+   * found by its hairline rather than by contrast. The old rule wanted 1.6:1
+   * between the two, which two near-whites can never reach, so it refused
+   * every palette a white site would naturally produce; the one that squeaked
+   * past it had its white card pushed to mid-grey to satisfy the same rule
+   * further down.
+   */
+  const theirs = { ground: '#ffffff', paper: '#fcfbf9', accent: '#1f5a87', highlight: '#2b7bb9' };
+  const verdict = theme.validate(theirs);
+  assert.ok(verdict.ok, verdict.error);
+
+  const { vars } = theme.derive(theirs);
+
+  // The card is left the colour it was asked to be.
+  assert.equal(vars['--paper'], '#fcfbf9');
+
+  // And there is an edge to find it by, which a dark page does not draw.
+  assert.notEqual(vars['--paper-edge'], 'transparent');
+  assert.ok(
+    theme.contrast(vars['--paper-edge'], vars['--shade']) >= 1.4,
+    'the hairline round the card is invisible on the page'
+  );
+
+  const dark = theme.derive({
+    ground: '#1c2b36', paper: '#efe9e0', accent: '#1f5a87', highlight: '#2b7bb9',
+  });
+  assert.equal(dark.vars['--paper-edge'], 'transparent', 'a dark page grew an edge');
+
+  /*
+   * The text keeps the brand's cast rather than going flat grey. Seeded from
+   * the ground everywhere else, which on a light page is the white the text
+   * has to read on — so there it is seeded from the accent instead, which is
+   * what a light site sets its own headings in.
+   */
+  assert.equal(vars['--ink'], '#1f5a87');
+  assert.equal(vars['--card-ink'], '#1f5a87');
+
+  // Two identical colours are still refused: the edge is derived from the
+  // ground, and a paper that is the ground has nothing to be an edge around.
+  const same = theme.validate({ ...theirs, paper: '#ffffff' });
+  assert.equal(same.ok, false);
+  assert.match(same.error, /identical/);
 });
 
 test('colours are normalised, and anything that is not one is refused', () => {

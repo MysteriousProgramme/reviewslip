@@ -371,7 +371,7 @@ ${SURFACES}
 
 Rules:
 - Every value must be a full six-digit hex like #1b2a23. No colour names, no rgb(), no shorthand.
-- "ground" and "paper" must be clearly different in lightness. A dark ground and a light paper.
+- A dark ground needs a clearly lighter paper. A light ground does not: the two may be near neighbours, but never the identical hex.
 - Take colours the site actually uses. Say where each came from in "source", naming the element you saw it on.
 - If the site gives you nothing for a slot, choose one that sits with the others rather than leaving it out. All four are required.
 - Do not return four near-identical colours. This is a palette, not a monochrome study.
@@ -428,8 +428,8 @@ Output only the JSON object. Nothing before it, nothing after it.`;
  * "the frame and the corner marks on a printed card" tells it everything.
  */
 const SURFACES = `What each one is for:
-- "ground" is the deep background of the whole page. It must be DARK. Take the site's darkest brand colour — a header, a footer, a hero overlay. If the site is entirely pale, deepen its main brand colour until it is dark rather than returning a light one.
-- "paper" is the light card the review is written on. It must be LIGHT and close to neutral: an off-white, a cream, a very pale tint of the brand. Never a saturated colour — text has to sit on it.
+- "ground" is the background of the whole page. Follow the site: a site with a dark or colour-saturated background gets its darkest brand colour here — a header, a footer, a hero overlay — and a site that is white or near-white gets that. Do not invent a dark colour for a light site, and do not lighten a dark one. This is the single decision that makes a review page look like the business it belongs to, and getting it backwards is the difference between a page somebody recognises and one they do not.
+- "paper" is the card the review is written on. It must be close to neutral — an off-white, a cream, a very pale tint of the brand — and never a saturated colour, because text has to sit on it. On a dark ground it must be clearly lighter, so the card reads as a separate surface. On a light ground it may be the same shade as the page or a touch off it, the way a light website does it: the card is found by the hairline drawn round it rather than by contrast.
 - "accent" is the quiet furniture: labels, borders, the topic buttons. A mid-tone brand colour.
 - "highlight" is spent once, on the button that opens the review listing. The site's most attention-seeking colour — the one on its main call to action.
 

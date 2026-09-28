@@ -13,6 +13,8 @@
   --shade: #0c1f19;
   --shade-deep: #06110e;
   --paper: #f3ecdc;
+  /* Text on the page, as opposed to the card. See theme.js. */
+  --on-shade: #f3ecdc;
   --paper-shadow: #ded3bc;
   --ink: #1b2a23;
   --ink-soft: #5d6b62;
@@ -189,7 +191,7 @@ body {
   font-size: clamp(2rem, 9vw, 2.75rem);
   line-height: 1.08;
   letter-spacing: -0.01em;
-  color: var(--paper);
+  color: var(--on-shade);
 }
 
 .title-dot {
@@ -282,7 +284,7 @@ body {
    * can type into and not see what they typed. The ground's text colour is
    * --paper, which is what the title above it uses.
    */
-  color: var(--paper);
+  color: var(--on-shade);
   background: rgba(243, 236, 220, 0.06);
   border: 1px solid var(--jade-line);
 }
@@ -351,7 +353,7 @@ body {
 
 .chip:hover:not([aria-pressed='true']):not([aria-checked='true']) {
   border-color: var(--jade-dim);
-  color: var(--paper);
+  color: var(--on-shade);
 }
 
 /* Topics are toggles and lengths are a radiogroup, so the selected state arrives
@@ -360,7 +362,7 @@ body {
 .chip[aria-pressed='true'],
 .chip[aria-checked='true'] {
   background: var(--paper);
-  border-color: var(--paper);
+  border-color: var(--on-shade);
   color: var(--ink);
 }
 
@@ -392,7 +394,7 @@ body {
 
 .browse:hover,
 .browse:focus-visible {
-  color: var(--paper);
+  color: var(--on-shade);
   text-decoration-color: var(--jade-dim);
 }
 
@@ -479,7 +481,7 @@ body {
 .sheet-close:hover,
 .sheet-close:focus-visible {
   border-color: var(--jade-dim);
-  color: var(--paper);
+  color: var(--on-shade);
 }
 
 /* Filters the list below. Only ever seen over eleven topics or more — the
@@ -493,7 +495,7 @@ body {
   border: 1px solid var(--jade-line);
   border-radius: 999px;
   background: var(--jade-wash);
-  color: var(--paper);
+  color: var(--on-shade);
   font-family: inherit;
   /* 1rem, not the 0.875rem a chip uses: iOS zooms the whole page when a field
      under 16px takes focus, and a page zoomed inside a modal cannot be zoomed
@@ -551,10 +553,20 @@ body {
   margin-bottom: 0.625rem;
 }
 
-/* The card is clip-path'd, which would eat a box-shadow — so the drop shadow
-   lives on the wrapper as a filter instead. */
+/*
+ * The card is clip-path'd, which would eat a box-shadow — so the drop shadow
+ * lives on the wrapper as a filter instead.
+ *
+ * Two of them, because a light page needs a different thing from a dark one.
+ * On a dark page the cast is what lifts the card off the ground and the
+ * hairline is transparent. On a light page the card can be the same shade as
+ * the page behind it, and a zero-blur shadow in `--paper-edge` traces the torn
+ * outline that a border could not — a border would be clipped along with
+ * everything else.
+ */
 .slip-wrap {
-  filter: drop-shadow(0 22px 34px rgba(0, 0, 0, 0.45));
+  filter: drop-shadow(0 0 0.7px var(--paper-edge, transparent))
+    drop-shadow(0 22px 34px var(--paper-cast, rgba(0, 0, 0, 0.45)));
 }
 
 .slip {
@@ -779,7 +791,7 @@ body {
   flex: 1;
   border: 1px solid var(--jade-line);
   background: transparent;
-  color: var(--paper);
+  color: var(--on-shade);
 }
 
 .btn-quiet:hover:not(:disabled) {
@@ -874,7 +886,7 @@ body {
   border: 1px solid var(--jade);
   border-radius: 999px;
   background: var(--jade-tint);
-  color: var(--paper);
+  color: var(--on-shade);
   font: inherit;
   font-size: 0.95rem;
   padding: 0.45rem 2rem 0.45rem 0.95rem;
@@ -891,7 +903,7 @@ body {
 
 .lang:hover,
 .lang:focus-visible {
-  border-color: var(--paper);
+  border-color: var(--on-shade);
   background-color: var(--jade-tint-strong);
 }
 
@@ -1018,7 +1030,7 @@ body {
   font-size: clamp(6rem, 34vw, 13rem);
   line-height: 0.9;
   letter-spacing: -0.04em;
-  color: var(--paper);
+  color: var(--on-shade);
   /* The same warmth the background carries, so the digits sit in the scene
      rather than on top of it. */
   text-shadow: 0 0 60px rgba(233, 160, 59, 0.18);
@@ -1036,7 +1048,7 @@ body {
   font-weight: 300;
   font-size: clamp(1.5rem, 6vw, 2rem);
   line-height: 1.15;
-  color: var(--paper);
+  color: var(--on-shade);
 }
 
 .error-lede {

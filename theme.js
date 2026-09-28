@@ -181,6 +181,23 @@ function distance(a, b) {
  */
 const APART = 22;
 
+/**
+ * Above this luminance a ground is a light page rather than a dark one.
+ *
+ * The whole module was written for a dark page with a light card on it, which
+ * is a fine design and was the wrong one for about half the businesses that
+ * exist. A hotel whose website is white got a review page in its darkest
+ * brand colour, which is faithful to the palette and looks nothing like the
+ * site — and the moment the model was allowed to return a light ground, the
+ * derivation turned the white card grey to satisfy a contrast rule that a
+ * light page does not need.
+ *
+ * 0.4 rather than 0.5: a mid-tone ground behaves like a dark one here, since
+ * the thing that changes is whether the card can be separated by a hairline
+ * instead of by contrast, and a hairline needs somewhere pale to sit on.
+ */
+const LIGHT_PAGE = 0.4;
+
 const RATIOS = {
   reviewText: 7, // ink on paper
   softText: 4.5, // ink-soft on paper
@@ -348,13 +365,39 @@ function derive(theme, fonts = {}, { background = false } = {}) {
   const ground = hex(theme?.ground) || DEFAULT_THEME.ground;
   const adjusted = [];
 
-  // Paper first: it is the surface everything else is measured against, and it
-  // has to separate from the ground before anything sitting on it matters.
-  const paperFix = readable(
-    hex(theme?.paper) || DEFAULT_THEME.paper,
-    ground,
-    RATIOS.surface
-  );
+  const lightPage = luminance(ground) > LIGHT_PAGE;
+  const chosenPaper = hex(theme?.paper) || DEFAULT_THEME.paper;
+
+  /*
+   * The page is a gradient, and everything on it has to clear its ratio
+   * against the worse end rather than the one that happens to be named.
+   *
+   * On a dark page the far end is darker, which only helps the light text
+   * sitting on it — so the ground itself is the harder case and nothing
+   * changes. On a light page the far end is darker too, and there it is the
+   * harder case: measured against `--shade` the labels cleared 4.5 and on the
+   * screen they were 4.31, which is the same way round as the alpha bug that
+   * had eleven rules under AA.
+   */
+  const shadeDeep = mix(ground, '#000000', lightPage ? 0.05 : 0.45);
+  const against = lightPage ? shadeDeep : ground;
+
+  /*
+   * Paper first: it is the surface everything else is measured against.
+   *
+   * On a dark page it has to separate from the ground by contrast, because
+   * contrast is the only thing telling a guest where the card ends. On a
+   * light page it does not, and forcing it to was the bug: white paper on a
+   * near-white ground cannot reach 3:1 without going grey, so a business
+   * whose site is white got its review written on a mid-grey slab.
+   *
+   * A light page separates the card the way every light website does it, with
+   * a hairline — see `--paper-edge` below. So the paper is left as chosen and
+   * the edge does the work.
+   */
+  const paperFix = lightPage
+    ? { colour: chosenPaper, moved: false }
+    : readable(chosenPaper, ground, RATIOS.surface);
   if (paperFix.moved) adjusted.push('the paper colour, to separate it from the background');
   const paper = paperFix.colour;
 
@@ -370,46 +413,60 @@ function derive(theme, fonts = {}, { background = false } = {}) {
   const chosenAccent = hex(theme?.accent) || DEFAULT_THEME.accent;
   const chosenHighlight = hex(theme?.highlight) || DEFAULT_THEME.highlight;
 
-  const accentFix = readable(chosenAccent, ground, RATIOS.bodyText);
-  if (accentFix.moved) adjusted.push('the accent, so labels stay readable on the background');
-  const accent = accentFix.colour;
-
-  const highlightFix = readable(chosenHighlight, ground, RATIOS.actionText);
-  let highlight = highlightFix.colour;
-  let highlightWhy = highlightFix.moved
-    ? 'the highlight, so the post button stays readable'
+  const accentFix = readable(chosenAccent, against, RATIOS.bodyText);
+  let accent = accentFix.colour;
+  let accentWhy = accentFix.moved
+    ? 'the accent, so labels stay readable on the background'
     : '';
 
+  const highlightFix = readable(chosenHighlight, against, RATIOS.actionText);
+  const highlight = highlightFix.colour;
+  if (highlightFix.moved) adjusted.push('the highlight, so the post button stays readable');
+
   /*
-   * And far enough from the accent to be a different colour.
+   * And the two far enough apart to be different colours.
    *
    * Every ratio here measures a colour against what is behind it, and nothing
    * measured the four against each other — so a venue whose site is three
-   * blues got an accent and a highlight that both cleared their targets and
-   * landed 1.09:1 apart. The labels and the one button that matters were the
-   * same colour, and the page read as a single wash.
+   * blues got an accent and a highlight that each cleared their own target
+   * and landed a perceptual 11 apart. The labels and the one button that
+   * matters were the same colour and the page read as a single wash.
    *
-   * The highlight gives, because it is the one that is supposed to lead: it
-   * is pushed further from the ground until it separates. Reported like every
-   * other move, so a business can see their colour changed and why.
+   * The accent gives way, not the highlight. Separation can only come from
+   * pushing one of them further from the page — lighter on a dark page,
+   * darker on a light one — and the highlight is the colour the business
+   * chose to be noticed by. Pushing it on a light page turned a bright blue
+   * button into a near-black one: still separated, still readable, and no
+   * longer doing its job. The accent is furniture, and furniture can move.
    */
   if (distance(highlight, accent) < APART) {
     for (const target of [5.5, 7, 8.5, 10, 12, 14]) {
-      highlight = readable(chosenHighlight, ground, target).colour;
+      accent = readable(chosenAccent, against, target).colour;
       if (distance(highlight, accent) >= APART) break;
     }
     // Replaces the readability line rather than adding to it. Two sentences
     // about the same colour reads as it having been changed twice.
-    highlightWhy =
-      'the highlight, so the post button is not the same colour as the labels';
+    accentWhy = 'the accent, so the labels are not the same colour as the post button';
   }
 
-  if (highlightWhy) adjusted.push(highlightWhy);
+  if (accentWhy) adjusted.push(accentWhy);
 
-  // Ink is never chosen, only derived: it is whatever reads on the paper. Start
-  // from the ground so the text keeps the palette's cast rather than going flat
-  // black, then push it until it clears AAA.
-  const ink = readable(ground, paper, RATIOS.reviewText).colour;
+  /*
+   * Ink is never chosen, only derived: it is whatever reads on the paper.
+   *
+   * Seeded from the ground so the text keeps the palette's cast rather than
+   * going flat black — except on a light page, where the ground is the white
+   * the text has to read *on* and seeding from it would give plain black. The
+   * accent is the nearest thing to a brand colour that is already dark there,
+   * and it is what a light site sets its own headings in.
+   */
+  /*
+   * The accent as the business chose it, not as the separation above left it.
+   * Seeding from the adjusted one would make the body text of a light page
+   * drift every time the palette happened to need pulling apart.
+   */
+  const inkSeed = lightPage ? chosenAccent : ground;
+  const ink = readable(inkSeed, paper, RATIOS.reviewText).colour;
   const inkSoft = readable(mix(ink, paper, 0.45), paper, RATIOS.softText).colour;
 
   // The label inside the filled button. Black or white, whichever the highlight
@@ -421,9 +478,54 @@ function derive(theme, fonts = {}, { background = false } = {}) {
     adjusted,
     vars: {
       '--shade': ground,
-      '--shade-deep': mix(ground, '#000000', 0.45),
+      /*
+       * The far end of the page's gradient. A dark page can take a deep one;
+       * on a light page 45% black is a grey wash across something that is
+       * meant to read as white, so it is a hint instead of a shade.
+       */
+      '--shade-deep': shadeDeep,
       '--paper': paper,
       '--paper-shadow': mix(paper, '#000000', 0.12),
+      /*
+       * The hairline round the review card, and the whole reason a light page
+       * works at all.
+       *
+       * On a dark page the card is found by contrast and this is not drawn —
+       * transparent, so nothing about an existing theme changes. On a light
+       * page the card may be the same colour as the page behind it, exactly
+       * as it is on most light websites, and the edge is what says where it
+       * ends. Derived against the ground rather than the paper because that
+       * is the side it has to be seen from.
+       */
+      '--paper-edge': lightPage
+        ? readable(mix(ground, '#000000', 0.25), ground, 1.45).colour
+        : 'transparent',
+      /*
+       * How heavily the card is cast onto the page below it.
+       *
+       * A dark page can take a deep shadow and needs one — it is most of what
+       * lifts the card off the ground. On a light page the same shadow is a
+       * grey smear under something white, so it becomes a suggestion and the
+       * hairline above does the work instead.
+       */
+      '--paper-cast': lightPage ? 'rgba(15, 23, 42, 0.10)' : 'rgba(0, 0, 0, 0.45)',
+      /*
+       * Text that sits on the page rather than on the card.
+       *
+       * The stylesheet used `--paper` for this — the heading, the button
+       * labels, the language selector — which is right on a dark page, where
+       * the card colour is the pale one. On a light page it is the *page*
+       * that is pale, so the heading was white on white and the buttons had
+       * no labels. A separate name for a separate job; on a dark page it is
+       * the paper colour, so nothing about an existing theme moves.
+      *
+       * Derived against the page rather than borrowed from `--ink`. Ink reads
+       * on the *card*, and a light page may carry a dark card — that palette
+       * gave a pale ink, which on a pale page measured 1.96:1.
+       */
+      '--on-shade': lightPage
+        ? readable(inkSeed, against, RATIOS.bodyText).colour
+        : paper,
       '--ink': ink,
       '--ink-soft': inkSoft,
       // Still called jade in the stylesheet. Renaming the variables would touch
@@ -444,7 +546,7 @@ function derive(theme, fonts = {}, { background = false } = {}) {
        * `--jade-dim` stays as it was for the borders and rules that use it,
        * where alpha is the right tool and nothing is being read.
        */
-      '--jade-soft': readable(mix(accent, ground, 0.4), ground, RATIOS.softText)
+      '--jade-soft': readable(mix(accent, against, 0.4), against, RATIOS.softText)
         .colour,
       '--jade-dim': rgbaOf(accent, 0.5),
       '--jade-line': rgbaOf(accent, 0.24),
@@ -492,9 +594,19 @@ function derive(theme, fonts = {}, { background = false } = {}) {
       // what it sits on. The paper colour first, since a venue that chose a
       // cream paper wants its cream here; white only if the cream cannot
       // carry text on their own ground.
-      '--card-on-panel': readable(paper, ground, RATIOS.reviewText).colour,
+      /*
+       * On a light page the panel is white and the paper is near-white, so
+       * reversing the paper out of it would push a near-white towards black
+       * and land on grey. The same seed the page's own ink uses: the brand
+       * colour, which is the thing a light site sets its headings in.
+       */
+      '--card-on-panel': readable(
+        lightPage ? inkSeed : paper,
+        ground,
+        RATIOS.reviewText
+      ).colour,
       '--card-panel-rule': readable(highlight, ground, RATIOS.surface).colour,
-      '--card-ink': readable(ground, CARD, RATIOS.reviewText).colour,
+      '--card-ink': readable(inkSeed, CARD, RATIOS.reviewText).colour,
       /*
        * From the colours the venue chose, against the stock they print on.
        *
@@ -508,12 +620,12 @@ function derive(theme, fonts = {}, { background = false } = {}) {
       '--card-frame': readable(chosenAccent, CARD, RATIOS.surface).colour,
       '--card-rule': readable(chosenHighlight, CARD, RATIOS.surface).colour,
       '--card-muted': readable(
-        mix(readable(ground, CARD, RATIOS.reviewText).colour, CARD, 0.55),
+        mix(readable(inkSeed, CARD, RATIOS.reviewText).colour, CARD, 0.55),
         CARD,
         RATIOS.softText
       ).colour,
       '--card-brand': readable(
-        mix(readable(ground, CARD, RATIOS.reviewText).colour, CARD, 0.68),
+        mix(readable(inkSeed, CARD, RATIOS.reviewText).colour, CARD, 0.68),
         CARD,
         RATIOS.surface
       ).colour,
@@ -643,11 +755,23 @@ function validate(value) {
   // white or black to clear its ratio, and that only works if there is a
   // direction to push in — a ground and a paper that are the same colour leave
   // none, and the result would be a page of one flat rectangle.
-  if (contrast(theme.ground, theme.paper) < 1.6) {
+  /*
+   * Relaxed on a light page, where the card is separated by a hairline rather
+   * than by contrast — see LIGHT_PAGE in derive. Two near-white colours can
+   * never clear 1.6:1, so this rule was refusing every palette a white site
+   * would naturally produce, and the one that squeaked past it came out grey.
+   *
+   * Still a floor rather than nothing: `--paper-edge` is derived from the
+   * ground, so a paper that has drifted far from it would sit inside an edge
+   * drawn for something else.
+   */
+  const lightPage = luminance(theme.ground) > LIGHT_PAGE;
+  if (contrast(theme.ground, theme.paper) < (lightPage ? 1.02 : 1.6)) {
     return {
       ok: false,
-      error:
-        'The background and paper colours are too close to tell apart. Pick a dark background and a light paper, or the other way round.',
+      error: lightPage
+        ? 'The background and paper colours are identical. Make one of them a shade different, or pick a dark background.'
+        : 'The background and paper colours are too close to tell apart. Pick a dark background and a light paper, or the other way round.',
     };
   }
 
