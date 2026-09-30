@@ -1396,31 +1396,70 @@ test('a drafted theme is read from either shape the model returns', () => {
   assert.equal(seed.parseTheme('{"ground":"#0b1b33"}'), null);
 });
 
-test('topics come back in alphabetical order, whatever order they were stored in', () => {
+test('topics come back in the order they were stored, so Move Up sticks', () => {
+  // Deliberately not alphabetical. Reading used to sort by label, which meant
+  // the editor's Move Up and Move Down appeared to work and were undone by the
+  // next read.
   const stored = [
-    { id: 'a', label: 'Ambience' },
     { id: 'b', label: 'room 10' },
-    { id: 'c', label: 'Room 2' },
+    { id: 'a', label: 'Ambience' },
     { id: 'd', label: 'coffee' },
+    { id: 'c', label: 'Room 2' },
   ];
 
   const labels = settings
     .resolve({ categories: stored })
     .categories.map((c) => c.label);
 
-  // Case-insensitive, so 'coffee' sits between the two capitalised words
-  // instead of after them, and numeric, so Room 2 precedes Room 10.
-  assert.deepEqual(labels, ['Ambience', 'coffee', 'Room 2', 'room 10']);
+  assert.deepEqual(labels, ['room 10', 'Ambience', 'coffee', 'Room 2']);
 
-  // The stored array is the subscriber's row. Sorting a copy is the difference
-  // between a display order and a silent rewrite of what they saved.
-  assert.equal(stored[0].label, 'Ambience');
-  assert.equal(stored[1].label, 'room 10');
+  // The stored array is the subscriber's row. Handing back a copy is the
+  // difference between a display order and a silent rewrite of what they saved.
+  assert.equal(stored[0].label, 'room 10');
+  assert.notEqual(settings.resolve({ categories: stored }).categories, stored);
 
-  // Same list, same order, through the dashboard's view of it.
+  // The guest page's picker and the dashboard's editor read the same order.
   assert.deepEqual(
     settings.describe({ categories: stored }).categories.value.map((c) => c.label),
     labels
+  );
+});
+
+test('a freshly proposed set is ordered by label, since nobody has ordered it', () => {
+  // The collator survives for this one job: a set straight off the model has no
+  // order worth keeping, and alphabetical beats whatever sequence it emitted.
+  const proposed = [
+    { label: 'room 10' },
+    { label: 'Ambience' },
+    { label: 'coffee' },
+    { label: 'Room 2' },
+  ];
+
+  // Case-insensitive, so 'coffee' sits between the capitalised words instead of
+  // after them, and numeric, so Room 2 precedes Room 10.
+  assert.deepEqual(
+    [...proposed].sort(settings.byLabel).map((c) => c.label),
+    ['Ambience', 'coffee', 'Room 2', 'room 10']
+  );
+});
+
+test('a locked topic keeps its lock across a save, and an unlocked one stores nothing', () => {
+  const saved = settings.validate({
+    categories: [
+      { label: 'Air Conditioning', focus: 'Quiet\nEasy to control', locked: true },
+      { label: 'Breakfast', focus: 'On the terrace' },
+    ],
+  });
+
+  assert.equal(saved.categories[0].locked, true);
+  // Absent, not false: a `locked: false` on every one of fifty rows is noise in
+  // a column read on every guest page load.
+  assert.equal('locked' in saved.categories[1], false);
+
+  // And the order the editor sent is the order stored.
+  assert.deepEqual(
+    saved.categories.map((c) => c.label),
+    ['Air Conditioning', 'Breakfast']
   );
 });
 
@@ -2419,10 +2458,49 @@ test('a venue with a key, topics and one listing can take reviews', () => {
   assert.deepEqual(p.blocking, []);
 });
 
-test('the three things that stop a review being taken are named', () => {
+test('the things the venue must do are named, and the key is not one', () => {
   const p = setup.progress({ settings: {} });
   assert.equal(p.canTakeReviews, false);
-  assert.deepEqual(p.blocking.sort(), ['key', 'listing', 'topics']);
+  // We buy the tokens and fit the key through the admin API. It is never the
+  // venue's outstanding work, so it is never in `blocking`.
+  assert.deepEqual(p.blocking.sort(), ['listing', 'topics']);
+  assert.equal(
+    p.steps.some((s) => s.id === 'key'),
+    false
+  );
+});
+
+/**
+ * The failure this pair replaces: every new venue opened its dashboard to a red,
+ * blocking "A writing key" that no amount of clicking could clear, because there
+ * is no field for it on any customer screen.
+ */
+test('a missing key still stops the guest page, and is not blamed on the venue', () => {
+  const p = setup.progress({ settings: { ...READY, apiKey: '' } });
+  assert.equal(p.canTakeReviews, false);
+  assert.deepEqual(p.blocking, []);
+  assert.equal(p.waitingOnUs, true);
+});
+
+test('waiting on us is only said once the venue has nothing left to do', () => {
+  // Otherwise it reads as an excuse offered alongside their own outstanding work.
+  const p = setup.progress({ settings: { apiKey: '' } });
+  assert.equal(p.waitingOnUs, false);
+  assert.ok(p.blocking.length > 0);
+});
+
+/**
+ * guestMessage takes the whole result, not `blocking`. Taking the list is what
+ * it used to do, and once the key left that list this venue would have had an
+ * empty `blocking`, no banner at all, and a Generate button that quietly failed.
+ */
+test('the guest is still told when only the key is missing', () => {
+  const p = setup.progress({ settings: { ...READY, apiKey: '' } });
+  assert.match(setup.guestMessage(p), /not finished being set up/);
+});
+
+test('a venue that can take reviews shows the guest nothing', () => {
+  assert.equal(setup.guestMessage(setup.progress({ settings: READY })), null);
 });
 
 test('no listing is what empties the review list, and it says so', () => {
@@ -2492,11 +2570,14 @@ test('an unreadable list of unused sites is no decision, not a crash', () => {
 test('what a guest is told names no setting and blames nobody', () => {
   // The guest did not misconfigure anything and cannot fix it. The detail goes
   // on the owner's screen, where somebody can act on it.
-  assert.equal(setup.guestMessage([]), null);
+  const noListing = setup.progress({ settings: { ...READY, googleUrl: '' } });
+  const noKey = setup.progress({ settings: { ...READY, apiKey: '' } });
+
+  assert.equal(setup.guestMessage(setup.progress({ settings: READY })), null);
   assert.equal(setup.guestMessage(null), null);
-  assert.match(setup.guestMessage(['listing']), /nowhere to post a review/);
-  assert.match(setup.guestMessage(['key']), /not finished being set up/);
-  assert.doesNotMatch(setup.guestMessage(['key']), /OpenRouter|API|key/i);
+  assert.match(setup.guestMessage(noListing), /nowhere to post a review/);
+  assert.match(setup.guestMessage(noKey), /not finished being set up/);
+  assert.doesNotMatch(setup.guestMessage(noKey), /OpenRouter|API|key/i);
 });
 
 

@@ -62,11 +62,14 @@ function listings(settings, off) {
 /**
  * The setup checklist.
  *
+ * Only the steps a venue can actually do. The writing key is ours, not theirs
+ * (see `waitingOnUs` below), so it is not in `steps` and not in `blocking`.
+ *
  * @param {object} input
  * @param {object} input.settings - resolved settings
  * @param {string[]} [input.off] - platforms marked as not used
  * @returns {{steps: object[], done: number, total: number, complete: boolean,
- *   canTakeReviews: boolean, blocking: string[]}}
+ *   canTakeReviews: boolean, blocking: string[], waitingOnUs: boolean}}
  */
 function progress({ settings = {}, off = [] } = {}) {
   const sites = listings(settings, off);
@@ -74,23 +77,23 @@ function progress({ settings = {}, off = [] } = {}) {
   const undecided = sites.filter((s) => !s.linked && !s.off);
 
   const topics = Array.isArray(settings.categories) ? settings.categories : [];
-  const key = String(settings.apiKey ?? '').trim();
+
+  /*
+   * We buy the tokens, so we hold the key — it is set through the admin API and
+   * there is no field for it on a customer's screen.
+   *
+   * It therefore cannot be a checklist step. A step nobody reading the list can
+   * act on is not a checklist item, it is a locked door with a to-do written on
+   * it: every venue started life showing a red, blocking "A writing key" that no
+   * amount of clicking could clear. It comes back as `waitingOnUs` instead, which
+   * says whose turn it is.
+   *
+   * It still stops the guest page working, which is why `canTakeReviews` below
+   * asks for it separately.
+   */
+  const key = Boolean(String(settings.apiKey ?? '').trim());
 
   const steps = [
-    {
-      id: 'key',
-      label: 'A writing key',
-      done: Boolean(key),
-      /*
-       * Blocking, and the only step that stops a review being written at all.
-       * Everything else here decides where a finished review goes; without this
-       * there is no review.
-       */
-      blocks: true,
-      note: key
-        ? 'Reviews can be written.'
-        : 'Without an OpenRouter key nothing can be written at all.',
-    },
     {
       id: 'topics',
       label: 'Topics to write about',
@@ -131,9 +134,22 @@ function progress({ settings = {}, off = [] } = {}) {
     done: steps.filter((s) => s.done).length,
     total: steps.length,
     complete: steps.every((s) => s.done),
-    /** Whether the guest page can do its job at all. */
-    canTakeReviews: blocking.length === 0,
+    /**
+     * Whether the guest page can do its job at all.
+     *
+     * The key is asked for here and not through `blocking`, because `blocking`
+     * answers "what is the venue still to do" and the key is never that.
+     */
+    canTakeReviews: blocking.length === 0 && key,
     blocking,
+    /**
+     * The venue has finished its side and is waiting on us to fit the key.
+     *
+     * Deliberately not `!key`: while the venue still has steps of its own, whose
+     * turn it is has an obvious answer and saying "waiting for us" alongside a
+     * list of their outstanding work would be an excuse, not information.
+     */
+    waitingOnUs: !key && blocking.length === 0,
   };
 }
 
@@ -143,10 +159,17 @@ function progress({ settings = {}, off = [] } = {}) {
  * Said to the guest, so it names no setting and blames nobody: they did not
  * misconfigure anything and cannot fix it. The owner gets the detail on their
  * own screen.
+ *
+ * Takes the whole result of `progress()`, not its `blocking` list. It used to
+ * take the list, and once the writing key left that list a venue missing only
+ * its key would have had an empty `blocking`, no banner, and a Generate button
+ * that quietly failed — the page claiming to work while it could not.
+ *
+ * @param {ReturnType<typeof progress>} ready
  */
-function guestMessage(blocking) {
-  if (!blocking || blocking.length === 0) return null;
-  if (blocking.includes('listing')) {
+function guestMessage(ready) {
+  if (!ready || ready.canTakeReviews) return null;
+  if (ready.blocking?.includes('listing')) {
     return 'This page is not finished being set up — there is nowhere to post a review yet.';
   }
   return 'This page is not finished being set up yet.';

@@ -142,14 +142,16 @@ function ownTheme(own) {
 }
 
 /**
- * Sorts topics by their label, the way a person reading a list expects.
+ * Orders topics by label, the way a person reading a list expects.
  *
  * Through a collator rather than `<`, because labels are whatever the business
  * writes and that includes Thai and Chinese, where comparing UTF-16 code units
  * gives an order nobody recognises. `numeric` so "Room 2" precedes "Room 10";
- * `base` so case and accents do not split words that belong together — those
- * compare equal, and `Array.sort` is stable, so equal labels keep the order
- * they were stored in.
+ * `base` so case and accents do not split words that belong together.
+ *
+ * Used on a **freshly proposed** set only — a set nobody has ordered yet, where
+ * alphabetical beats whatever sequence the model happened to emit. It is no
+ * longer applied when reading a venue's stored topics; see `ownCategories`.
  */
 const collator = new Intl.Collator(undefined, {
   numeric: true,
@@ -164,15 +166,22 @@ function byLabel(a, b) {
 /**
  * @returns {object[]|null} the venue's own list, if it set one
  *
- * Sorted here, at the one point both readers pass through: the dashboard's
- * editor and the guest page's picker are then in the same order without either
- * one sorting for itself. A copy rather than a sort in place — this array comes
- * off the subscriber row, and reordering it underneath the caller that stored
- * it would be a surprise.
+ * **Stored order, kept.** This used to sort by label through the collator, so that
+ * the dashboard's editor and the guest page's picker agreed without either one
+ * sorting for itself. They still agree — they agree on the order the venue put
+ * them in, which is the same guarantee from a better source.
+ *
+ * The sort had to go for the editor's Move Up and Move Down to mean anything: a
+ * re-sort on every read silently undid them, so the buttons would have appeared
+ * to work and then not.
+ *
+ * A copy rather than the stored array itself — this comes off the subscriber row
+ * and handing callers something they can reorder underneath the store would be a
+ * surprise.
  */
 function ownCategories(own) {
   const list = own?.categories;
-  return Array.isArray(list) && list.length ? [...list].sort(byLabel) : null;
+  return Array.isArray(list) && list.length ? [...list] : null;
 }
 
 /** Where each value came from — shown next to the fields in the panel. */

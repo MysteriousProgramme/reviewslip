@@ -693,7 +693,7 @@ app.get('/api/config', requireTenant, (req, res) => {
       ready: ready.canTakeReviews,
       // Said to the guest, so it names no setting: they did not misconfigure
       // anything and cannot fix it.
-      message: setup.guestMessage(ready.blocking),
+      message: setup.guestMessage(ready),
       // Where the person who *can* fix it should go. Empty off a real host,
       // where a link would go nowhere — and a dead link under an error message
       // is worse than no link, because it reads as a second thing broken.

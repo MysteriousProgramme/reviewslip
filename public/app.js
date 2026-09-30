@@ -466,10 +466,11 @@ function renderTopics(topics) {
 /**
  * `count` ids drawn without replacement, in the order they arrived.
  *
- * That order is alphabetical — the server sorts the list once, so the picker
- * here and the editor in the dashboard agree. Preserved rather than shuffled: a
- * picker that reordered itself on every load would make the same ten feel like a
- * different ten. Random *which*, not random *where*.
+ * That order is the venue's own, set with Move Up and Move Down in the editor
+ * and stored as-is, so the picker here and the editor in the dashboard agree.
+ * Preserved rather than shuffled: a picker that reordered itself on every load
+ * would make the same ten feel like a different ten. Random *which*, not random
+ * *where*.
  */
 function sampleIds(topics, count) {
   if (topics.length <= count) return topics.map((t) => t.id);
