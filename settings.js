@@ -29,7 +29,7 @@ const { PLATFORMS } = require('./platforms');
  * token budget are all tuned around one model, and a venue quietly running a
  * different one is a support problem nobody would see coming.
  */
-const MODEL = 'x-ai/grok-4.3';
+const MODEL = 'google/gemini-3-flash-preview';
 
 const FIELDS = [
   'apiKey',

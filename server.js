@@ -768,6 +768,7 @@ app.get('/api/topics', requireTenant, async (req, res) => {
         body: JSON.stringify({
           model,
           messages: translate.buildLabelMessages({ language, topics: gaps }),
+          reasoning: openrouter.REASONING.write,
           // Short answers by construction: fifty ids and fifty short names.
           max_tokens: 2000,
         }),
@@ -934,7 +935,16 @@ app.post('/api/review', requireTenant, async (req, res) => {
         messages,
         temperature: 1,
         top_p: 0.95,
-        max_tokens: 200,
+        reasoning: openrouter.REASONING.write,
+        /*
+         * A ceiling, not the length. How long a review runs is set in the
+         * prompt (the guest's Short / Detailed); this only has to be high
+         * enough that a full review always fits. It was 200, which a model
+         * that thinks even briefly first can use up before the review is
+         * finished — and a review cut off mid-sentence is worse than one a
+         * few words long. Nothing is billed for headroom that goes unused.
+         */
+        max_tokens: 600,
       }),
       signal: AbortSignal.timeout(25_000),
     });

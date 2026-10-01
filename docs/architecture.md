@@ -149,10 +149,35 @@ stylesheet with the app. Tailwind's reset would restyle a live public site to ch
 dashboard. What the standard is protecting is the result — one shell, one token set, one
 accent — and that is what was built.
 
+## The public site's UI
+
+The marketing pages, sign-in and sign-up follow [05]'s rule for marketing pages: the Vibe
+Crafted Software grey ramp with **zero hue**, the system font with **no webfont**, roomy
+spacing, sentence-case headings, and light and dark from the same theme system as the app.
+The one colour is the functional red on a form field that is wrong.
+
+- `app/globals.css` — the ramp (`--gray-950` … `--gray-50`), the shared tokens for light and
+  `.dark`, and the same kind of bridge the app has: the old brand names re-pointed at the ramp.
+  With no hue to spend, the call to action is the ink: `--marigold` and `--jade` both map to
+  the foreground, and the text on them to the background.
+- `components/Theme.tsx` — one `next-themes` provider in the root layout, for every page. A
+  choice made with the toggle in the app's Sidebar holds on the public site and the other way
+  round; the site's header has the same toggle (`components/ThemeToggle.tsx`).
+- The decorative radial glows, the button glows and the serif display face are gone.
+
+**One decision to know about:** the **demo slip** — the guest page shown on the home, demo,
+how-it-works and contact pages — keeps the venue's colours and typefaces. It is a picture of
+the product, the thing a venue is buying, not part of the site's chrome; drawn in grey it
+would misrepresent what a guest sees. It is marked `.venue-look`, like the table card. If the
+standard's "zero hue" is meant to reach product pictures too, this is the one line to change.
+
+Trirong and Bai Jamjuree are still loaded, with `preload: false`, because the product pictures
+use them. A browser only fetches a face something on the page uses.
+
 ## The authenticated app's UI
 
-The customer dashboard and the staff host follow [05]'s style guide. The marketing site, the
-sign-in page and the guest page do not, on purpose: they are the public brand.
+The customer dashboard and the staff host follow [05]'s style guide for the app. The guest
+page does not, on purpose: it is the venue's own page.
 
 **How it is put together** (all in `reviewslip-website`):
 
@@ -173,8 +198,9 @@ sign-in page and the guest page do not, on purpose: they are the public brand.
 - Translucent washes are mixed from `--wash` and `--alert`, not from the accent. A hover tinted
   blue would be the accent used as decoration.
 
-**`.venue-look`** marks the three things inside the app that are not the app — the table
-card, the registration card and the theme preview — and puts their typefaces back.
+**`.venue-look`** (in `globals.css`) marks the things that are pictures of the product rather
+than the site — the table card, the registration card, the theme preview and the demo slip —
+and puts the venue's palette and typefaces back for them.
 
 **What conforms:** one neutral scale and one accent (Thai royal blue, `#1f4fa3` / `#7fa2e6`);
 light and dark following the system, with a toggle; the system font at 14px; one 8px radius;
@@ -190,7 +216,8 @@ that pass WCAG AA on the page, on a panel and on their own tint, in both themes.
 - **No Recent entry** in the Sidebar, and no Prev / Next or record summary on Edit Views.
 - **Lists are plain tables.** Without DevExtreme there is no column chooser, header filter or
   saved layout (deviation 1).
-- **The sign-in page** still wears the marketing brand, so signing in changes the look.
+- **No `/docs`.** [05] and [01] require documentation alongside the website, built with
+  Fumadocs; there is none yet.
 
 ## What this means for the work in flight
 

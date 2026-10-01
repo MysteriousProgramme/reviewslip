@@ -87,8 +87,32 @@ async function vet(patch = {}) {
   return { warning };
 }
 
+/**
+ * How long the model thinks before it answers, by kind of call.
+ *
+ * Sent explicitly because the pinned model (settings.js) reasons by default —
+ * at "medium" — and every token it spends thinking is billed as output, makes
+ * the guest wait, and comes out of the same `max_tokens` the answer has to fit
+ * in. Left at the default, a review capped at a couple of hundred tokens can
+ * spend them all thinking and come back empty, which the guest sees as "the
+ * writer is down".
+ *
+ * The effort names are the model's: Gemini 3 Flash takes minimal, low, medium
+ * and high. Check them against OpenRouter's catalogue when MODEL changes.
+ */
+const REASONING = {
+  /** Writing a short text to a prompt — a review, a translated label. Nothing
+   *  to work out first. */
+  write: { effort: 'minimal' },
+  /** Reading a website and pulling colours, topics or reviews out of it. Some
+   *  thought helps, and "low" is what the budgets those calls pass were sized
+   *  against: it was the previous model's default. */
+  read: { effort: 'low' },
+};
+
 module.exports = {
   CHAT,
+  REASONING,
   MODELS,
   KEY_INFO,
   catalogue,

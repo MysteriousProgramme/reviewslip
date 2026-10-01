@@ -40,6 +40,7 @@ async function readWebsite(
          * tools, for a capability that call was not using.
          */
         ...(fetchPage ? { tools: [{ type: 'openrouter:web_fetch' }] } : {}),
+        reasoning: openrouter.REASONING.read,
         max_tokens: maxTokens,
       }),
       signal: AbortSignal.timeout(90_000),
