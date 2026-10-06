@@ -200,6 +200,13 @@ systemctl restart reviewslip 2>/dev/null || true
 
 say ""
 say "Done. In force now:"
-sudo -u postgres psql -Atc "SELECT name || ' = ' || setting || coalesce(unit, '') FROM pg_settings WHERE name IN ('max_connections','shared_buffers','effective_cache_size','work_mem','maintenance_work_mem','random_page_cost','jit') ORDER BY name" | sed 's/^/  /'
+# With where each value came from: a setting made earlier with ALTER SYSTEM
+# (postgresql.auto.conf) is read after conf.d and wins over it.
+sudo -u postgres psql -Atc "SELECT name || ' = ' || setting || coalesce(unit, '') || '   (' || coalesce(sourcefile, source) || ')' FROM pg_settings WHERE name IN ('max_connections','shared_buffers','effective_cache_size','work_mem','maintenance_work_mem','random_page_cost','jit') ORDER BY name" | sed 's/^/  /'
+if sudo -u postgres psql -Atc "SELECT 1 FROM pg_settings WHERE sourcefile LIKE '%postgresql.auto.conf' LIMIT 1" | grep -q 1; then
+  say ""
+  say "Some settings come from postgresql.auto.conf (set earlier with ALTER SYSTEM) and override this file."
+  say "To let this file decide: sudo -u postgres psql -c \"ALTER SYSTEM RESET ALL\" && sudo systemctl restart postgresql"
+fi
 say ""
 free -m
