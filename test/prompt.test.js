@@ -4317,6 +4317,31 @@ test('stored links that no longer pass the rules are not served', () => {
   assert.deepEqual(welcome.parseLinks('[{"label":"x","url":"javascript:alert(1)"}]'), []);
 });
 
+test('a link gets its picture from its address and its label', () => {
+  const cases = [
+    [{ label: 'Call reception', url: 'tel:+66812345678' }, 'phone'],
+    [{ label: 'Write to us', url: 'mailto:hello@baanponglodge.com' }, 'mail'],
+    [{ label: 'Wi-Fi password', url: 'https://baanponglodge.com/wifi' }, 'wifi'],
+    [{ label: 'ไวไฟ', url: 'https://baanponglodge.com/wifi' }, 'wifi'],
+    [{ label: 'Find us', url: 'https://maps.app.goo.gl/abc' }, 'map'],
+    [{ label: 'Directions', url: 'https://baanponglodge.com/how' }, 'map'],
+    [{ label: 'Message us', url: 'https://line.me/R/ti/p/@baanpong' }, 'chat'],
+    [{ label: 'Follow us', url: 'https://www.instagram.com/baanpong' }, 'social'],
+    [{ label: 'Breakfast menu', url: 'https://baanponglodge.com/menu' }, 'food'],
+    [{ label: 'เมนูอาหาร', url: 'https://baanponglodge.com/menu' }, 'food'],
+    [{ label: 'Book a tour', url: 'https://baanponglodge.com/tours' }, 'calendar'],
+    [{ label: 'House rules', url: 'https://baanponglodge.com/rules' }, 'info'],
+    [{ label: 'Our website', url: 'https://baanponglodge.com/' }, 'link'],
+  ];
+  for (const [link, expected] of cases) assert.equal(welcome.iconFor(link), expected, link.label);
+
+  // "Online check-in" is not a LINE chat.
+  assert.equal(welcome.iconFor({ label: 'Online check-in', url: 'https://a.example' }), 'info');
+
+  const [served] = welcome.forGuest([{ label: 'Menu', url: 'https://a.example/menu' }]);
+  assert.deepEqual(served, { label: 'Menu', url: 'https://a.example/menu', icon: 'food' });
+});
+
 test('a sign-up needs a name and an address, and consent only from a real tick', () => {
   const ok = welcome.validateSignup({ name: '  Marta  K. ', email: ' Marta@Example.COM ', consent: true });
   assert.deepEqual(ok, { ok: true, name: 'Marta K.', email: 'marta@example.com', consent: true });

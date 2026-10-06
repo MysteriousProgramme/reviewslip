@@ -13,7 +13,12 @@
     <!-- What lets a phone keep this page as an app: the venue's name, colours
          and mark, opening straight back onto /welcome. -->
     <link rel="manifest" href="/welcome.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- The name under the icon on an iPhone. Set to the venue's once it is
+         known; iOS reads it when the guest adds the page. -->
+    <meta name="apple-mobile-web-app-title" id="app-title" content="Welcome" />
     <link rel="apple-touch-icon" href="/logo" />
 
     <!-- The same three stylesheets as the review page, so the two read as one
@@ -24,62 +29,104 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/theme.css" />
   </head>
-  <body>
+  <body class="guest-app">
+    <!-- The app's own bar, once the guest is in: whose app this is. -->
+    <header class="app-bar" id="app-bar" hidden>
+      <img class="app-bar-logo" id="bar-logo" alt="" hidden />
+      <span class="app-bar-name" id="bar-name"></span>
+    </header>
+
     <main class="page welcome">
-      <header class="masthead">
-        <div class="masthead-top">
-          <img class="logo" id="logo" alt="" hidden />
-          <p class="eyebrow" id="eyebrow"></p>
-        </div>
-        <h1 class="title"><span id="heading" data-t="welcomeTitle">Welcome</span
-          ><span class="title-dot">.</span></h1>
-        <div class="ornament" aria-hidden="true"><span></span></div>
-        <p class="lede" id="lede" data-t="welcomeLede"></p>
-      </header>
+      <!-- --------------------------------------------------- signed out -->
+      <section class="welcome-start" id="start" hidden>
+        <header class="masthead">
+          <div class="masthead-top">
+            <img class="logo" id="logo" alt="" hidden />
+            <p class="eyebrow" id="eyebrow"></p>
+          </div>
+          <h1 class="title"><span id="heading" data-t="welcomeTitle">Welcome</span
+            ><span class="title-dot">.</span></h1>
+          <div class="ornament" aria-hidden="true"><span></span></div>
+          <p class="lede" data-t="welcomeLede"></p>
+        </header>
 
-      <!-- The sign-up. Shown until the guest has given a name and email, or
-           comes back with a pass from an earlier visit. -->
-      <form class="welcome-form" id="signup" novalidate hidden>
-        <div class="note-wrap">
-          <label class="label" for="name" data-t="welcomeName">Your name</label>
-          <input id="name" class="note" type="text" autocomplete="name"
-            maxlength="80" required enterkeyhint="next" />
-        </div>
-        <div class="note-wrap">
-          <label class="label" for="email" data-t="welcomeEmail">Email</label>
-          <input id="email" class="note" type="email" autocomplete="email"
-            inputmode="email" maxlength="254" required enterkeyhint="go" />
-        </div>
-        <!-- Unticked, always. Giving an address to see the Wi-Fi is not
-             agreeing to a newsletter, and PDPA asks for the second to be its
-             own clear yes. -->
-        <label class="consent">
-          <input type="checkbox" id="consent" />
-          <span data-t="welcomeConsent"></span>
-        </label>
-        <p class="notice welcome-error" id="error" role="alert"></p>
-        <button type="submit" class="btn btn-go" id="continue" data-t="welcomeContinue">Continue</button>
-        <p class="hint" data-t="welcomePrivacy"></p>
-      </form>
+        <form class="welcome-form" id="signup" novalidate>
+          <div class="note-wrap">
+            <label class="label" for="name" data-t="welcomeName">Your name</label>
+            <input id="name" class="note" type="text" autocomplete="name"
+              maxlength="80" required enterkeyhint="next" />
+          </div>
+          <div class="note-wrap">
+            <label class="label" for="email" data-t="welcomeEmail">Email</label>
+            <input id="email" class="note" type="email" autocomplete="email"
+              inputmode="email" maxlength="254" required enterkeyhint="go" />
+          </div>
+          <!-- Unticked, always. Giving an address to see the Wi-Fi is not
+               agreeing to a newsletter, and PDPA asks for the second to be its
+               own clear yes. -->
+          <label class="consent">
+            <input type="checkbox" id="consent" />
+            <span data-t="welcomeConsent"></span>
+          </label>
+          <p class="notice welcome-error" id="error" role="alert"></p>
+          <button type="submit" class="btn btn-go" id="continue" data-t="welcomeContinue">Continue</button>
+          <p class="hint" data-t="welcomePrivacy"></p>
+        </form>
+      </section>
 
-      <!-- What the guest came for. -->
-      <section class="welcome-links" id="links-view" aria-labelledby="links-label" hidden>
-        <p class="label" id="links-label" data-t="welcomeLinks">For your stay</p>
-        <ul class="link-list" id="links"></ul>
-        <p class="hint" id="no-links" data-t="welcomeNoLinks" hidden></p>
+      <!-- ---------------------------------------------------- signed in -->
+      <section class="app-home" id="home" aria-labelledby="hello" hidden>
+        <div class="app-hello">
+          <p class="eyebrow" id="hello"></p>
+          <h1 class="app-title" id="home-heading"></h1>
+        </div>
 
-        <!-- Keeping the page on the phone. Hidden once it is running as an app,
-             where telling somebody how to install it is telling them how to
-             install the thing they are holding. -->
-        <div class="install" id="install" hidden>
-          <p class="label" data-t="installHeading">Keep this on your phone</p>
+        <p class="notice" id="offline" data-t="appOffline" role="status" hidden></p>
+
+        <!-- Getting the app onto the phone. Hidden once it is running as an
+             app, where telling somebody how to install it is telling them how
+             to install the thing they are holding. -->
+        <section class="install-card" id="install" aria-labelledby="install-title" hidden>
+          <div class="install-head">
+            <span class="tile-icon" data-icon="download" aria-hidden="true"></span>
+            <div>
+              <h2 class="install-title" id="install-title" data-t="installHeading"></h2>
+              <p class="install-lede" data-t="installLede"></p>
+            </div>
+          </div>
           <!-- Only where the browser offers its own install prompt (Chrome and
-               Edge on Android). Everywhere else the steps below are the way. -->
-          <button type="button" class="btn btn-quiet" id="install-button" data-t="installButton" hidden>Install</button>
-          <p class="hint" id="install-ios" data-t="installIos" hidden></p>
-          <p class="hint" id="install-android" data-t="installAndroid" hidden></p>
-          <p class="hint" id="install-done" data-t="installDone" role="status" hidden></p>
-        </div>
+               Edge on Android). Everywhere else the steps are the way. -->
+          <ol class="install-steps">
+            <li id="install-ios" hidden><span class="step-icon" data-icon="share" aria-hidden="true"></span><span data-t="installIos"></span></li>
+            <li id="install-android" hidden><span class="step-icon" data-icon="more" aria-hidden="true"></span><span data-t="installAndroid"></span></li>
+          </ol>
+          <div class="install-actions">
+            <button type="button" class="btn btn-go" id="install-button" data-t="installButton" hidden>Install</button>
+            <button type="button" class="btn btn-quiet" id="install-later" data-t="installLater">Not now</button>
+          </div>
+        </section>
+        <p class="notice" id="install-done" data-tone="done" data-t="installDone" role="status" hidden></p>
+
+        <!-- What the guest came for, as tiles to tap with a thumb. -->
+        <section aria-labelledby="links-label">
+          <h2 class="label" id="links-label" data-t="welcomeLinks">For your stay</h2>
+          <ul class="tiles" id="links"></ul>
+          <p class="hint" id="no-links" data-t="welcomeNoLinks" hidden></p>
+        </section>
+
+        <!-- The venue's review page, from the app the guest already has open. -->
+        <a class="review-cta" href="/">
+          <span class="tile-icon" data-icon="star" aria-hidden="true"></span>
+          <span class="review-cta-text">
+            <span class="review-cta-title" data-t="appReview"></span>
+            <span class="review-cta-action" data-t="appReviewAction"></span>
+          </span>
+        </a>
+
+        <p class="app-foot">
+          <span id="signed-in"></span>
+          <button type="button" class="link-button" id="not-you" data-t="appNotYou">Not you?</button>
+        </p>
       </section>
     </main>
 

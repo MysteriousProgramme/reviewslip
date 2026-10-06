@@ -1,9 +1,11 @@
-# The welcome page
+# The welcome page — the guest app
 
 A guest scans a QR code in the room or on the table, gives their name and email, and gets
 the venue's links — Wi-Fi, menu, website, a phone number — and the steps to keep the page on
-their phone like an app. The venue sets the links in the dashboard and downloads the guests who
-agreed to be emailed as a mailing list.
+their phone like an app. Once a guest is in, it is the venue's own app: a bar with the venue's
+name and mark, the links as tiles with a picture each, and the way to the review page. The venue
+sets the links in the dashboard (**Guest App**) and downloads the guests who agreed to be emailed
+as a mailing list.
 
 Built 2026-10-06. Decisions by Zac on the same day.
 
@@ -12,9 +14,11 @@ Built 2026-10-06. Decisions by Zac on the same day.
 | | |
 |---|---|
 | Guest page | `https://<slug>.reviewslip.com/welcome` — `public/welcome.html` + `welcome.js`, in the venue's own colours via the same three stylesheets as the review page |
+| Offline | `public/welcome-sw.js`, scoped to `/welcome`: network first, the last copy when there is no signal. The links and the guest's name are kept on the phone and shown at once, then refreshed |
 | Install | `/welcome.webmanifest`, per venue. An Install button where the browser offers one (Chrome and Edge on Android); written steps for iPhone and Android everywhere else |
-| Dashboard | **Welcome Page** in the Sidebar — `/dashboard/<slug>/welcome`: the QR code, the links, the guests |
-| Rules | `welcome.js` (pure, tested): links, sign-ups, the mailing list file, the guest's pass |
+| Dashboard | **Guest App** in the Sidebar — `/dashboard/<slug>/welcome`: the QR code, the links, the guests |
+| Printed card | **Table Card → Welcome Card** — `/dashboard/<slug>/poster?card=welcome`: the table card's sheet with the app's code and words |
+| Rules | `welcome.js` (pure, tested): links and their tile pictures, sign-ups, the mailing list file, the guest's pass |
 | Storage | `subscribers.welcome_links` (JSON) and `guest_signups` — migration 32 |
 
 ## Decisions
@@ -27,6 +31,8 @@ Built 2026-10-06. Decisions by Zac on the same day.
   its own newsletter tool. Dates are the venue's calendar day.
 - **Emails are kept in Reviewslip**, per venue, one row per address. No Mailchimp or Brevo
   integration.
+- **Each tile's picture is guessed** from the label and address (Wi-Fi, menu, map, LINE, phone…), not picked. Anything unrecognised is a plain link.
+- **The app ends on the review page.** A "How was your stay?" button opens `/`, the venue's review page.
 - **Links are a free-form list:** label and address, in order, at most 20. Web addresses,
   `tel:` and `mailto:` only — never `javascript:` or `data:`, which on a page every guest opens
   would run script in their browser.
@@ -49,7 +55,6 @@ The sign-up shares the guest page's throttle: 30 a minute per venue and address.
 - **The privacy policy** says nothing about guests' names and emails. Each venue is the
   controller of its guests' data and Reviewslip processes it for them; the policy, and probably
   the terms a venue agrees to, need a paragraph saying so. That is legal text, not code.
-- **The table card** still carries only the review QR. A printed welcome card would reuse it.
 - **Strings in ten languages besides English** were written without a native speaker — have
   someone read the Thai at least before a venue prints the code.
 

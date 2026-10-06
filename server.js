@@ -189,6 +189,7 @@ app.get('/welcome.webmanifest', resolveTenant, (req, res) => {
   res.type('application/manifest+json');
   res.set('Cache-Control', 'private, max-age=300');
   res.json({
+    id: '/welcome',
     name: req.subscriber.name,
     short_name: req.subscriber.name.slice(0, 12),
     start_url: '/welcome',
@@ -422,7 +423,8 @@ app.post('/api/welcome', requireTenant, async (req, res, next) => {
     });
 
     res.json({
-      links: welcome.parseLinks(req.subscriber.welcome_links),
+      name: signup.name,
+      links: welcome.forGuest(welcome.parseLinks(req.subscriber.welcome_links)),
       // Null when SECRET_KEY is not usable. The guest still gets the links
       // now; they are asked again on their next visit, which is the whole of
       // the cost.
@@ -445,12 +447,15 @@ app.get('/api/welcome/links', requireTenant, async (req, res, next) => {
     const opened = welcome.openPass(req.get('x-welcome-pass'), {
       subscriberId: req.subscriber.id,
     });
-    const still =
+    const signup =
       opened.ok &&
-      (await signups.exists({ subscriberId: req.subscriber.id, id: opened.signupId }));
-    if (!still) return res.status(401).json({ error: 'signedOut' });
+      (await signups.find({ subscriberId: req.subscriber.id, id: opened.signupId }));
+    if (!signup) return res.status(401).json({ error: 'signedOut' });
 
-    res.json({ links: welcome.parseLinks(req.subscriber.welcome_links) });
+    res.json({
+      name: signup.name,
+      links: welcome.forGuest(welcome.parseLinks(req.subscriber.welcome_links)),
+    });
   } catch (err) {
     next(err);
   }

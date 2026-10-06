@@ -1,14 +1,18 @@
 'use strict';
 
 /**
- * The welcome page: a name and an email, then the venue's links, and how to
- * keep the page on the phone.
+ * The guest app: a name and an email, then the venue's links as tiles, how to
+ * put the app on the phone, and the way to the review page.
  *
- * The rules — what a valid sign-up is, what a link may point at — live on the
- * server (welcome.js). This file only draws them.
+ * The rules — what a valid sign-up is, what a link may point at, which picture
+ * a link gets — live on the server (welcome.js). This file only draws them.
  */
 
 const PASS_KEY = 'rs:welcome-pass';
+// The last links and name, so the app opens at once and still opens on a
+// lobby's flaky Wi-Fi. Refreshed from the server every time it can be.
+const SEEN_KEY = 'rs:welcome-seen';
+const LATER_KEY = 'rs:welcome-install-later';
 const $ = (id) => document.getElementById(id);
 
 /* ---------------------------------------------------------------- language */
@@ -16,9 +20,9 @@ const $ = (id) => document.getElementById(id);
 /**
  * The guest's own language, if the page has it.
  *
- * From the browser rather than a selector: this page is a handful of words
- * read once, and a guest standing in a lobby should not have to find a menu to
- * read them. Matched on the base tag, as the server does.
+ * From the browser rather than a selector: a guest standing in a lobby should
+ * not have to find a menu to read a handful of words. Matched on the base tag,
+ * as the server does.
  */
 const STRINGS = window.RS_STRINGS || { en: {} };
 const lang =
@@ -27,45 +31,119 @@ const lang =
     .find((code) => STRINGS[code]) || 'en';
 
 let venue = '';
+let guest = '';
 
 function t(key) {
   const raw = (STRINGS[lang] && STRINGS[lang][key]) || (STRINGS.en && STRINGS.en[key]) || key;
-  return raw.replace(/\{venue\}/g, venue);
+  return raw.replace(/\{venue\}/g, venue).replace(/\{name\}/g, guest);
 }
 
 function paint() {
   document.documentElement.lang = lang;
   for (const el of document.querySelectorAll('[data-t]')) el.textContent = t(el.dataset.t);
   $('heading').textContent = venue ? t('welcomeHeading') : t('welcomeTitle');
-  document.title = venue ? `${t('welcomeTitle')} · ${venue}` : t('welcomeTitle');
+  $('home-heading').textContent = venue ? t('welcomeHeading') : t('welcomeTitle');
+  $('hello').textContent = guest ? t('appHello') : '';
+  $('signed-in').textContent = guest ? t('appSignedIn') : '';
+  document.title = venue || t('welcomeTitle');
+}
+
+/* ------------------------------------------------------------------- icons */
+
+/**
+ * The pictures, drawn here rather than fetched so the app has them offline.
+ * Stroke icons on a 24 grid, coloured by the venue's theme through
+ * currentColor.
+ */
+const ICONS = {
+  wifi: '<path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.86a10 10 0 0 1 14 0"/><path d="M8.5 16.43a5 5 0 0 1 7 0"/>',
+  food: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>',
+  mail: '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+  map: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+  chat: '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/>',
+  social: '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/>',
+  calendar: '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  link: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+  star: '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  share: '<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/>',
+  more: '<circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>',
+};
+
+function icon(name) {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ICONS.link}</svg>`;
+}
+
+for (const el of document.querySelectorAll('[data-icon]')) el.innerHTML = icon(el.dataset.icon);
+
+/* ------------------------------------------------------------------- store */
+
+function read(key) {
+  try {
+    return localStorage.getItem(key) || '';
+  } catch {
+    return '';
+  }
+}
+
+function write(key, value) {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // Private browsing: the guest is asked again next time, nothing worse.
+  }
+}
+
+function readSeen() {
+  try {
+    const seen = JSON.parse(read(SEEN_KEY) || 'null');
+    return seen && Array.isArray(seen.links) ? seen : null;
+  } catch {
+    return null;
+  }
 }
 
 /* ------------------------------------------------------------------- views */
 
-function showForm() {
-  $('signup').hidden = false;
-  $('links-view').hidden = true;
-  $('lede').hidden = false;
+function showStart() {
+  $('start').hidden = false;
+  $('home').hidden = true;
+  $('app-bar').hidden = true;
 }
 
-function showLinks(links) {
-  $('signup').hidden = true;
-  $('lede').hidden = true;
-  $('links-view').hidden = false;
+function showHome({ name, links }, { offline = false } = {}) {
+  guest = name || '';
+  paint();
+
+  $('start').hidden = true;
+  $('home').hidden = false;
+  $('app-bar').hidden = false;
+  $('offline').hidden = !offline;
 
   const list = $('links');
   list.replaceChildren();
   for (const link of links) {
     const a = document.createElement('a');
-    a.className = 'link-row';
+    a.className = 'tile';
     a.href = link.url;
-    a.textContent = link.label;
-    // A web page opens beside this one so the guest can come back to it; a
+    // A web page opens beside the app so the guest can come back to it; a
     // phone number or an email address goes to the phone's own app.
     if (/^https?:/i.test(link.url)) {
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
     }
+    const picture = document.createElement('span');
+    picture.className = 'tile-icon';
+    picture.setAttribute('aria-hidden', 'true');
+    picture.innerHTML = icon(link.icon);
+    const label = document.createElement('span');
+    label.className = 'tile-label';
+    label.textContent = link.label;
+    a.append(picture, label);
+
     const li = document.createElement('li');
     li.append(a);
     list.append(li);
@@ -74,6 +152,18 @@ function showLinks(links) {
 
   offerInstall();
 }
+
+function signOut() {
+  write(PASS_KEY, '');
+  write(SEEN_KEY, '');
+  guest = '';
+  $('signup').reset();
+  paint();
+  showStart();
+  window.scrollTo(0, 0);
+}
+
+$('not-you').addEventListener('click', signOut);
 
 /* ----------------------------------------------------------------- install */
 
@@ -92,14 +182,15 @@ window.addEventListener('beforeinstallprompt', (event) => {
 
 window.addEventListener('appinstalled', () => {
   deferred = null;
-  $('install-button').hidden = true;
-  $('install-ios').hidden = true;
-  $('install-android').hidden = true;
+  $('install').hidden = true;
   $('install-done').hidden = false;
 });
 
 function offerInstall() {
-  if (standalone || $('links-view').hidden) return;
+  if (standalone || $('home').hidden || read(LATER_KEY)) {
+    $('install').hidden = true;
+    return;
+  }
 
   const ua = navigator.userAgent;
   const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
@@ -109,8 +200,8 @@ function offerInstall() {
   $('install-button').hidden = !deferred;
   // Steps for the phone in hand. On anything else — a laptop that opened the
   // link — both, since there is no telling which phone it is meant for.
-  $('install-ios').hidden = deferred ? true : !(ios || !android);
-  $('install-android').hidden = deferred ? true : !(android || !ios);
+  $('install-ios').hidden = Boolean(deferred) || !(ios || !android);
+  $('install-android').hidden = Boolean(deferred) || !(android || !ios);
 }
 
 $('install-button').addEventListener('click', async () => {
@@ -118,27 +209,16 @@ $('install-button').addEventListener('click', async () => {
   deferred.prompt();
   await deferred.userChoice.catch(() => null);
   deferred = null;
-  $('install-button').hidden = true;
+  offerInstall();
+});
+
+// "Not now" is remembered: an install card on every visit is nagging.
+$('install-later').addEventListener('click', () => {
+  write(LATER_KEY, '1');
+  $('install').hidden = true;
 });
 
 /* ----------------------------------------------------------------- sign-up */
-
-function readPass() {
-  try {
-    return localStorage.getItem(PASS_KEY) || '';
-  } catch {
-    return '';
-  }
-}
-
-function writePass(pass) {
-  try {
-    if (pass) localStorage.setItem(PASS_KEY, pass);
-    else localStorage.removeItem(PASS_KEY);
-  } catch {
-    // Private browsing: the guest is asked again next time, nothing worse.
-  }
-}
 
 $('signup').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -164,8 +244,11 @@ $('signup').addEventListener('submit', async (event) => {
       return;
     }
 
-    writePass(data.pass);
-    showLinks(data.links || []);
+    const seen = { name: data.name || '', links: data.links || [] };
+    write(PASS_KEY, data.pass);
+    write(SEEN_KEY, data.pass ? JSON.stringify(seen) : '');
+    showHome(seen);
+    window.scrollTo(0, 0);
   } catch {
     error.textContent = t('welcomeFailed');
   } finally {
@@ -175,44 +258,63 @@ $('signup').addEventListener('submit', async (event) => {
 
 /* -------------------------------------------------------------------- open */
 
+async function loadVenue() {
+  try {
+    const res = await fetch('/api/welcome');
+    if (!res.ok) return;
+    const data = await res.json();
+    venue = data.venue || '';
+    if (data.showName !== false) $('eyebrow').textContent = venue;
+    $('bar-name').textContent = venue;
+    $('app-title').content = venue || 'Welcome';
+    if (data.hasLogo) {
+      for (const id of ['logo', 'bar-logo']) {
+        const logo = $(id);
+        logo.src = '/logo';
+        logo.alt = id === 'logo' ? venue : '';
+        logo.hidden = false;
+      }
+    }
+  } catch {
+    // The app works without the venue's name; it only reads less warmly.
+  }
+}
+
 async function open() {
   paint();
 
+  // What the guest saw last time, at once, while the server is asked.
+  const pass = read(PASS_KEY);
+  const seen = pass ? readSeen() : null;
+  if (seen) showHome(seen);
+
+  await loadVenue();
+  paint();
+
+  if (!pass) return showStart();
+
+  // A pass that no longer works — the venue deleted their details — is
+  // forgotten, and they are asked again.
   try {
-    const res = await fetch('/api/welcome');
+    const res = await fetch('/api/welcome/links', { headers: { 'X-Welcome-Pass': pass } });
     if (res.ok) {
       const data = await res.json();
-      venue = data.venue || '';
-      if (data.showName !== false) $('eyebrow').textContent = venue;
-      if (data.hasLogo) {
-        const logo = $('logo');
-        logo.src = '/logo';
-        logo.alt = venue;
-        logo.hidden = false;
-      }
-      paint();
+      const fresh = { name: data.name || '', links: data.links || [] };
+      write(SEEN_KEY, JSON.stringify(fresh));
+      return showHome(fresh);
     }
+    if (res.status === 401) return signOut();
   } catch {
-    // The form works without the venue's name; it only reads less warmly.
+    // No signal. The links from last time are better than a blank screen.
   }
-
-  // A guest who signed up before goes straight to the links. A pass that no
-  // longer works — the venue deleted their details — is forgotten, and they
-  // are asked again.
-  const pass = readPass();
-  if (pass) {
-    try {
-      const res = await fetch('/api/welcome/links', { headers: { 'X-Welcome-Pass': pass } });
-      if (res.ok) {
-        const data = await res.json();
-        return showLinks(data.links || []);
-      }
-      writePass('');
-    } catch {
-      // Offline or a hiccup: the form is the safe thing to show.
-    }
-  }
-  showForm();
+  if (seen) showHome(seen, { offline: true });
+  else showStart();
 }
 
 open();
+
+// The app opening without a signal: the page and its styles from the last
+// visit. Scoped to /welcome, so the review page is never served from it.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/welcome-sw.js', { scope: '/welcome' }).catch(() => {});
+}

@@ -104,6 +104,48 @@ function parseLinks(text) {
   }
 }
 
+/**
+ * The picture on a link's tile in the guest app.
+ *
+ * Guessed from the address and the label, because a venue typing "Wi-Fi" and
+ * a password page should not also have to pick an icon from a list. Labels are
+ * matched in the languages venues here write them in. Anything unrecognised is
+ * a plain link, which is never wrong.
+ */
+const ICON_RULES = [
+  ['wifi', (label) => /wi-?fi|wlan|internet|ไวไฟ|无线|ワイファイ|와이파이/.test(label)],
+  ['map', (label, host) => /(^|\.)maps\.(google|apple)\.|maps\.app\.goo\.gl|goo\.gl$/.test(host)
+    || /\bmaps?\b|direction|location|find us|แผนที่|地图|地図|지도/.test(label)],
+  ['chat', (label, host) => /(^|\.)(line\.me|lin\.ee|wa\.me|whatsapp\.com|m\.me|messenger\.com|t\.me)$/.test(host)
+    || /\bchat\b|whatsapp|\bline\b|แชท|ไลน์/.test(label)],
+  ['social', (label, host) => /(^|\.)(instagram|facebook|tiktok|youtube|twitter|x)\.com$/.test(host)],
+  ['food', (label) => /menu|food|breakfast|lunch|dinner|restaurant|\bbar\b|cafe|café|coffee|room service|เมนู|อาหาร|菜单|メニュー|메뉴/.test(label)],
+  ['calendar', (label) => /\bbook|reserv|tour|activit|\bspa\b|จอง|预订|予約|예약/.test(label)],
+  ['info', (label) => /rule|info|guide|faq|check-?in|check-?out|house|คู่มือ|ข้อมูล|ระเบียบ/.test(label)],
+];
+
+/** @returns {string} one of the names the guest app draws */
+function iconFor({ label, url }) {
+  const text = String(url ?? '');
+  if (/^tel:/i.test(text)) return 'phone';
+  if (/^mailto:/i.test(text)) return 'mail';
+
+  let host = '';
+  try {
+    host = new URL(text).hostname.toLowerCase();
+  } catch {
+    // Not an address: matched on the label alone.
+  }
+  const name = String(label ?? '').toLowerCase();
+  const hit = ICON_RULES.find(([, matches]) => matches(name, host));
+  return hit ? hit[0] : 'link';
+}
+
+/** The links as the guest app shows them: each with its picture. */
+function forGuest(links) {
+  return links.map((link) => ({ ...link, icon: iconFor(link) }));
+}
+
 /* ----------------------------------------------------------------- sign-up */
 
 const MAX_NAME = 80;
@@ -230,6 +272,8 @@ module.exports = {
   validateLinks,
   normaliseUrl,
   parseLinks,
+  iconFor,
+  forGuest,
   validateSignup,
   mailingList,
   issuePass,

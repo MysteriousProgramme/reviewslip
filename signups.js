@@ -50,13 +50,16 @@ async function upsert({ subscriberId, name, email, consent }) {
   return toRecord(row);
 }
 
-/** Whether a sign-up still exists: a deleted one ends the guest's pass. */
-async function exists({ subscriberId, id }) {
+/**
+ * A sign-up, or null once it has been deleted — which ends the guest's pass.
+ * The name comes back with it so the app can greet the guest by it.
+ */
+async function find({ subscriberId, id }) {
   const row = await one(
-    'SELECT 1 AS ok FROM guest_signups WHERE subscriber_id = $1 AND id = $2',
+    'SELECT * FROM guest_signups WHERE subscriber_id = $1 AND id = $2',
     [subscriberId, id]
   );
-  return Boolean(row);
+  return row ? toRecord(row) : null;
 }
 
 /** Every sign-up for a venue, newest first. Small lists: one venue's guests. */
@@ -83,4 +86,4 @@ async function remove({ subscriberId, id }) {
   return result.rowCount > 0;
 }
 
-module.exports = { upsert, exists, list, remove };
+module.exports = { upsert, find, list, remove };

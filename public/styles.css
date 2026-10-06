@@ -1156,15 +1156,21 @@ body {
 }
 
 /* -------------------------------------------------------------------------- */
-/* The welcome page (welcome.html)                                            */
+/* The guest app (welcome.html)                                               */
 /* -------------------------------------------------------------------------- */
 
-/* Built from the review page's own pieces — the masthead, the labels, the note
-   field, the buttons — so the two pages read as one venue's. Only what the
-   review page has no use for is here. */
+/* The sign-up is built from the review page's own pieces — the masthead, the
+   labels, the note field, the buttons — so the two read as one venue's pages.
+   Once the guest is in, it is an app: a bar with whose app it is, tiles to tap,
+   and the way to the review page. Every colour is the theme's. */
 
-.welcome-form,
-.welcome-links {
+.welcome-start,
+.app-home {
+  display: grid;
+  gap: clamp(1.5rem, 5vw, 2rem);
+}
+
+.welcome-form {
   display: grid;
   gap: 1rem;
 }
@@ -1195,52 +1201,275 @@ body {
   display: none;
 }
 
-.link-list {
+/* ------------------------------------------------------------- app bar -- */
+
+.app-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: calc(0.7rem + env(safe-area-inset-top)) clamp(1.25rem, 5vw, 2rem) 0.7rem;
+  background: color-mix(in srgb, var(--shade) 90%, transparent);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--jade-line);
+  color: var(--on-shade);
+}
+
+/* Under the bar the page needs less air above it: the bar is the masthead. */
+.app-bar:not([hidden]) + .page {
+  padding-top: 1.5rem;
+}
+
+.app-bar-logo {
+  display: block;
+  height: 1.75rem;
+  width: auto;
+  max-width: 7rem;
+  object-fit: contain;
+}
+
+.app-bar-name {
+  min-width: 0;
+  font-family: var(--display);
+  font-size: 1.05rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-hello {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.app-title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 300;
+  font-size: clamp(1.6rem, 7vw, 2.1rem);
+  line-height: 1.12;
+  color: var(--on-shade);
+}
+
+/* --------------------------------------------------------------- tiles -- */
+
+.tiles {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+@media (min-width: 30rem) {
+  .tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* A whole tile to tap, not a word: these are opened with a thumb, often one-
+   handed with a bag in the other. */
+.tile {
+  height: 100%;
+  min-height: 6.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.95rem;
+  border: 1px solid var(--jade-line);
+  border-radius: 14px;
+  background: var(--jade-wash);
+  color: var(--on-shade);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+  line-height: 1.25;
+  transition:
+    background-color 0.18s var(--ease),
+    border-color 0.18s var(--ease),
+    transform 0.18s var(--ease);
+}
+
+.tile:hover {
+  border-color: var(--jade-dim);
+  background: var(--jade-tint);
+}
+
+.tile:active {
+  transform: scale(0.97);
+}
+
+.tile-label {
+  overflow-wrap: anywhere;
+}
+
+.tile-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 12px;
+  background: var(--jade-tint-strong);
+  color: var(--jade);
+}
+
+.tile-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* ------------------------------------------------------------- install -- */
+
+.install-card {
+  display: grid;
+  gap: 1rem;
+  padding: 1.1rem;
+  border: 1px solid var(--jade-dim);
+  border-radius: 16px;
+  background: var(--jade-tint);
+  color: var(--on-shade);
+}
+
+.install-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+}
+
+.install-title {
+  margin: 0.15rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.install-lede {
+  margin: 0.3rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--jade-soft);
+}
+
+.install-steps {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
+  gap: 0.55rem;
+}
+
+.install-steps li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.step-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--jade-line);
+  border-radius: 8px;
+  color: var(--jade);
+}
+
+.step-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.install-actions {
+  display: flex;
   gap: 0.6rem;
 }
 
-/* A whole row to tap, not a word: these are opened with a thumb, often one-
-   handed with a bag in the other. */
-.link-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  min-height: 3.25rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid var(--jade-line);
-  border-radius: 4px;
-  color: var(--on-shade);
-  text-decoration: none;
-  font-weight: 600;
+.install-actions .btn {
+  flex: 1;
+  padding-block: 0.8rem;
 }
 
-.link-row::after {
+/* ------------------------------------------------------- review, foot -- */
+
+/* The one outline in the highlight on this screen: the venue's reason for
+   having Reviewslip at all. */
+.review-cta {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--marigold);
+  border-radius: 16px;
+  background: var(--marigold-soft);
+  color: var(--on-shade);
+  text-decoration: none;
+}
+
+.review-cta::after {
   content: "\203A";
-  font-size: 1.4rem;
+  margin-left: auto;
+  font-size: 1.6rem;
   line-height: 1;
+  color: var(--marigold);
+}
+
+.review-cta .tile-icon {
+  background: var(--marigold);
+  color: var(--on-marigold);
+}
+
+.review-cta-text {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.review-cta-title {
+  font-weight: 700;
+}
+
+.review-cta-action {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--marigold);
+}
+
+.app-foot {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  font-size: 0.813rem;
   color: var(--jade-soft);
 }
 
-.link-row:hover {
-  border-color: var(--jade-dim);
-  background: var(--jade-wash);
+.link-button {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--on-shade);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
 }
 
-.install {
-  display: grid;
-  gap: 0.6rem;
-  margin-top: 1rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--jade-line);
-}
+@media (prefers-reduced-motion: reduce) {
+  .tile {
+    transition: none;
+  }
 
-.install .btn {
-  justify-self: start;
-  flex: none;
-  padding-inline: 1.5rem;
+  .tile:active {
+    transform: none;
+  }
 }
