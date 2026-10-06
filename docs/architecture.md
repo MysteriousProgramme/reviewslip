@@ -28,7 +28,7 @@ worth keeping deliberately:
 - `auth.js` (129) — two bearer tokens, two jobs.
 
 **The database**
-- `db.js` (1,173) — **31 append-only numbered migrations**, applied under
+- `db.js` (1,173) — **32 append-only numbered migrations**, applied under
   `pg_advisory_lock(8274123)` and tracked in `schema_version`. An applied migration is never
   edited. 18 tables.
 
@@ -222,7 +222,7 @@ that pass WCAG AA on the page, on a panel and on their own tint, in both themes.
 ## What this means for the work in flight
 
 - The **Reviews module brief** ([modules/reviews.md](modules/reviews.md)) is written against
-  this architecture: `external_reviews`, migration 32, no DevExtreme.
+  this architecture: `external_reviews`, migration 33, no DevExtreme.
 - The **Settings screen** ([settings-screen.md](settings-screen.md)) is specified, including
   Listings. Neither is a module; that document explains why.
 - **The spec set is complete.** Reviewslip is one module, one dashboard, one settings screen.

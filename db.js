@@ -1113,6 +1113,43 @@ const MIGRATIONS = [
   async (c) => {
     await c.query('ALTER TABLE checklist_items ADD COLUMN photo text');
   },
+
+  /*
+   * The welcome page: the venue's links, and the guests who signed up to see
+   * them.
+   *
+   * The links are a JSON list on the subscriber row, like `categories`: a
+   * handful of label-and-address pairs read whole on every guest visit, with
+   * nothing to join to.
+   *
+   * Sign-ups are rows, one per email per venue — the unique index is on the
+   * lower-cased address, so a guest typing it differently on a second visit is
+   * still one entry. The consent flag and its time are kept apart from the
+   * sign-up itself because they are different facts: everyone here gave an
+   * address to see the links, and only some agreed to be emailed.
+   *
+   * ON DELETE CASCADE from the venue: a guest's details belong to the venue
+   * they gave them to and have no reason to outlive it.
+   */
+  async (c) => {
+    await c.query('ALTER TABLE subscribers ADD COLUMN welcome_links text');
+    await c.query(`
+      CREATE TABLE guest_signups (
+        id                integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id     integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        name              text NOT NULL,
+        email             text NOT NULL,
+        marketing_consent boolean NOT NULL DEFAULT false,
+        consented_at      timestamptz,
+        created_at        timestamptz NOT NULL DEFAULT now(),
+        updated_at        timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await c.query(`
+      CREATE UNIQUE INDEX guest_signups_email
+        ON guest_signups (subscriber_id, lower(email))
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

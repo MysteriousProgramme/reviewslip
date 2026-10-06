@@ -430,6 +430,17 @@ async function saveTopicLabels(slug, language, table) {
   ]);
 }
 
+/**
+ * The welcome page's links, already checked by welcome.validateLinks.
+ * Stored whole as JSON, like the topics: read in one piece on every visit.
+ */
+async function saveWelcomeLinks(slug, links) {
+  await query('UPDATE subscribers SET welcome_links = $1 WHERE slug = $2', [
+    JSON.stringify(links),
+    slug,
+  ]);
+}
+
 async function remove(slug) {
   const result = await query(Q.remove, [
     String(slug || '').trim().toLowerCase(),
@@ -514,6 +525,7 @@ async function setHousekeepingPin({ id, hash }) {
 }
 
 module.exports = {
+  saveWelcomeLinks,
   setHousekeepingPin,
   SLUG_RE,
   RESERVED,

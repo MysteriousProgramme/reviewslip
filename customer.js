@@ -38,6 +38,8 @@ const { buildSystemPrompt } = require('./config');
 const assets = require('./assets');
 const settingsRules = require('./settings');
 const shift = require('./shift');
+const welcome = require('./welcome');
+const signups = require('./signups');
 const checklists = require('./checklists');
 const roomstatus = require('./roomstatus');
 const sitefacts = require('./sitefacts');
@@ -732,6 +734,89 @@ router.delete(
  * changed. A venue that has forgotten it sets a new one — which is also the
  * only revocation there is, and ends every shift opened with the old one.
  */
+/* ------------------------------------------------------------ welcome page */
+
+/** The welcome page as the dashboard edits it: its address, links and sign-ups. */
+router.get(
+  '/businesses/:slug/welcome',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json({
+        url: `${publicUrl(req.venue.slug)}/welcome`,
+        links: welcome.parseLinks(req.venue.welcome_links),
+        limits: { links: welcome.MAX_LINKS, label: welcome.MAX_LABEL },
+        signups: await signups.list(req.venue.id),
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  '/businesses/:slug/welcome/links',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const checked = welcome.validateLinks(req.body?.links);
+      if (!checked.ok) return res.status(400).json({ error: checked.error });
+
+      await subscribers.saveWelcomeLinks(req.venue.slug, checked.links);
+      res.json({ links: checked.links });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** A guest's details, gone — what a guest may ask a venue for. */
+router.delete(
+  '/businesses/:slug/welcome/signups/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isInteger(id) || id < 1) {
+        return res.status(400).json({ error: 'That is not a sign-up.' });
+      }
+
+      const gone = await signups.remove({ subscriberId: req.venue.id, id });
+      if (!gone) return res.status(404).json({ error: 'No such sign-up.' });
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** The mailing list: only the guests who agreed to be emailed. */
+router.get(
+  '/businesses/:slug/welcome/mailing-list.csv',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const csv = welcome.mailingList(await signups.list(req.venue.id), {
+        timeZone: req.venue.timezone || 'Asia/Bangkok',
+      });
+
+      res.set('Content-Type', 'text/csv; charset=utf-8');
+      res.set('Cache-Control', 'no-store');
+      res.set(
+        'Content-Disposition',
+        `attachment; filename="mailing-list-${req.venue.slug}.csv"`
+      );
+      res.send(csv);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 router.post(
   '/businesses/:slug/housekeeping/pin',
   requireAccount,

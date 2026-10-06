@@ -43,6 +43,8 @@ const sitecolours = require('../sitecolours');
 const sitefacts = require('../sitefacts');
 const housekeeping = require('../housekeeping');
 const shift = require('../shift');
+const welcome = require('../welcome');
+const csvFile = require('../csv');
 const roomstatus = require('../roomstatus');
 const checklist = require('../checklist');
 const note = require('../note');
@@ -4270,4 +4272,110 @@ test('the tail is short enough to identify nobody', () => {
   assert.equal(secrets.tail('AA1234567'), '4567');
   assert.equal(secrets.tail('AB'), 'AB');
   assert.equal(secrets.tail(''), '');
+});
+
+
+/* --------------------------------------------------------- the welcome page */
+
+test('a link may open a web page, a phone number or an email, and nothing else', () => {
+  const ok = welcome.validateLinks([
+    { label: 'Wi-Fi details', url: 'https://baanponglodge.com/wifi' },
+    { label: 'Call the desk', url: 'tel:+66812345678' },
+    { label: 'Email us', url: 'mailto:info@baanponglodge.com' },
+  ]);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.links.length, 3);
+
+  // On a page every guest opens, a javascript: link is script run in a
+  // stranger's browser by whoever holds the dashboard login.
+  for (const url of ['javascript:alert(1)', 'data:text/html,<b>x</b>', 'file:///etc/passwd']) {
+    assert.equal(welcome.validateLinks([{ label: 'Menu', url }]).ok, false, url);
+  }
+});
+
+test('a bare domain is what people type, so it gets https:// rather than a refusal', () => {
+  const { links } = welcome.validateLinks([{ label: 'Our website', url: 'baanponglodge.com' }]);
+  assert.equal(links[0].url, 'https://baanponglodge.com/');
+  assert.equal(welcome.validateLinks([{ label: 'Menu', url: 'menu' }]).ok, false);
+});
+
+test('an empty row is dropped, a half-filled one is refused, and order is kept', () => {
+  const { links } = welcome.validateLinks([
+    { label: 'Breakfast menu', url: 'https://a.example/menu' },
+    { label: '', url: '' },
+    { label: 'Wi-Fi', url: 'https://a.example/wifi' },
+  ]);
+  assert.deepEqual(links.map((l) => l.label), ['Breakfast menu', 'Wi-Fi']);
+  assert.equal(welcome.validateLinks([{ label: 'Menu', url: '' }]).ok, false);
+  assert.equal(welcome.validateLinks([{ label: '', url: 'https://a.example' }]).ok, false);
+  assert.equal(welcome.validateLinks('nope').ok, false);
+});
+
+test('stored links that no longer pass the rules are not served', () => {
+  assert.deepEqual(welcome.parseLinks(null), []);
+  assert.deepEqual(welcome.parseLinks('not json'), []);
+  assert.deepEqual(welcome.parseLinks('[{"label":"x","url":"javascript:alert(1)"}]'), []);
+});
+
+test('a sign-up needs a name and an address, and consent only from a real tick', () => {
+  const ok = welcome.validateSignup({ name: '  Marta  K. ', email: ' Marta@Example.COM ', consent: true });
+  assert.deepEqual(ok, { ok: true, name: 'Marta K.', email: 'marta@example.com', consent: true });
+
+  assert.equal(welcome.validateSignup({ name: '', email: 'a@b.co' }).error, 'welcomeNeedName');
+  assert.equal(welcome.validateSignup({ name: 'A', email: 'not-an-email' }).error, 'welcomeNeedEmail');
+
+  // "on", "true" and a missing field are not somebody ticking a box.
+  for (const consent of ['on', 'true', 1, undefined]) {
+    assert.equal(welcome.validateSignup({ name: 'A', email: 'a@b.co', consent }).consent, false);
+  }
+});
+
+test('the mailing list holds only the guests who agreed, safe to open in Excel', () => {
+  const file = welcome.mailingList([
+    { name: 'Marta', email: 'marta@example.com', consent: true, createdAt: '2026-10-01T09:00:00Z', consentedAt: '2026-10-01T09:00:00Z' },
+    { name: 'Wi-Fi only', email: 'nope@example.com', consent: false, createdAt: '2026-10-01T10:00:00Z', consentedAt: null },
+    { name: '=HYPERLINK("http://evil")', email: 'x@example.com', consent: true, createdAt: '2026-10-02T10:00:00Z', consentedAt: '2026-10-02T10:00:00Z' },
+  ]);
+
+  assert.ok(file.startsWith('\uFEFF'), 'a byte-order mark, for Thai names in Excel');
+  assert.ok(file.includes('marta@example.com'));
+  assert.ok(!file.includes('nope@example.com'), 'no consent, not on the list');
+  // A name typed into a public form must not run as a formula when opened.
+  assert.ok(file.includes(`"'=HYPERLINK(""http://evil"")"`));
+  assert.equal(file.trim().split('\r\n').length, 3);
+});
+
+test('the shared CSV cell leaves a + alone, which the TM30 upload needs', () => {
+  assert.equal(csvFile.cell('+66812345678'), '+66812345678');
+  assert.equal(csvFile.untrusted('+66812345678'), "'+66812345678");
+});
+
+test('a welcome pass opens for its venue and sign-up, and nothing else', () => {
+  withSecret(() => {
+    const pass = welcome.issuePass({ subscriberId: 4, signupId: 19 });
+    assert.deepEqual(welcome.openPass(pass, { subscriberId: 4 }), { ok: true, signupId: 19 });
+    assert.equal(welcome.openPass(pass, { subscriberId: 5 }).ok, false);
+
+    const [body, mac] = pass.split('.');
+    const forged = Buffer.from(JSON.stringify({ v: 1, s: 4, g: 20, x: Date.now() + 1e9 })).toString('base64url');
+    assert.equal(welcome.openPass(`${forged}.${mac}`, { subscriberId: 4 }).ok, false);
+
+    const later = Date.now() + 366 * 86_400_000;
+    assert.equal(welcome.openPass(pass, { subscriberId: 4, now: later }).ok, false);
+    assert.equal(welcome.openPass(`${body}.`, { subscriberId: 4 }).ok, false);
+  });
+});
+
+test('a housekeeping shift is not a welcome pass, however the bodies line up', () => {
+  withSecret(() => {
+    const token = shift.issue({ subscriberId: 4, pinHash: 'scrypt$aa$bb' });
+    assert.equal(welcome.openPass(token, { subscriberId: 4 }).ok, false);
+  });
+});
+
+test('the mailing list dates a sign-up by the venue\'s calendar, not UTC', () => {
+  // 01:30 in Bangkok on the 6th is still the 5th in UTC.
+  const at = '2026-10-05T18:30:00Z';
+  const file = welcome.mailingList([{ name: 'A', email: 'a@b.co', consent: true, createdAt: at, consentedAt: at }]);
+  assert.ok(file.includes('2026-10-06,2026-10-06'));
 });

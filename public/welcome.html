@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0C1F19" />
+    <!-- Not indexed: it is a page for people standing in the venue, and every
+         venue has one at the same path. -->
+    <meta name="robots" content="noindex" />
+    <title>Welcome</title>
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!-- What lets a phone keep this page as an app: the venue's name, colours
+         and mark, opening straight back onto /welcome. -->
+    <link rel="manifest" href="/welcome.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <link rel="apple-touch-icon" href="/logo" />
+
+    <!-- The same three stylesheets as the review page, so the two read as one
+         venue's pages: the shipped styles, then this venue's fonts and colours. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="/fonts.css" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body>
+    <main class="page welcome">
+      <header class="masthead">
+        <div class="masthead-top">
+          <img class="logo" id="logo" alt="" hidden />
+          <p class="eyebrow" id="eyebrow"></p>
+        </div>
+        <h1 class="title"><span id="heading" data-t="welcomeTitle">Welcome</span
+          ><span class="title-dot">.</span></h1>
+        <div class="ornament" aria-hidden="true"><span></span></div>
+        <p class="lede" id="lede" data-t="welcomeLede"></p>
+      </header>
+
+      <!-- The sign-up. Shown until the guest has given a name and email, or
+           comes back with a pass from an earlier visit. -->
+      <form class="welcome-form" id="signup" novalidate hidden>
+        <div class="note-wrap">
+          <label class="label" for="name" data-t="welcomeName">Your name</label>
+          <input id="name" class="note" type="text" autocomplete="name"
+            maxlength="80" required enterkeyhint="next" />
+        </div>
+        <div class="note-wrap">
+          <label class="label" for="email" data-t="welcomeEmail">Email</label>
+          <input id="email" class="note" type="email" autocomplete="email"
+            inputmode="email" maxlength="254" required enterkeyhint="go" />
+        </div>
+        <!-- Unticked, always. Giving an address to see the Wi-Fi is not
+             agreeing to a newsletter, and PDPA asks for the second to be its
+             own clear yes. -->
+        <label class="consent">
+          <input type="checkbox" id="consent" />
+          <span data-t="welcomeConsent"></span>
+        </label>
+        <p class="notice welcome-error" id="error" role="alert"></p>
+        <button type="submit" class="btn btn-go" id="continue" data-t="welcomeContinue">Continue</button>
+        <p class="hint" data-t="welcomePrivacy"></p>
+      </form>
+
+      <!-- What the guest came for. -->
+      <section class="welcome-links" id="links-view" aria-labelledby="links-label" hidden>
+        <p class="label" id="links-label" data-t="welcomeLinks">For your stay</p>
+        <ul class="link-list" id="links"></ul>
+        <p class="hint" id="no-links" data-t="welcomeNoLinks" hidden></p>
+
+        <!-- Keeping the page on the phone. Hidden once it is running as an app,
+             where telling somebody how to install it is telling them how to
+             install the thing they are holding. -->
+        <div class="install" id="install" hidden>
+          <p class="label" data-t="installHeading">Keep this on your phone</p>
+          <!-- Only where the browser offers its own install prompt (Chrome and
+               Edge on Android). Everywhere else the steps below are the way. -->
+          <button type="button" class="btn btn-quiet" id="install-button" data-t="installButton" hidden>Install</button>
+          <p class="hint" id="install-ios" data-t="installIos" hidden></p>
+          <p class="hint" id="install-android" data-t="installAndroid" hidden></p>
+          <p class="hint" id="install-done" data-t="installDone" role="status" hidden></p>
+        </div>
+      </section>
+    </main>
+
+    <script src="/i18n.js"></script>
+    <script src="/welcome.js"></script>
+  </body>
+</html>

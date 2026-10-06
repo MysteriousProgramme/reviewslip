@@ -54,9 +54,9 @@ and nothing else structural.
 | `external_id` | text | yes | no | no | no | no |
 | `fetched_at` | date | yes | no | shown in the footer | no | no |
 
-**The whole schema change is migration 32**, adding `status` and `reply_draft` to
+**The whole schema change is migration 33**, adding `status` and `reply_draft` to
 `external_reviews` and backfilling `status` from `replied_at`. Append-only, under the existing
-advisory lock; migrations 1–31 are untouched.
+advisory lock; migrations 1–32 are untouched.
 
 `status` is a real stored column, not derived from `replied_at`, because [02-app-model.md]'s
 status groups and the List View's Status filter both need a value they can filter on — and
@@ -238,7 +238,7 @@ App-owned master: **none.** Nothing here needs a catalogue module.
   from this app to a platform's write API, so there is nothing to automate and nothing to
   schedule. `reply_body` records what we believe was published, not proof of it.
 - **The existing partial index is what makes the unanswered list cheap.**
-  `external_reviews_unanswered ... WHERE replied_at IS NULL` is already there. Migration 32
+  `external_reviews_unanswered ... WHERE replied_at IS NULL` is already there. Migration 33
   must add the equivalent on `status`, because `status` is what the List filters on after this
   change — and must not drop the old one, since the fetch still reads `replied_at`.
 - **"Mark answered" already exists** in `ListingReviews.tsx` and

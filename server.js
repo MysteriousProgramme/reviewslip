@@ -39,6 +39,8 @@ const housekeeping = require('./housekeeping');
 const note = require('./note');
 const checklists = require('./checklists');
 const shift = require('./shift');
+const welcome = require('./welcome');
+const signups = require('./signups');
 const adminRouter = require('./admin');
 const customerRouter = require('./customer');
 const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
@@ -146,6 +148,57 @@ app.get('/housekeeping', resolveTenant, (req, res, next) => {
   }
   res.status(404).sendFile(path.join(__dirname, 'public', '404.html'), (err) => {
     if (err) next(err);
+  });
+});
+
+/**
+ * The welcome page, opened from a QR code in the room or on the table.
+ *
+ * On the venue's own address, beside the review page, and in the venue's own
+ * colours — it is the venue's page, not ours. Before express.static for the
+ * same reason as the two above.
+ */
+app.get('/welcome', resolveTenant, (req, res, next) => {
+  const usable = req.subscriber && req.subscriber.status === 'active';
+  if (usable) {
+    return res.sendFile(path.join(__dirname, 'public', 'welcome.html'), next);
+  }
+  res.status(404).sendFile(path.join(__dirname, 'public', '404.html'), (err) => {
+    if (err) next(err);
+  });
+});
+
+/**
+ * What a phone needs to keep the welcome page as an app: the venue's name, its
+ * colours and its mark, opening straight onto /welcome.
+ *
+ * Per venue, so private and short-lived like theme.css.
+ */
+app.get('/welcome.webmanifest', resolveTenant, (req, res) => {
+  if (!req.subscriber) return res.status(404).end();
+
+  const resolved = subscribers.settingsFor(req.subscriber);
+  let ground = '#0c1f19';
+  try {
+    ground = theme.derive(resolved.theme)['--shade'] || ground;
+  } catch {
+    // The shipped colour: a manifest with a wrong colour still installs, and
+    // one that failed to build does not.
+  }
+
+  res.type('application/manifest+json');
+  res.set('Cache-Control', 'private, max-age=300');
+  res.json({
+    name: req.subscriber.name,
+    short_name: req.subscriber.name.slice(0, 12),
+    start_url: '/welcome',
+    scope: '/welcome',
+    display: 'standalone',
+    background_color: ground,
+    theme_color: ground,
+    icons: resolved.theme?.logo
+      ? [{ src: '/logo', sizes: 'any', purpose: 'any' }]
+      : [{ src: '/favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' }],
   });
 });
 
@@ -332,6 +385,76 @@ function throttled(key) {
   entry.count += 1;
   return entry.count > MAX_PER_WINDOW;
 }
+
+/* ------------------------------------------------------------ welcome page */
+
+/**
+ * The guest has to be told who this is before they are asked for anything, so
+ * this answers without a sign-up. The links do not: they come back with the
+ * sign-up, or with a pass from an earlier one.
+ */
+app.get('/api/welcome', requireTenant, (req, res) => {
+  const resolved = subscribers.settingsFor(req.subscriber);
+  res.json({
+    venue: req.subscriber.name,
+    hasLogo: Boolean(resolved.theme?.logo),
+    showName: theme.showsName(resolved.theme),
+  });
+});
+
+/** Name and email in, the links and a pass out. */
+app.post('/api/welcome', requireTenant, async (req, res, next) => {
+  try {
+    // The guest throttle: an open form is a way to fill a venue's list with
+    // junk, and this keeps that to a trickle per address.
+    if (throttled(`welcome:${req.subscriber.slug}:${req.ip}`)) {
+      return res.status(429).json({ error: 'welcomeSlowDown' });
+    }
+
+    const checked = welcome.validateSignup(req.body);
+    if (!checked.ok) return res.status(400).json({ error: checked.error });
+
+    const signup = await signups.upsert({
+      subscriberId: req.subscriber.id,
+      name: checked.name,
+      email: checked.email,
+      consent: checked.consent,
+    });
+
+    res.json({
+      links: welcome.parseLinks(req.subscriber.welcome_links),
+      // Null when SECRET_KEY is not usable. The guest still gets the links
+      // now; they are asked again on their next visit, which is the whole of
+      // the cost.
+      pass: welcome.issuePass({ subscriberId: req.subscriber.id, signupId: signup.id }),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * The links again, for a guest who signed up before.
+ *
+ * Fetched rather than remembered on the phone so a link the venue changes is
+ * the link the guest sees. A pass whose sign-up has been deleted fails, and the
+ * guest is shown the form.
+ */
+app.get('/api/welcome/links', requireTenant, async (req, res, next) => {
+  try {
+    const opened = welcome.openPass(req.get('x-welcome-pass'), {
+      subscriberId: req.subscriber.id,
+    });
+    const still =
+      opened.ok &&
+      (await signups.exists({ subscriberId: req.subscriber.id, id: opened.signupId }));
+    if (!still) return res.status(401).json({ error: 'signedOut' });
+
+    res.json({ links: welcome.parseLinks(req.subscriber.welcome_links) });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /* ------------------------------------------------------ housekeeping board */
 

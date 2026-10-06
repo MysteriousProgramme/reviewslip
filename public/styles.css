@@ -1154,3 +1154,93 @@ body {
     animation: none;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* The welcome page (welcome.html)                                            */
+/* -------------------------------------------------------------------------- */
+
+/* Built from the review page's own pieces — the masthead, the labels, the note
+   field, the buttons — so the two pages read as one venue's. Only what the
+   review page has no use for is here. */
+
+.welcome-form,
+.welcome-links {
+  display: grid;
+  gap: 1rem;
+}
+
+.welcome-form .btn-go {
+  width: 100%;
+}
+
+.consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--on-shade);
+  cursor: pointer;
+}
+
+.consent input {
+  flex: none;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.1rem;
+  accent-color: var(--marigold);
+}
+
+.welcome-error:empty {
+  display: none;
+}
+
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+/* A whole row to tap, not a word: these are opened with a thumb, often one-
+   handed with a bag in the other. */
+.link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.25rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--jade-line);
+  border-radius: 4px;
+  color: var(--on-shade);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.link-row::after {
+  content: "\203A";
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--jade-soft);
+}
+
+.link-row:hover {
+  border-color: var(--jade-dim);
+  background: var(--jade-wash);
+}
+
+.install {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 1rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--jade-line);
+}
+
+.install .btn {
+  justify-self: start;
+  flex: none;
+  padding-inline: 1.5rem;
+}

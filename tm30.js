@@ -1,5 +1,6 @@
 'use strict';
 
+const csv = require('./csv');
 const nights = require('./nights');
 
 /**
@@ -144,32 +145,18 @@ function toRow(guest, stay = {}) {
   ];
 }
 
-/** One CSV field: quoted when it has to be, doubled quotes inside. */
-function cell(value) {
-  const text = String(value ?? '');
-  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
 /**
- * The whole export.
- *
- * CSV with a UTF-8 byte-order mark, and CRLF line endings. Both are for Excel,
- * which is what opens this: without the BOM it renders Thai names and accented
- * European ones as mojibake, and without CRLF some versions put the lot on one
- * line. This file is going to be opened by a person before it is uploaded, so
- * it has to survive that.
+ * The whole export, as the file csv.js writes for Excel — this one is opened by
+ * a person before it is uploaded, so it has to survive that.
  *
  * @param {{guest: object, stay: object}[]} entries
  * @returns {string}
  */
 function toCsv(entries = []) {
-  const lines = [COLUMNS.map(cell).join(',')];
-
-  for (const entry of entries) {
-    lines.push(toRow(entry.guest, entry.stay).map(cell).join(','));
-  }
-
-  return '﻿' + lines.join('\r\n') + '\r\n';
+  return csv.file(
+    COLUMNS.map(csv.cell),
+    entries.map((entry) => toRow(entry.guest, entry.stay).map(csv.cell))
+  );
 }
 
 module.exports = {
