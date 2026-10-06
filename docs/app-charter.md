@@ -40,6 +40,7 @@ This is the list that decides what may **not** be added to Reviewslip.
 | `plans.js`, `quota.js`, `referrals.js`, `rewards.js`, `subscribers.js` | **Our commercial back office** — billing, the included AI budget, the referral scheme. Not a tenant app | Stays where it is |
 | `theme.js`, `sitecolours.js`, `themenote.js`, `assets.js`, `seed.js`, the table card | **The guest page** — the documented exception below | Stays, as an exception |
 | `welcome.js`, `signups.js`, `public/welcome.*`, `public/welcome-sw.js`, the welcome card | **Guest marketing** — collecting guests' names and emails for a venue's mailing list. A different job from answering reviews, built here by decision on 2026-10-06 ([welcome-page.md](welcome-page.md)) | Built, by decision |
+| `market.js`, `marketplace.js`, `marketrouter.js`, the website's `/stays` pages | **The marketplace** — guests finding and booking listed venues on reviewslip.com. Front-desk selling, which belongs to vcs-bookings; built here by decision on 2026-10-07 ([marketplace.md](marketplace.md)) | Built, by decision; payment not connected |
 
 ## Exception: the guest page is not an employee screen
 

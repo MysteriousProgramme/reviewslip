@@ -1,0 +1,14 @@
+# Every five minutes, and the thing you actually enable.
+
+[Unit]
+Description=Check reviewslip's server and apps every five minutes
+
+[Timer]
+# Two minutes after boot, so a reboot is reported once the apps have had a
+# moment to start rather than as everything being down.
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

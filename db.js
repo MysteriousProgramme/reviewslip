@@ -1150,6 +1150,74 @@ const MIGRATIONS = [
         ON guest_signups (subscriber_id, lower(email))
     `);
   },
+
+  /*
+   * The marketplace: guests finding a venue on reviewslip.com and booking it
+   * themselves. See docs/marketplace.md.
+   *
+   * Listed is a column because search filters on it; everything else a guest
+   * reads about the venue is one JSON profile, checked by market.js, the way
+   * welcome_links is. `place` already exists and is what search matches.
+   *
+   * Photos are their own table, not a JSON list on the venue: the subscriber
+   * row is read on every request, and eight photographs on it would be two
+   * megabytes carried by every review page. A photo with no group is the
+   * venue's; with one, it is that room type's.
+   *
+   * A plan says what it includes and how it cancels — what a guest compares
+   * between two prices for the same room. cancel_days null is non-refundable.
+   *
+   * A marketplace booking carries a reference the guest quotes, and what is
+   * due online. payment_status is 'not_connected' until there is a payment
+   * provider: the venue's choice of deposit or full payment is stored now and
+   * charged once one exists.
+   */
+  async (c) => {
+    await c.query('ALTER TABLE subscribers ADD COLUMN market_listed boolean NOT NULL DEFAULT false');
+    await c.query('ALTER TABLE subscribers ADD COLUMN market_profile text');
+    await c.query('CREATE INDEX subscribers_market_listed ON subscribers (id) WHERE market_listed');
+
+    await c.query('ALTER TABLE room_groups ADD COLUMN profile text');
+
+    await c.query('ALTER TABLE rate_plans ADD COLUMN breakfast boolean NOT NULL DEFAULT false');
+    await c.query('ALTER TABLE rate_plans ADD COLUMN cancel_days integer');
+
+    await c.query(`
+      CREATE TABLE market_photos (
+        id            integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        group_id      integer REFERENCES room_groups (id) ON DELETE CASCADE,
+        data          text NOT NULL,
+        sort          integer NOT NULL DEFAULT 0,
+        created_at    timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await c.query('CREATE INDEX market_photos_venue ON market_photos (subscriber_id, group_id, sort, id)');
+
+    await c.query('ALTER TABLE bookings ADD COLUMN reference text');
+    await c.query('ALTER TABLE bookings ADD COLUMN due_now_minor integer');
+    await c.query('ALTER TABLE bookings ADD COLUMN payment_status text');
+    // Not unique: two rooms booked together are two booking rows under one
+    // reference, the way the guest thinks of them.
+    await c.query('CREATE INDEX bookings_reference ON bookings (reference) WHERE reference IS NOT NULL');
+  },
+
+  /*
+   * Cancelling.
+   *
+   * The free-cancellation deadline is frozen on the booking when it is taken.
+   * Read from the rate instead, a venue tightening its terms in March would
+   * take away a cancellation a guest was promised in January. Null is
+   * non-refundable.
+   *
+   * Who cancelled and when, so the guest is told the right thing and the
+   * venue can see that a guest let the room go rather than the desk.
+   */
+  async (c) => {
+    await c.query('ALTER TABLE bookings ADD COLUMN free_cancel_until date');
+    await c.query('ALTER TABLE bookings ADD COLUMN cancelled_at timestamptz');
+    await c.query('ALTER TABLE bookings ADD COLUMN cancelled_by text');
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

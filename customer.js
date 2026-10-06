@@ -39,6 +39,8 @@ const assets = require('./assets');
 const settingsRules = require('./settings');
 const shift = require('./shift');
 const welcome = require('./welcome');
+const market = require('./market');
+const marketplace = require('./marketplace');
 const signups = require('./signups');
 const checklists = require('./checklists');
 const roomstatus = require('./roomstatus');
@@ -811,6 +813,135 @@ router.get(
         `attachment; filename="mailing-list-${req.venue.slug}.csv"`
       );
       res.send(csv);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/* ------------------------------------------------------------- marketplace */
+
+/** What the Online Booking screen edits: listing, profile, rooms, rates, photos. */
+router.get(
+  '/businesses/:slug/market',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      res.json(await marketplace.settings(req.venue));
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  '/businesses/:slug/market',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const checked = market.validateProfile(req.body?.profile);
+      if (!checked.ok) return res.status(400).json({ error: checked.error });
+      await marketplace.saveSettings({
+        subscriberId: req.venue.id,
+        listed: req.body?.listed === true,
+        place: req.body?.place,
+        profile: checked.profile,
+      });
+      res.json(await marketplace.settings(await subscribers.get(req.venue.slug)));
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  '/businesses/:slug/market/rooms/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const checked = market.validateRoomProfile(req.body);
+      if (!checked.ok) return res.status(400).json({ error: checked.error });
+      await marketplace.saveRoom({ subscriberId: req.venue.id, groupId: Number(req.params.id), room: checked.room });
+      res.json({ room: checked.room });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.put(
+  '/businesses/:slug/market/plans/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const checked = market.validatePlanTerms(req.body);
+      if (!checked.ok) return res.status(400).json({ error: checked.error });
+      await marketplace.savePlanTerms({ subscriberId: req.venue.id, planId: Number(req.params.id), terms: checked.terms });
+      res.json({ terms: checked.terms });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+/** A photo of the venue (no groupId) or of a room type. */
+router.post(
+  '/businesses/:slug/market/photos',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const groupId = req.body?.groupId === null || req.body?.groupId === undefined ? null : Number(req.body.groupId);
+      res.status(201).json(await marketplace.addPhoto({ subscriberId: req.venue.id, groupId, data: req.body?.data }));
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.get(
+  '/businesses/:slug/market/photos/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const image = await marketplace.ownPhoto({ subscriberId: req.venue.id, id: Number(req.params.id) });
+      if (!image) return res.status(404).json({ error: 'No such photo.' });
+      res.set(assets.photoHeaders(image)).end(image.buffer);
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.post(
+  '/businesses/:slug/market/photos/:id/cover',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const done = await marketplace.coverPhoto({ subscriberId: req.venue.id, id: Number(req.params.id) });
+      if (!done) return res.status(404).json({ error: 'No such photo.' });
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete(
+  '/businesses/:slug/market/photos/:id',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const gone = await marketplace.removePhoto({ subscriberId: req.venue.id, id: Number(req.params.id) });
+      if (!gone) return res.status(404).json({ error: 'No such photo.' });
+      res.status(204).end();
     } catch (err) {
       next(err);
     }

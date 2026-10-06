@@ -141,6 +141,173 @@ function welcomeEmail({ venue, guestName, roomName, arrival, departure, nights }
   return { subject, text: lines.join('\n'), html };
 }
 
+/* ---------------------------------------------------------- marketplace */
+
+function rowsHtml(rows) {
+  return [
+    '<table style="border-collapse:collapse;font-size:15px">',
+    ...rows.map(
+      ([label, value]) =>
+        `<tr><td style="padding:0.2rem 1rem 0.2rem 0;color:#5a6b63;vertical-align:top">${escapeHtml(label)}</td><td style="padding:0.2rem 0">${escapeHtml(value)}</td></tr>`
+    ),
+    '</table>',
+  ].join('');
+}
+
+/**
+ * A guest's booking confirmation from the marketplace.
+ *
+ * Everything they need at the door is in the message itself — reference,
+ * dates, room, what they pay and when — so it is useful with no signal at a
+ * bus station. The link opens the booking again; it carries a key, not their
+ * email address.
+ *
+ * @param {{venue: string, reference: string, guestName: string, roomName: string,
+ *   planName: string, arrival: string, departure: string, nights: number, rooms: number,
+ *   total: string, cancellation: string, payment: string, checkIn: string, checkOut: string,
+ *   link: string, contact?: string}} input
+ */
+function bookingEmail(input) {
+  const place = clean(input.venue, 120);
+  const who = clean(input.guestName, 120);
+  const subject = `Booking confirmed at ${place} · ${input.reference}`;
+  const rows = [
+    ['Reference', input.reference],
+    ['Room', `${clean(input.roomName, 60)}${input.rooms > 1 ? ` × ${input.rooms}` : ''} · ${clean(input.planName, 60)}`],
+    ['Check-in', `${input.arrival}, from ${input.checkIn}`],
+    ['Check-out', `${input.departure}, by ${input.checkOut}`],
+    ['Nights', String(input.nights)],
+    ['Total', input.total],
+    ['Payment', input.payment],
+    ['Cancellation', input.cancellation],
+  ];
+
+  const text = [
+    who ? `Hello ${who},` : 'Hello,',
+    '',
+    `Your booking at ${place} is confirmed.`,
+    '',
+    ...rows.map(([label, value]) => `${label}: ${value}`),
+    '',
+    `See your booking: ${input.link}`,
+    input.contact ? `Questions? Contact ${place}: ${input.contact}` : '',
+    '',
+    `— ${place}, booked through Reviewslip`,
+  ].join('\n');
+
+  const html = [
+    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">',
+    `<p>${who ? `Hello ${escapeHtml(who)},` : 'Hello,'}</p>`,
+    `<p>Your booking at <strong>${escapeHtml(place)}</strong> is confirmed.</p>`,
+    rowsHtml(rows),
+    `<p><a href="${escapeHtml(input.link)}">See your booking</a></p>`,
+    input.contact
+      ? `<p style="font-size:0.9em;color:#5a6b63">Questions? Contact ${escapeHtml(place)}: ${escapeHtml(input.contact)}</p>`
+      : '',
+    `<p style="font-size:0.9em;color:#5a6b63">— ${escapeHtml(place)}, booked through Reviewslip</p>`,
+    '</div>',
+  ].join('');
+
+  return { subject, text, html };
+}
+
+/**
+ * The venue's notice of a marketplace booking.
+ *
+ * The guest's contact details are in it because the venue is who they booked
+ * with and will need to reach them; it goes to the venue's own account address
+ * and nowhere else.
+ */
+function bookingAlertEmail(input) {
+  const place = clean(input.venue, 120);
+  const subject = `New booking: ${clean(input.guestName, 80)}, ${input.arrival} · ${input.reference}`;
+  const rows = [
+    ['Reference', input.reference],
+    ['Guest', `${clean(input.guestName, 120)} · ${input.guestEmail} · ${input.guestPhone}`],
+    ['Room', `${clean(input.roomName, 60)}${input.rooms > 1 ? ` × ${input.rooms}` : ''} · ${clean(input.planName, 60)}`],
+    ['Stay', `${input.arrival} to ${input.departure} (${input.nights} night${input.nights === 1 ? '' : 's'})`],
+    ['Guests', input.party],
+    ['Total', input.total],
+    ...(input.requests ? [['Requests', clean(input.requests, 1000)]] : []),
+  ];
+  const text = [
+    `A guest booked ${place} on Reviewslip. It is on your calendar, unassigned.`,
+    '',
+    ...rows.map(([label, value]) => `${label}: ${value}`),
+  ].join('\n');
+  const html = [
+    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">',
+    `<p>A guest booked <strong>${escapeHtml(place)}</strong> on Reviewslip. It is on your calendar, unassigned.</p>`,
+    rowsHtml(rows),
+    '</div>',
+  ].join('');
+  return { subject, text, html };
+}
+
+/**
+ * A marketplace booking, cancelled — to the guest.
+ *
+ * Says who cancelled, because the two cases want different things from the
+ * reader: a guest who cancelled wants a receipt, and a guest whose venue
+ * cancelled wants to know why and who to ask.
+ *
+ * @param {{venue: string, reference: string, guestName?: string, arrival: string,
+ *   departure: string, by: 'guest'|'venue', contact?: string, link: string}} input
+ */
+function bookingCancelledEmail(input) {
+  const place = clean(input.venue, 120);
+  const who = clean(input.guestName, 120);
+  const subject = `Booking cancelled at ${place} · ${input.reference}`;
+  const what =
+    input.by === 'venue'
+      ? `${place} has cancelled your booking ${input.reference} for ${input.arrival} to ${input.departure}.`
+      : `Your booking ${input.reference} at ${place} for ${input.arrival} to ${input.departure} is cancelled, as you asked.`;
+  const next =
+    input.by === 'venue'
+      ? input.contact
+        ? `If you did not expect this, contact ${place}: ${input.contact}`
+        : `If you did not expect this, contact ${place}.`
+      : 'Nothing was charged. We hope to see you another time.';
+
+  const text = [
+    who ? `Hello ${who},` : 'Hello,',
+    '',
+    what,
+    '',
+    next,
+    '',
+    `Find another stay: ${input.link}`,
+    '',
+    `— ${place}, booked through Reviewslip`,
+  ].join('\n');
+
+  const html = [
+    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">',
+    `<p>${who ? `Hello ${escapeHtml(who)},` : 'Hello,'}</p>`,
+    `<p>${escapeHtml(what)}</p>`,
+    `<p>${escapeHtml(next)}</p>`,
+    `<p><a href="${escapeHtml(input.link)}">Find another stay</a></p>`,
+    `<p style="font-size:0.9em;color:#5a6b63">— ${escapeHtml(place)}, booked through Reviewslip</p>`,
+    '</div>',
+  ].join('');
+  return { subject, text, html };
+}
+
+/** The venue's notice that a guest cancelled online. */
+function bookingCancelAlertEmail(input) {
+  const subject = `Cancelled by the guest: ${clean(input.guestName, 80)}, ${input.arrival} · ${input.reference}`;
+  const text = [
+    `${clean(input.guestName, 120)} cancelled their Reviewslip booking ${input.reference} (${clean(input.roomName, 60)}${input.rooms > 1 ? ` × ${input.rooms}` : ''}, ${input.arrival} to ${input.departure}).`,
+    '',
+    'It was inside the free-cancellation window. The room is back on sale and off your calendar.',
+  ].join('\n');
+  const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">${text
+    .split('\n\n')
+    .map((p) => `<p>${escapeHtml(p)}</p>`)
+    .join('')}</div>`;
+  return { subject, text, html };
+}
+
 /* -------------------------------------------------------------- tickets */
 
 /**
@@ -199,6 +366,10 @@ function ticketAlertEmail({ opened, from, venue, title, body, url }) {
 }
 
 module.exports = {
+  bookingEmail,
+  bookingAlertEmail,
+  bookingCancelledEmail,
+  bookingCancelAlertEmail,
   welcomeEmail,
   inviteEmail,
   ticketReplyEmail,

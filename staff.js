@@ -10,6 +10,8 @@ const { one, all } = require('./db');
 const tickets = require('./tickets');
 const mailer = require('./mailer');
 const emails = require('./emails');
+const health = require('./health');
+const monitorrules = require('./monitorrules');
 
 /**
  * The staff view: every account, every venue, and what each one is doing.
@@ -106,6 +108,37 @@ router.get('/overview', async (req, res, next) => {
       openTickets: count(row.tickets_open),
       referralsJoined: count(row.referrals_joined),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* -------------------------------------------------------------------- server */
+
+/**
+ * The server's health, for the staff Server page.
+ *
+ * Two halves: what this process can see right now (the database, its own
+ * failures), and the monitor's last run, which sees the whole box — disk,
+ * memory, swap, the other services, certificates, backups. The monitor writes
+ * its readings to a file; reading it here means the page still answers when
+ * the monitor has stopped, and says when it last ran.
+ */
+router.get('/health', async (req, res, next) => {
+  try {
+    let monitor = null;
+    try {
+      const file = process.env.MONITOR_STATE || '/var/lib/reviewslip-monitor/state.json';
+      const state = JSON.parse(require('fs').readFileSync(file, 'utf8'));
+      monitor = {
+        lastRun: state.lastRun ?? null,
+        problems: Object.values(state.open ?? {}),
+        readings: state.readings ?? null,
+      };
+    } catch {
+      // Not installed yet, or not run yet: the page says so.
+    }
+    res.json({ now: Date.now(), live: await health.check(), monitor, limits: monitorrules.LIMITS });
   } catch (err) {
     next(err);
   }

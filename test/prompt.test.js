@@ -44,6 +44,8 @@ const sitefacts = require('../sitefacts');
 const housekeeping = require('../housekeeping');
 const shift = require('../shift');
 const welcome = require('../welcome');
+const market = require('../market');
+const monitorrules = require('../monitorrules');
 const csvFile = require('../csv');
 const roomstatus = require('../roomstatus');
 const checklist = require('../checklist');
@@ -4403,4 +4405,238 @@ test('the mailing list dates a sign-up by the venue\'s calendar, not UTC', () =>
   const at = '2026-10-05T18:30:00Z';
   const file = welcome.mailingList([{ name: 'A', email: 'a@b.co', consent: true, createdAt: at, consentedAt: at }]);
   assert.ok(file.includes('2026-10-06,2026-10-06'));
+});
+
+/* ------------------------------------------------------------ marketplace */
+
+test('a search needs real dates from today, a party that fits its rooms, and a short enough stay', () => {
+  const today = '2026-10-07';
+  const ok = market.checkSearch({ q: ' Chiang  Mai ', arrival: '2026-10-10', departure: '2026-10-12', adults: '3', children: '1', rooms: '2' }, { today });
+  assert.deepEqual(ok, { ok: true, q: 'Chiang Mai', arrival: '2026-10-10', departure: '2026-10-12', adults: 3, children: 1, rooms: 2 });
+
+  assert.equal(market.checkSearch({ arrival: '2026-10-06', departure: '2026-10-08' }, { today }).ok, false);
+  assert.equal(market.checkSearch({ arrival: '2026-10-10', departure: '2026-10-10' }, { today }).ok, false);
+  assert.equal(market.checkSearch({ arrival: '2027-12-01', departure: '2027-12-02' }, { today }).ok, false);
+  assert.equal(market.checkSearch({ arrival: '2026-10-10', departure: '2026-11-20' }, { today }).ok, false);
+  // Two rooms and one adult: somebody would be sleeping alone in a room at six.
+  assert.equal(market.checkSearch({ arrival: '2026-10-10', departure: '2026-10-11', adults: 1, rooms: 2 }, { today }).ok, false);
+  assert.equal(market.checkSearch({ arrival: '2026-10-10', departure: '2026-10-11', rooms: 9, adults: 9 }, { today }).ok, false);
+});
+
+test('a room type fits a party when enough are free on every night and the beds go round', () => {
+  const party = { adults: 3, children: 1, rooms: 2 };
+  assert.equal(market.fits({ capacity: 2, free: 2 }, party), true);
+  assert.equal(market.fits({ capacity: 2, free: 1 }, party), false);
+  assert.equal(market.fits({ capacity: 1, free: 4 }, party), false);
+});
+
+test('a party is spread over its rooms as evenly as it goes', () => {
+  assert.deepEqual(market.split({ adults: 3, children: 1, rooms: 2 }), [
+    { adults: 2, children: 1 },
+    { adults: 1, children: 0 },
+  ]);
+  assert.deepEqual(market.split({ adults: 2, children: 0, rooms: 1 }), [{ adults: 2, children: 0 }]);
+});
+
+test('a deposit rounds up to a whole unit and never exceeds the total', () => {
+  assert.equal(market.dueNow(400_000, { mode: 'full' }), 400_000);
+  // 30% of ฿4,115.50 is ฿1,234.65, taken as ฿1,235.
+  assert.equal(market.dueNow(411_550, { mode: 'deposit', depositPct: 30 }), 123_500);
+  assert.equal(market.dueNow(150, { mode: 'deposit', depositPct: 95 }), 150);
+  assert.equal(market.dueNow(null, { mode: 'full' }), 0);
+});
+
+test('free cancellation runs to its deadline, and a passed or missing one is none', () => {
+  assert.equal(market.freeCancelUntil({ arrival: '2026-10-20', cancelDays: 3, today: '2026-10-07' }), '2026-10-17');
+  assert.equal(market.freeCancelUntil({ arrival: '2026-10-20', cancelDays: 0, today: '2026-10-07' }), '2026-10-20');
+  assert.equal(market.freeCancelUntil({ arrival: '2026-10-09', cancelDays: 7, today: '2026-10-07' }), null);
+  assert.equal(market.freeCancelUntil({ arrival: '2026-10-20', cancelDays: null, today: '2026-10-07' }), null);
+});
+
+test('a venue profile keeps known amenities in order, checks its contacts, and a deposit is a sane percentage', () => {
+  const ok = market.validateProfile({
+    about: 'Teak house by the river.',
+    amenities: ['pool', 'nonsense', 'wifi'],
+    contact: { phone: '+66 81 234 5678', email: 'Stay@Baanpong.com', line: '@baanpong', whatsapp: '' },
+    checkIn: '14:00',
+    checkOut: '11:00',
+    payment: { mode: 'deposit', depositPct: 30 },
+  });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.profile.amenities, ['wifi', 'pool']);
+  assert.equal(ok.profile.contact.email, 'stay@baanpong.com');
+
+  assert.equal(market.validateProfile({ payment: { mode: 'deposit', depositPct: 100 } }).ok, false);
+  assert.equal(market.validateProfile({ contact: { line: 'javascript:alert(1)' } }).ok, false);
+  assert.equal(market.validateProfile({ checkIn: '2pm' }).ok, false);
+  assert.deepEqual(market.parseProfile('not json').payment, { mode: 'full', depositPct: null });
+});
+
+test('a rate is non-refundable unless it says how many days before arrival it cancels', () => {
+  assert.deepEqual(market.validatePlanTerms({ breakfast: true, cancelDays: '' }).terms, { breakfast: true, cancelDays: null });
+  assert.deepEqual(market.validatePlanTerms({ breakfast: 'yes', cancelDays: 2 }).terms, { breakfast: false, cancelDays: 2 });
+  assert.equal(market.validatePlanTerms({ cancelDays: 90 }).ok, false);
+  assert.equal(market.validateRoomProfile({ sizeSqm: 2 }).ok, false);
+  assert.deepEqual(market.validateRoomProfile({ amenities: ['tv', 'pool'] }).room.amenities, ['tv']);
+});
+
+test('a guest needs a name, an email and a phone to book', () => {
+  const ok = market.validateGuest({ name: ' Marta K ', email: 'MARTA@example.com', phone: '+48 600 100 200', requests: 'Late arrival' });
+  assert.deepEqual(ok.guest, { name: 'Marta K', email: 'marta@example.com', phone: '+48 600 100 200', requests: 'Late arrival' });
+  assert.equal(market.validateGuest({ name: 'A', email: 'a@b.co', phone: 'call me' }).ok, false);
+  assert.equal(market.validateGuest({ name: '', email: 'a@b.co', phone: '+66812345678' }).ok, false);
+});
+
+test('a booking reference is short, unambiguous, and opens only with its key', () => {
+  const reference = market.makeReference(Buffer.from([0, 1, 18, 21, 24, 27, 30, 31]));
+  assert.equal(reference, 'RS01JNRVYZ');
+  assert.match(market.makeReference(), /^RS[0-9A-HJKMNP-TV-Z]{8}$/);
+
+  const before = process.env.SECRET_KEY;
+  process.env.SECRET_KEY = 'ab'.repeat(32);
+  try {
+    const key = market.accessKeyFor(reference);
+    assert.equal(market.opensBooking(reference, key), true);
+    assert.equal(market.opensBooking(reference, key.slice(0, -1) + (key.endsWith('A') ? 'B' : 'A')), false);
+    assert.equal(market.opensBooking('RS01JNRVYX', key), false);
+    assert.equal(market.opensBooking('not-a-ref', key), false);
+  } finally {
+    if (before === undefined) delete process.env.SECRET_KEY;
+    else process.env.SECRET_KEY = before;
+  }
+});
+
+test('the booking email carries everything needed at the door, escaped', () => {
+  const mail = emails.bookingEmail({
+    venue: 'Baanpong <Lodge>',
+    reference: 'RS01JNRVYZ',
+    guestName: 'Marta',
+    roomName: 'Garden Bungalow',
+    planName: 'Bed & breakfast',
+    arrival: '2026-10-20',
+    departure: '2026-10-22',
+    nights: 2,
+    rooms: 2,
+    total: 'THB 4,800',
+    payment: 'Pay THB 4,800 at the property.',
+    cancellation: 'Free cancellation until 2026-10-17.',
+    checkIn: '14:00',
+    checkOut: '11:00',
+    link: 'https://reviewslip.com/stays/booking/RS01JNRVYZ?k=abc',
+  });
+  assert.match(mail.subject, /RS01JNRVYZ/);
+  assert.match(mail.text, /Garden Bungalow × 2/);
+  assert.match(mail.text, /2026-10-20, from 14:00/);
+  assert.ok(mail.html.includes('Baanpong &lt;Lodge&gt;'));
+  assert.ok(!mail.html.includes('<Lodge>'));
+});
+
+/* ---------------------------------------------------------------- monitor */
+
+const healthy = {
+  services: [{ name: 'reviewslip', state: 'active' }, { name: 'postgresql', state: 'active' }],
+  http: [{ name: 'Review app', ok: true, status: 200, ms: 40 }],
+  app: { database: { ok: true, ms: 3 }, failures5m: 0, pool: { total: 2, idle: 2, waiting: 0 }, uptimeSeconds: 3600 },
+  system: { diskUsedPct: 40, diskFreeGb: 18, memoryTotalMb: 2000, memoryAvailablePct: 45, swapTotalMb: 2048, swapUsedPct: 2, load1: 0.3, cores: 2 },
+  postgres: { ok: true, maxConnections: 40, connections: 6, longestQuerySeconds: 0, idleInTransactionSeconds: 0, sizeMb: 30, cacheHitPct: 99.8 },
+  certificates: [{ host: 'reviewslip.com', ok: true, daysLeft: 60 }],
+  backup: { installed: true, result: 'success', hoursAgo: 5 },
+};
+
+test('a healthy box has no problems', () => {
+  assert.deepEqual(monitorrules.evaluate(healthy), []);
+});
+
+test('the monitor names what is wrong, worst first in severity', () => {
+  const sick = {
+    ...healthy,
+    services: [{ name: 'reviewslip-site', state: 'failed' }],
+    http: [{ name: 'Website', ok: false, status: 0, ms: 10000, error: 'timed out' }],
+    system: { ...healthy.system, diskUsedPct: 96, diskFreeGb: 0.8, swapTotalMb: 0, swapUsedPct: null },
+    postgres: { ...healthy.postgres, connections: 36, idleInTransactionSeconds: 900 },
+    certificates: [{ host: 'reviewslip.com', ok: true, daysLeft: 9 }],
+    backup: { installed: true, result: 'exit-code', hoursAgo: 4 },
+  };
+  const found = Object.fromEntries(monitorrules.evaluate(sick).map((p) => [p.key, p.severity]));
+  assert.equal(found['service:reviewslip-site'], 'critical');
+  assert.equal(found['http:Website'], 'critical');
+  assert.equal(found.disk, 'critical');
+  assert.equal(found['swap:none'], 'warning');
+  assert.equal(found['db:connections'], 'warning');
+  assert.equal(found['db:idle-tx'], 'warning');
+  assert.equal(found['cert:reviewslip.com'], 'warning');
+  assert.equal(found['backup:failed'], 'critical');
+});
+
+test('readings that could not be taken are skipped, not reported', () => {
+  const laptop = { services: [], http: [], system: { diskUsedPct: null, memoryAvailablePct: null, swapTotalMb: null, load1: null, cores: 8 }, backup: null, certificates: [] };
+  assert.deepEqual(monitorrules.evaluate(laptop), []);
+});
+
+test('a problem is emailed once, reminded after six hours, and resolved once', () => {
+  const disk = { key: 'disk', severity: 'warning', summary: 'Disk 88% full' };
+  const t0 = Date.UTC(2026, 9, 7, 1, 0);
+
+  const first = monitorrules.transition({}, [disk], t0);
+  assert.equal(first.opened.length, 1);
+
+  const later = monitorrules.transition(first.state, [disk], t0 + 5 * 60_000);
+  assert.equal(later.opened.length + later.reminded.length + later.resolved.length, 0);
+
+  const reminder = monitorrules.transition(later.state, [disk], t0 + 6 * 3_600_000);
+  assert.equal(reminder.reminded.length, 1);
+  assert.equal(reminder.reminded[0].since, t0);
+
+  const worse = monitorrules.transition(reminder.state, [{ ...disk, severity: 'critical' }], t0 + 6 * 3_600_000 + 60_000);
+  assert.equal(worse.opened.length, 1, 'a warning turning critical is not held back');
+
+  const gone = monitorrules.transition(worse.state, [], t0 + 7 * 3_600_000);
+  assert.equal(gone.resolved.length, 1);
+  assert.equal(gone.resolved[0].since, t0);
+  assert.deepEqual(gone.state.open, {});
+});
+
+test('the daily note is due once a day, after eight in the morning in Bangkok', () => {
+  // 00:30 UTC is 07:30 in Bangkok: not yet.
+  assert.equal(monitorrules.dailyDue({}, Date.UTC(2026, 9, 7, 0, 30)), null);
+  // 01:30 UTC is 08:30.
+  assert.equal(monitorrules.dailyDue({}, Date.UTC(2026, 9, 7, 1, 30)), '2026-10-07');
+  assert.equal(monitorrules.dailyDue({ dailySentFor: '2026-10-07' }, Date.UTC(2026, 9, 7, 9, 0)), null);
+});
+
+test('the email says what changed, and stays silent when nothing did', () => {
+  const now = Date.UTC(2026, 9, 7, 3, 0);
+  assert.equal(monitorrules.composeEmail({ readings: healthy, now }), null);
+
+  const down = { key: 'http:Website', severity: 'critical', summary: 'Website is not answering (timed out)' };
+  const mail = monitorrules.composeEmail({ opened: [down], readings: healthy, now, host: 'ip-1' });
+  assert.match(mail.subject, /^\[Reviewslip ip-1\] CRITICAL: Website is not answering/);
+  assert.match(mail.text, /New problems:\n {2}\[critical\]/);
+  assert.match(mail.text, /Disk: 40% used/);
+
+  const fixed = monitorrules.composeEmail({ resolved: [{ ...down, since: now - 20 * 60_000, endedAt: now }], readings: healthy, now });
+  assert.match(fixed.subject, /Resolved: Website/);
+  assert.match(fixed.text, /lasted 20 min/);
+
+  const daily = monitorrules.composeEmail({ daily: '2026-10-07', open: [], readings: healthy, now });
+  assert.match(daily.subject, /Daily health: all good/);
+});
+
+test('a guest can cancel online only inside the frozen window and before the stay starts', () => {
+  const today = '2026-10-07';
+  assert.deepEqual(market.canCancel({ statuses: ['confirmed', 'confirmed'], freeCancelUntil: '2026-10-07', today }), { ok: true });
+  assert.equal(market.canCancel({ statuses: ['confirmed'], freeCancelUntil: '2026-10-06', today }).ok, false);
+  assert.equal(market.canCancel({ statuses: ['confirmed'], freeCancelUntil: null, today }).ok, false);
+  assert.equal(market.canCancel({ statuses: ['in_house'], freeCancelUntil: '2026-10-10', today }).ok, false);
+  assert.equal(market.canCancel({ statuses: [], freeCancelUntil: '2026-10-10', today }).ok, false);
+});
+
+test('a cancellation email says who cancelled and what to do next', () => {
+  const base = { venue: 'Baanpong Lodge', reference: 'RS01JNRVYZ', guestName: 'Marta', arrival: '2026-10-20', departure: '2026-10-22', link: 'https://reviewslip.com/stays' };
+  const mine = emails.bookingCancelledEmail({ ...base, by: 'guest' });
+  assert.match(mine.text, /is cancelled, as you asked/);
+  assert.match(mine.text, /Nothing was charged/);
+  const theirs = emails.bookingCancelledEmail({ ...base, by: 'venue', contact: '+66 81 234 5678' });
+  assert.match(theirs.text, /Baanpong Lodge has cancelled your booking/);
+  assert.match(theirs.text, /\+66 81 234 5678/);
 });

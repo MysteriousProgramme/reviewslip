@@ -541,8 +541,13 @@ async function setStatus({ subscriberId, id, status }) {
       throw fail(409, 'Give them a room first — you cannot check in to nowhere.');
     }
 
+    // Who cancelled and when, kept only while it stays cancelled: a desk that
+    // reinstates a stay has un-cancelled it.
     const updated = await client.query(
-      'UPDATE bookings SET status = $2, updated_at = now() WHERE id = $1 RETURNING *',
+      `UPDATE bookings SET status = $2, updated_at = now(),
+              cancelled_at = CASE WHEN $2 = 'cancelled' THEN coalesce(cancelled_at, now()) END,
+              cancelled_by = CASE WHEN $2 = 'cancelled' THEN coalesce(cancelled_by, 'venue') END
+        WHERE id = $1 RETURNING *`,
       [id, status]
     );
     const next = updated.rows[0];
@@ -594,8 +599,19 @@ async function setStatus({ subscriberId, id, status }) {
           }
         : null;
 
-    return { record: toRecord(next), welcome };
+    // A marketplace guest is told when the venue cancels their booking.
+    const cancelledRef =
+      next.status === 'cancelled' && rows[0].status !== 'cancelled' && next.reference ? next.reference : null;
+
+    return { record: toRecord(next), welcome, cancelledRef };
   });
+
+  if (result.cancelledRef) {
+    // Required here rather than at the top: marketplace.js reads rates.js and
+    // tariff.js, and keeping this module's own imports free of it keeps the
+    // dependency one way.
+    void require('./marketplace').tellGuestCancelled(result.cancelledRef);
+  }
 
   // Fired, not awaited. A check-in happens with somebody standing at a desk,
   // and it must not wait on a mail server — nor fail because of one. The

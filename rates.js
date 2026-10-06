@@ -1,6 +1,6 @@
 'use strict';
 
-const { one, all, query } = require('./db');
+const { pool, one, all, query } = require('./db');
 const nights = require('./nights');
 const tariff = require('./tariff');
 
@@ -351,8 +351,23 @@ async function availability({ subscriberId, arrival, departure }) {
   if (!stay.ok) throw fail(400, stay.error);
 
   const list = nights.nightsBetween(arrival, departure);
+  const groups = await availabilityOn(pool, { subscriberId, list });
 
-  const rows = await all(
+  return { arrival, departure, nights: list.length, groups };
+}
+
+/**
+ * The same count, on a given client and optionally for one room type.
+ *
+ * The marketplace asks it inside the transaction that takes the booking, while
+ * holding the room type's row lock, so the answer cannot change between the
+ * check and the insert. Asked through the pool there, it would read from
+ * outside the transaction.
+ *
+ * @param {{query: Function}} runner - the pool, or a transaction's client
+ */
+async function availabilityOn(runner, { subscriberId, list, groupId = null }) {
+  const { rows } = await runner.query(
     `WITH the_nights AS (
        SELECT night::date AS night FROM unnest($2::text[]) AS night
      ),
@@ -370,6 +385,7 @@ async function availability({ subscriberId, arrival, departure }) {
                   AND b.arrival <= n.night AND b.departure > n.night) AS floating
          FROM room_groups g CROSS JOIN the_nights n
         WHERE g.subscriber_id = $1
+          AND ($3::integer IS NULL OR g.id = $3)
      )
      SELECT group_id, name,
             min(rooms) AS rooms,
@@ -377,23 +393,70 @@ async function availability({ subscriberId, arrival, departure }) {
        FROM grid
       GROUP BY group_id, name
       ORDER BY name`,
-    [subscriberId, list]
+    [subscriberId, list, groupId]
   );
 
-  return {
-    arrival,
-    departure,
-    nights: list.length,
-    groups: rows.map((row) => ({
-      groupId: row.group_id,
-      name: row.name,
-      rooms: count(row.rooms),
-      // Clamped: an over-allocated type — more unassigned stays than rooms —
-      // is a real state, and it should read as none free rather than as a
-      // negative number that some caller treats as truthy.
-      free: Math.max(0, Number(row.free) || 0),
-    })),
-  };
+  return rows.map((row) => ({
+    groupId: row.group_id,
+    name: row.name,
+    rooms: count(row.rooms),
+    // Clamped: an over-allocated type — more unassigned stays than rooms —
+    // is a real state, and it should read as none free rather than as a
+    // negative number that some caller treats as truthy.
+    free: Math.max(0, Number(row.free) || 0),
+  }));
+}
+
+/**
+ * What a stay costs on every plan of a venue, and whether each may be sold.
+ *
+ * quote() answers this for one plan; a guest comparing a venue's rooms needs
+ * all of them, and one plan at a time is a query per plan per venue on every
+ * search. Two queries here whatever the count. Same resolution as quote(): the
+ * night's own price, else the plan's base, and the restrictions read the same
+ * way through tariff.
+ *
+ * @param {{query: Function}} runner - the pool, or a transaction's client
+ * @returns {Promise<Map<number, {totalMinor: number|null, sellable: boolean, reason: string|null}>>}
+ */
+async function pricesOn(runner, { subscriberId, list, planIds = null }) {
+  const plans = await runner.query(
+    `SELECT id, base_minor FROM rate_plans
+      WHERE subscriber_id = $1 AND ($2::integer[] IS NULL OR id = ANY($2::integer[]))`,
+    [subscriberId, planIds]
+  );
+  const out = new Map();
+  if (!plans.rows.length) return out;
+
+  const overrides = await runner.query(
+    `SELECT plan_id, night, amount_minor, min_nights, closed, closed_to_arrival
+       FROM rate_nights
+      WHERE plan_id = ANY($1::integer[]) AND night = ANY($2::date[])`,
+    [plans.rows.map((p) => p.id), list]
+  );
+
+  for (const plan of plans.rows) {
+    const mine = overrides.rows.filter((r) => r.plan_id === plan.id);
+    const byNight = {};
+    for (const row of mine) {
+      byNight[row.night] = {
+        minNights: row.min_nights,
+        closed: row.closed === true,
+        closedToArrival: row.closed_to_arrival === true,
+      };
+    }
+    const allowed = tariff.checkRestrictions({ nights: list, byNight });
+    const priced = list.map(
+      (night) => mine.find((r) => r.night === night)?.amount_minor ?? plan.base_minor
+    );
+    const sum = tariff.total(priced);
+    out.set(plan.id, {
+      totalMinor: sum ? sum.total : null,
+      sellable: allowed.ok && Boolean(sum),
+      reason: allowed.ok ? (sum ? null : 'Not priced for these dates.') : allowed.error,
+    });
+  }
+  return out;
 }
 
 module.exports = {
@@ -405,4 +468,6 @@ module.exports = {
   forWindow,
   quote,
   availability,
+  availabilityOn,
+  pricesOn,
 };

@@ -1,0 +1,35 @@
+# One health check of the box and both apps; emails problems to
+# MONITOR_EMAIL (default info@reviewslip.com). Started by
+# reviewslip-monitor.timer, not enabled itself.
+#
+#   sudo cp deploy/reviewslip-monitor.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now reviewslip-monitor.timer
+
+[Unit]
+Description=Check reviewslip's server and apps, and email problems
+Documentation=file:/opt/reviewslip/docs/monitoring.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env node /opt/reviewslip/scripts/monitor.js
+
+# Reads /opt/reviewslip/.env for the database and the mail settings.
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/reviewslip
+
+# /var/lib/reviewslip-monitor, owned by ubuntu, readable by the review app's
+# staff Server page. Holds readings and open problems, never secrets.
+StateDirectory=reviewslip-monitor
+StateDirectoryMode=0755
+
+# A run is seconds. Past this it is stuck, and the next run should not queue.
+TimeoutStartSec=2min
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true

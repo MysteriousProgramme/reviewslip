@@ -41,6 +41,9 @@ const checklists = require('./checklists');
 const shift = require('./shift');
 const welcome = require('./welcome');
 const signups = require('./signups');
+const { throttled } = require('./throttle');
+const health = require('./health');
+const marketRouter = require('./marketrouter');
 const adminRouter = require('./admin');
 const customerRouter = require('./customer');
 const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
@@ -89,6 +92,23 @@ const ASSET_BYTES =
 // links, an About paragraph — are small beside that. A fifth on top covers
 // them and the JSON around it all.
 const DASHBOARD_LIMIT = `${Math.ceil((ASSET_BYTES * 4) / 3 / 1024 / 1024 * 1.2)}mb`;
+
+// First, so every response is counted, including the ones that fail early.
+app.use(health.countFailures);
+
+/**
+ * Whether this app can do its job: up, and the database answering.
+ *
+ * On every host and before everything else, so the monitor and any outside
+ * uptime checker can reach it at any venue's address or none. 503 when the
+ * database is not answering — a 200 from a process that cannot read anything
+ * is the wrong answer to "is it up?".
+ */
+app.get('/healthz', async (_req, res) => {
+  const result = await health.check();
+  res.set('Cache-Control', 'no-store');
+  res.status(result.status === 'ok' ? 200 : 503).json(result);
+});
 
 app.use('/api/customer', express.json({ limit: DASHBOARD_LIMIT }));
 app.use('/api/admin', express.json({ limit: DASHBOARD_LIMIT }));
@@ -212,6 +232,9 @@ app.use('/api/admin', adminRouter);
 // Customers sign in on the marketing site's hostname, not on a venue's, so
 // this sits outside tenant resolution too.
 app.use('/api/customer', customerRouter);
+// The marketplace answers for every listed venue at once, so it sits before
+// the tenant resolver: it is reached on the API's own host, not a venue's.
+app.use('/api/market', express.json({ limit: '32kb' }), marketRouter);
 
 /**
  * The venue's palette, as a stylesheet.
@@ -366,26 +389,6 @@ app.get('/background', resolveTenant, (req, res) => {
 // Everything below knows which venue it is serving.
 app.use('/api', resolveTenant);
 
-/* ---------------------------------------------------------------- throttle */
-// One tab on a lobby QR code is the normal case; this only exists so an open
-// endpoint can't burn the API budget. Keyed per subscriber as well as per IP,
-// so one busy venue cannot throttle another. In-memory, resets every minute.
-const WINDOW_MS = 60_000;
-const MAX_PER_WINDOW = 30;
-const hits = new Map();
-
-function throttled(key) {
-  const now = Date.now();
-  const entry = hits.get(key);
-
-  if (!entry || now > entry.resetAt) {
-    hits.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    if (hits.size > 5000) hits.clear();
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > MAX_PER_WINDOW;
-}
 
 /* ------------------------------------------------------------ welcome page */
 
