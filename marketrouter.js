@@ -193,6 +193,114 @@ router.get('/bookings/:reference', async (req, res, next) => {
  * The guest cancels, by reference and key — the same pair that opens the
  * booking. Every failure to prove it is the same 404 as a wrong reference.
  */
+function party(adults, children) {
+  return `${adults} adult${adults === 1 ? '' : 's'}${children ? `, ${children} child${children === 1 ? '' : 'ren'}` : ''}`;
+}
+
+function changeFrom(source) {
+  return {
+    arrival: source.arrival,
+    departure: source.departure,
+    adults: source.adults,
+    children: source.children,
+  };
+}
+
+/** What a change would cost, without making it. */
+router.get('/bookings/:reference/change', async (req, res, next) => {
+  try {
+    if (throttled(`market:change:${req.ip}`, { max: 30 })) {
+      return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
+    }
+    const reference = String(req.params.reference || '').toUpperCase();
+    if (!market.opensBooking(reference, req.query.k)) {
+      return res.status(404).json({ error: 'No booking with that reference.' });
+    }
+    const quote = await marketplace.changeByGuest({ reference, change: changeFrom(req.query), commit: false });
+    res.json({
+      arrival: quote.stay.arrival,
+      departure: quote.stay.departure,
+      adults: quote.stay.adults,
+      children: quote.stay.children,
+      totalMinor: quote.totalMinor,
+      oldTotalMinor: quote.oldTotalMinor,
+      freeCancelUntil: quote.freeCancelUntil,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * The change, confirmed at the price the guest was quoted. Both the guest and
+ * the venue are told, after the commit.
+ */
+router.post('/bookings/:reference/change', async (req, res, next) => {
+  try {
+    if (throttled(`market:change:${req.ip}`, { max: 30 })) {
+      return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
+    }
+    const reference = String(req.params.reference || '').toUpperCase();
+    if (!market.opensBooking(reference, req.body?.k)) {
+      return res.status(404).json({ error: 'No booking with that reference.' });
+    }
+    const done = await marketplace.changeByGuest({
+      reference,
+      change: changeFrom(req.body ?? {}),
+      expectTotalMinor: req.body?.expectTotalMinor,
+      commit: true,
+    });
+    const view = await marketplace.bookingView(reference);
+    const link = `${SITE}/stays/booking/${reference}?k=${encodeURIComponent(String(req.body.k))}`;
+
+    mailer
+      .send({
+        to: view.guestEmail,
+        ...emails.bookingChangedEmail({
+          venue: view.venue.name,
+          reference,
+          guestName: view.guestName,
+          roomName: `${view.roomName}${view.rooms > 1 ? ` × ${view.rooms}` : ''}${view.planName ? ` · ${view.planName}` : ''}`,
+          arrival: view.arrival,
+          departure: view.departure,
+          nights: view.nights,
+          party: party(view.adults, view.children),
+          total: money(view.currency, view.totalMinor),
+          cancellation: view.freeCancelUntil ? `Free cancellation until ${view.freeCancelUntil}.` : 'Non-refundable.',
+          link,
+        }),
+      })
+      .catch(() => {});
+    marketplace
+      .venueEmail(done.subscriberId)
+      .then((to) =>
+        mailer.send({
+          to,
+          ...emails.bookingChangeAlertEmail({
+            reference,
+            guestName: view.guestName,
+            roomName: view.roomName,
+            oldArrival: done.old.arrival,
+            oldDeparture: done.old.departure,
+            oldParty: party(done.old.adults, done.old.children),
+            arrival: view.arrival,
+            departure: view.departure,
+            party: party(view.adults, view.children),
+            total: money(view.currency, view.totalMinor),
+          }),
+        })
+      )
+      .catch(() => {});
+
+    res.json(view);
+  } catch (err) {
+    if (err.status === 409 && Number.isSafeInteger(err.totalMinor)) {
+      return res.status(409).json({ error: err.message, totalMinor: err.totalMinor });
+    }
+    next(err);
+  }
+});
+
 router.post('/bookings/:reference/cancel', async (req, res, next) => {
   try {
     if (throttled(`market:cancel:${req.ip}`, { max: 10 })) {

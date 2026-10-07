@@ -62,7 +62,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_PROFILE = Object.freeze({
   about: '',
   amenities: [],
-  contact: { phone: '', email: '', line: '', whatsapp: '' },
+  contact: { phone: '', email: '', line: '', whatsapp: '', voiceSite: '' },
   checkIn: '14:00',
   checkOut: '12:00',
   payment: { mode: 'full', depositPct: null },
@@ -79,14 +79,21 @@ function checkContact(value = {}) {
   const email = text(value.email, 254).toLowerCase();
   const line = text(value.line, 100);
   const whatsapp = text(value.whatsapp, 24);
+  // The venue's site key on the Vibe Crafted softphone. When set, "Call" on the
+  // marketplace and in the Guest App is an in-browser call to the venue's team,
+  // with the phone number as the fallback for browsers that cannot place one.
+  const voiceSite = text(value.voiceSite, 40).toLowerCase();
 
   if (phone && !PHONE_RE.test(phone)) return fail('That phone number does not look right.');
+  if (voiceSite && !/^[a-z0-9][a-z0-9-]{0,39}$/.test(voiceSite)) {
+    return fail('The softphone site key is lowercase letters, digits and hyphens, like baanponglodge.');
+  }
   if (email && !EMAIL_RE.test(email)) return fail('That email address does not look right.');
   if (whatsapp && !PHONE_RE.test(whatsapp)) return fail('Give WhatsApp as a phone number, with the country code.');
   if (line && !/^(@?[\w.-]{2,40}|https:\/\/(line\.me|lin\.ee)\/\S+)$/i.test(line)) {
     return fail('Give LINE as an id, like @baanpong, or a line.me link.');
   }
-  return { ok: true, contact: { phone, email, line, whatsapp } };
+  return { ok: true, contact: { phone, email, line, whatsapp, voiceSite } };
 }
 
 /**

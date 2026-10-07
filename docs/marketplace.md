@@ -49,6 +49,21 @@ venue gets one at its account address. Both are sent after the commit and never 
 A booking opens again by reference **and** key (`HMAC(SECRET_KEY,'booking-access')`), so the
 email link works without an account and guessing references gets nothing.
 
+## Manage Booking: changing and cancelling
+
+The booking page has **Manage Booking** while the booking is inside its free-cancellation window
+and the stay has not started. It offers two things:
+
+- **Change dates or guests** — same room type, same rate, same number of rooms. The guest picks
+  new dates and party, sees the new total (and the old one when it differs), then confirms.
+  `marketplace.changeByGuest` does both: in one transaction holding the bookings and the room
+  type, it releases the guest's own rooms, checks availability and price exactly as a new booking
+  would, and either rolls back (the quote) or writes the new dates (the confirmation). A price
+  that moved between the two is refused with the new one. The new dates are unassigned for the
+  desk to place, and the free-cancellation deadline is worked out again from the rate. Guest and
+  venue are both emailed. Changing the room or rate is cancel-and-rebook.
+- **Cancel** — below.
+
 ## Cancelling
 
 A guest cancels from their booking page — reference and key, the same pair that opens it — while

@@ -1308,6 +1308,22 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* The softphone tile is a button, drawn as a tile. */
+button.tile {
+  width: 100%;
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Once the softphone tile shows, the phone number behind it is the same
+   action twice. */
+.tile-voice:not([hidden]) + .tile-fallback {
+  display: none;
+}
+
 .tile-icon {
   flex: none;
   display: grid;

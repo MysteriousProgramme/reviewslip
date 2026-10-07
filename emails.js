@@ -293,6 +293,66 @@ function bookingCancelledEmail(input) {
   return { subject, text, html };
 }
 
+/**
+ * A guest changed their booking — to the guest, as the new confirmation.
+ *
+ * @param {{venue: string, reference: string, guestName?: string, roomName: string,
+ *   arrival: string, departure: string, nights: number, party: string, total: string,
+ *   cancellation: string, link: string}} input
+ */
+function bookingChangedEmail(input) {
+  const place = clean(input.venue, 120);
+  const who = clean(input.guestName, 120);
+  const subject = `Booking changed at ${place} · ${input.reference}`;
+  const rows = [
+    ['Reference', input.reference],
+    ['Room', clean(input.roomName, 80)],
+    ['Stay', `${input.arrival} to ${input.departure} (${input.nights} night${input.nights === 1 ? '' : 's'})`],
+    ['Guests', input.party],
+    ['New total', input.total],
+    ['Cancellation', input.cancellation],
+  ];
+  const text = [
+    who ? `Hello ${who},` : 'Hello,',
+    '',
+    `Your booking at ${place} has been changed. This replaces your earlier confirmation.`,
+    '',
+    ...rows.map(([label, value]) => `${label}: ${value}`),
+    '',
+    `See your booking: ${input.link}`,
+    '',
+    `— ${place}, booked through Reviewslip`,
+  ].join('\n');
+  const html = [
+    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">',
+    `<p>${who ? `Hello ${escapeHtml(who)},` : 'Hello,'}</p>`,
+    `<p>Your booking at <strong>${escapeHtml(place)}</strong> has been changed. This replaces your earlier confirmation.</p>`,
+    rowsHtml(rows),
+    `<p><a href="${escapeHtml(input.link)}">See your booking</a></p>`,
+    `<p style="font-size:0.9em;color:#5a6b63">— ${escapeHtml(place)}, booked through Reviewslip</p>`,
+    '</div>',
+  ].join('');
+  return { subject, text, html };
+}
+
+/** The venue's notice that a guest changed their booking online. */
+function bookingChangeAlertEmail(input) {
+  const subject = `Changed by the guest: ${clean(input.guestName, 80)}, now ${input.arrival} · ${input.reference}`;
+  const text = [
+    `${clean(input.guestName, 120)} changed their Reviewslip booking ${input.reference} (${clean(input.roomName, 60)}).`,
+    '',
+    `Was: ${input.oldArrival} to ${input.oldDeparture}, ${input.oldParty}.`,
+    `Now: ${input.arrival} to ${input.departure}, ${input.party}. New total ${input.total}.`,
+    '',
+    'It is on your calendar on the new dates, unassigned — give it a room.',
+  ].join('\n');
+  const html = `<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">${text
+    .split('\n\n')
+    .map((p) => `<p>${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+    .join('')}</div>`;
+  return { subject, text, html };
+}
+
 /** The venue's notice that a guest cancelled online. */
 function bookingCancelAlertEmail(input) {
   const subject = `Cancelled by the guest: ${clean(input.guestName, 80)}, ${input.arrival} · ${input.reference}`;
@@ -370,6 +430,8 @@ module.exports = {
   bookingAlertEmail,
   bookingCancelledEmail,
   bookingCancelAlertEmail,
+  bookingChangedEmail,
+  bookingChangeAlertEmail,
   welcomeEmail,
   inviteEmail,
   ticketReplyEmail,

@@ -31,6 +31,8 @@ const lang =
     .find((code) => STRINGS[code]) || 'en';
 
 let venue = '';
+// The venue's softphone site key, from /api/welcome; empty when it has none.
+let voiceSite = '';
 let guest = '';
 
 function t(key) {
@@ -125,6 +127,7 @@ function showHome({ name, links }, { offline = false } = {}) {
 
   const list = $('links');
   list.replaceChildren();
+  let phoned = false;
   for (const link of links) {
     const a = document.createElement('a');
     a.className = 'tile';
@@ -135,22 +138,93 @@ function showHome({ name, links }, { offline = false } = {}) {
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
     }
-    const picture = document.createElement('span');
-    picture.className = 'tile-icon';
-    picture.setAttribute('aria-hidden', 'true');
-    picture.innerHTML = icon(link.icon);
-    const label = document.createElement('span');
-    label.className = 'tile-label';
-    label.textContent = link.label;
-    a.append(picture, label);
+    a.append(...tileFace(link.icon, link.label));
 
     const li = document.createElement('li');
-    li.append(a);
+    // A phone number, when the venue has the softphone: an in-browser call to
+    // the front desk, with the number behind it for a browser that cannot.
+    if (voiceSite && /^tel:/i.test(link.url)) {
+      phoned = true;
+      a.classList.add('tile-fallback');
+      li.append(voiceTile(link.label), a);
+    } else {
+      li.append(a);
+    }
     list.append(li);
+  }
+  // No phone tile of the venue's own, but a softphone: the front desk first.
+  if (voiceSite && !phoned) {
+    const li = document.createElement('li');
+    li.append(voiceTile(t('voiceFrontDesk')));
+    list.prepend(li);
   }
   $('no-links').hidden = links.length > 0;
 
+  if (voiceSite) startVoice();
   offerInstall();
+}
+
+function tileFace(iconName, text) {
+  const picture = document.createElement('span');
+  picture.className = 'tile-icon';
+  picture.setAttribute('aria-hidden', 'true');
+  picture.innerHTML = icon(iconName);
+  const label = document.createElement('span');
+  label.className = 'tile-label';
+  label.textContent = text;
+  return [picture, label];
+}
+
+/**
+ * A softphone tile. Hidden until the widget hears the venue's Support team
+ * can answer or take a message; it then writes its own label in place of
+ * this one ("Call Front Desk", in the guest's language, from VOICE_I18N).
+ */
+function voiceTile(text) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'tile tile-voice';
+  button.dataset.voiceCall = '';
+  button.dataset.voiceTeam = 'support';
+  button.hidden = true;
+  const [picture, label] = tileFace('phone', text);
+  label.dataset.voiceLabel = '';
+  button.append(picture, label);
+  return button;
+}
+
+/* ---------------------------------------------------------------- softphone */
+
+/**
+ * The Vibe Crafted softphone, loaded once the venue's key is known.
+ *
+ * It binds every [data-voice-call] element through one click listener on the
+ * document, so tiles drawn later still work; their labels and visibility wait
+ * for its next status check unless it is asked now (VOICE_REFRESH).
+ */
+let voiceLoaded = false;
+function startVoice() {
+  window.VOICE_I18N = {
+    callTeam: t('voiceCallTeam'),
+    teamSales: t('voiceReservations'),
+    teamSupport: t('voiceFrontDesk'),
+    leave: t('voiceLeave'),
+  };
+  // The front desk sees who is calling: the name they signed up with.
+  if (guest) window.VOICE_CALLER = guest;
+  if (voiceLoaded) {
+    if (window.VOICE_REFRESH) window.VOICE_REFRESH();
+    return;
+  }
+  voiceLoaded = true;
+  const script = document.createElement('script');
+  script.src = 'https://portal.vibecraftedsoftware.com/assets/voice-widget.js';
+  script.defer = true;
+  script.dataset.voiceApi = 'https://portal.vibecraftedsoftware.com';
+  script.dataset.voiceSite = voiceSite;
+  // The tiles are the buttons; no floating bubble on top of them.
+  script.dataset.voiceFab = 'off';
+  document.body.appendChild(script);
 }
 
 function signOut() {
@@ -264,6 +338,7 @@ async function loadVenue() {
     if (!res.ok) return;
     const data = await res.json();
     venue = data.venue || '';
+    voiceSite = String(data.voiceSite || '');
     if (data.showName !== false) $('eyebrow').textContent = venue;
     $('bar-name').textContent = venue;
     $('app-title').content = venue || 'Welcome';

@@ -510,6 +510,128 @@ async function book({ slug, groupId, planId, expectTotalMinor, stay, guest }) {
  *
  * @returns {Promise<{subscriberId: number}>}
  */
+/**
+ * A guest changes the dates or the party of their booking: same room type,
+ * same rate, same number of rooms. Quoted first, then confirmed.
+ *
+ * Allowed while it could be cancelled for free — a change inside the window is
+ * a cancellation and a new booking in one step, and outside it the rate's
+ * terms are the venue's to apply.
+ *
+ * Done in one transaction holding the bookings and the room type: the guest's
+ * own rooms are released first, so their current nights do not count against
+ * the new ones, then availability and price are worked out exactly as for a
+ * new booking. A quote runs the same steps and rolls back, so what the guest
+ * is shown is what confirming does. If the price moved in between, confirming
+ * is refused with the new one.
+ *
+ * The new dates are unassigned, as every channel booking arrives: the room
+ * the desk had chosen may not be free on them, and that is the desk's call.
+ *
+ * @param {{reference: string, change: {arrival: string, departure: string,
+ *   adults: number, children: number}, expectTotalMinor?: number, commit: boolean}} input
+ */
+async function changeByGuest({ reference, change, expectTotalMinor, commit }) {
+  const today = nights.todayAt('Asia/Bangkok');
+  const QUOTE = Symbol('quote');
+  let quote = null;
+
+  try {
+    const done = await tx(async (client) => {
+      const { rows } = await client.query(
+        'SELECT * FROM bookings WHERE reference = $1 ORDER BY id FOR UPDATE',
+        [reference]
+      );
+      if (!rows.length) throw fail(404, 'No booking with that reference.');
+      const live = rows.filter((r) => r.status !== 'cancelled');
+      const allowed = market.canCancel({
+        statuses: live.map((r) => r.status),
+        freeCancelUntil: rows[0].free_cancel_until,
+        today,
+      });
+      if (!allowed.ok) throw fail(409, allowed.error.replace('cancelled online', 'changed online'));
+
+      const first = live[0];
+      if (!first.rate_plan_id) throw fail(409, 'This booking cannot be changed online. Contact the venue.');
+
+      const stay = market.checkSearch({ ...change, rooms: live.length }, { today });
+      if (!stay.ok) throw fail(400, stay.error);
+      const oldAdults = live.reduce((n, r) => n + r.adults, 0);
+      const oldChildren = live.reduce((n, r) => n + r.children, 0);
+      if (
+        stay.arrival === first.arrival && stay.departure === first.departure &&
+        stay.adults === oldAdults && stay.children === oldChildren
+      ) {
+        throw fail(400, 'That is the booking you already have. Change the dates or the guests.');
+      }
+
+      const group = await client.query(
+        'SELECT id, capacity FROM room_groups WHERE id = $1 FOR UPDATE',
+        [first.group_id]
+      );
+      const plan = await client.query('SELECT id, cancel_days FROM rate_plans WHERE id = $1', [first.rate_plan_id]);
+      if (!plan.rows[0]) throw fail(409, 'This rate is no longer sold. Contact the venue to change your booking.');
+
+      // Let go of the guest's own rooms, so they are not counted as taken.
+      const ids = live.map((r) => r.id);
+      await client.query("UPDATE bookings SET status = 'cancelled' WHERE id = ANY($1::integer[])", [ids]);
+      await client.query('DELETE FROM room_nights WHERE booking_id = ANY($1::integer[])', [ids]);
+
+      const list = nights.nightsBetween(stay.arrival, stay.departure);
+      const [free] = await rates.availabilityOn(client, { subscriberId: first.subscriber_id, list, groupId: first.group_id });
+      if (!market.fits({ capacity: group.rows[0].capacity, free: free?.free ?? 0 }, stay)) {
+        throw fail(409, 'Not available for those dates or that many guests. Try others.');
+      }
+      const price = (
+        await rates.pricesOn(client, { subscriberId: first.subscriber_id, list, planIds: [first.rate_plan_id] })
+      ).get(first.rate_plan_id);
+      if (!price?.sellable) throw fail(409, price?.reason || 'Not available for those dates. Try others.');
+
+      const profile = market.parseProfile(
+        (await client.query('SELECT market_profile FROM subscribers WHERE id = $1', [first.subscriber_id])).rows[0]
+          .market_profile
+      );
+      const result = {
+        stay,
+        totalMinor: price.totalMinor * live.length,
+        oldTotalMinor: live.every((r) => r.total_minor !== null)
+          ? live.reduce((n, r) => n + r.total_minor, 0)
+          : null,
+        freeCancelUntil: market.freeCancelUntil({ arrival: stay.arrival, cancelDays: plan.rows[0].cancel_days, today }),
+        old: { arrival: first.arrival, departure: first.departure, adults: oldAdults, children: oldChildren },
+        subscriberId: first.subscriber_id,
+      };
+
+      if (!commit) {
+        quote = result;
+        throw QUOTE;
+      }
+      if (Number(expectTotalMinor) !== result.totalMinor) {
+        throw Object.assign(fail(409, 'The price changed while you were deciding. Check the new total.'), {
+          totalMinor: result.totalMinor,
+        });
+      }
+
+      const parties = market.split(stay);
+      for (const [i, row] of live.entries()) {
+        await client.query(
+          `UPDATE bookings SET status = 'confirmed', arrival = $2, departure = $3, adults = $4, children = $5,
+                  room_id = NULL, total_minor = $6, due_now_minor = $7, free_cancel_until = $8,
+                  updated_at = now()
+            WHERE id = $1`,
+          [row.id, stay.arrival, stay.departure, parties[i].adults, parties[i].children, price.totalMinor,
+            market.dueNow(price.totalMinor, profile.payment), result.freeCancelUntil]
+        );
+      }
+      return result;
+    });
+    return done;
+  } catch (err) {
+    if (err === QUOTE) return quote;
+    throw err;
+  }
+}
+
 async function cancelByGuest(reference) {
   const today = nights.todayAt('Asia/Bangkok');
   return tx(async (client) => {
@@ -541,7 +663,7 @@ async function cancelByGuest(reference) {
 /** A booking as its guest sees it, by reference. The key is checked by the caller. */
 async function bookingView(reference) {
   const rows = await all(
-    `SELECT b.*, g.name AS room_name, p.name AS plan_name, p.breakfast, p.cancel_days,
+    `SELECT b.*, g.name AS room_name, g.capacity, p.name AS plan_name, p.breakfast, p.cancel_days,
             s.slug, s.name AS venue_name, s.place, s.currency, s.market_profile
        FROM bookings b
        JOIN room_groups g ON g.id = b.group_id
@@ -573,6 +695,15 @@ async function bookingView(reference) {
       freeCancelUntil: first.free_cancel_until,
       today,
     }).ok,
+    // A change keeps the room type and rate, so it needs the rate to exist.
+    changeable:
+      Boolean(first.rate_plan_id && first.plan_name) &&
+      market.canCancel({
+        statuses: rows.filter((r) => r.status !== 'cancelled').map((r) => r.status),
+        freeCancelUntil: first.free_cancel_until,
+        today,
+      }).ok,
+    maxGuests: first.capacity * rows.filter((r) => r.status !== 'cancelled').length,
     venue: { slug: first.slug, name: first.venue_name, place: first.place, contact: profile.contact },
     checkIn: profile.checkIn,
     checkOut: profile.checkOut,
@@ -652,6 +783,7 @@ module.exports = {
   venue,
   book,
   cancelByGuest,
+  changeByGuest,
   bookingView,
   tellGuestCancelled,
   venueEmail,

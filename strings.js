@@ -105,6 +105,11 @@ const STRINGS = {
     appSignedIn: "Signed in as {name}",
     appNotYou: "Not you?",
     appOffline: "You are offline. These are the links from your last visit.",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "Call {team}",
+    voiceReservations: "Reservations",
+    voiceFrontDesk: "Front Desk",
+    voiceLeave: "Leave a message",
   },
 
   th: {
@@ -182,6 +187,11 @@ const STRINGS = {
     appSignedIn: "เข้าสู่ระบบในชื่อ {name}",
     appNotYou: "ไม่ใช่คุณใช่ไหม",
     appOffline: "คุณออฟไลน์อยู่ นี่คือลิงก์จากครั้งล่าสุดที่เปิด",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "โทรหา{team}",
+    voiceReservations: "ฝ่ายจองห้องพัก",
+    voiceFrontDesk: "แผนกต้อนรับ",
+    voiceLeave: "ฝากข้อความ",
   },
 
   zh: {
@@ -258,6 +268,11 @@ const STRINGS = {
     appSignedIn: "当前用户：{name}",
     appNotYou: "不是你？",
     appOffline: "当前离线，以下是上次访问时的链接。",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "致电{team}",
+    voiceReservations: "预订部",
+    voiceFrontDesk: "前台",
+    voiceLeave: "留言",
   },
 
   ja: {
@@ -337,6 +352,11 @@ const STRINGS = {
     appSignedIn: "{name} としてログイン中",
     appNotYou: "別の方ですか？",
     appOffline: "オフラインです。前回表示したリンクです。",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "{team}に電話",
+    voiceReservations: "予約係",
+    voiceFrontDesk: "フロント",
+    voiceLeave: "メッセージを残す",
   },
 
   ko: {
@@ -414,6 +434,11 @@ const STRINGS = {
     appSignedIn: "{name}(으)로 로그인됨",
     appNotYou: "본인이 아니신가요?",
     appOffline: "오프라인 상태입니다. 지난번 방문 때의 링크입니다.",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "{team}에 전화",
+    voiceReservations: "예약 담당",
+    voiceFrontDesk: "프런트",
+    voiceLeave: "메시지 남기기",
   },
 
   es: {
@@ -493,6 +518,11 @@ const STRINGS = {
     appSignedIn: "Has entrado como {name}",
     appNotYou: "¿No eres tú?",
     appOffline: "Sin conexión: estos son los enlaces de tu última visita.",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "Llamar a {team}",
+    voiceReservations: "Reservas",
+    voiceFrontDesk: "Recepción",
+    voiceLeave: "Dejar un mensaje",
   },
 
   fr: {
@@ -572,6 +602,11 @@ const STRINGS = {
     appSignedIn: "Connecté en tant que {name}",
     appNotYou: "Ce n'est pas vous ?",
     appOffline: "Hors ligne : voici les liens de votre dernière visite.",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "Appeler {team}",
+    voiceReservations: "les réservations",
+    voiceFrontDesk: "la réception",
+    voiceLeave: "Laisser un message",
   },
 
   de: {
@@ -651,6 +686,11 @@ const STRINGS = {
     appSignedIn: "Angemeldet als {name}",
     appNotYou: "Nicht du?",
     appOffline: "Du bist offline. Das sind die Links von deinem letzten Besuch.",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "{team} anrufen",
+    voiceReservations: "Reservierung",
+    voiceFrontDesk: "Rezeption",
+    voiceLeave: "Nachricht hinterlassen",
   },
 
   it: {
@@ -730,6 +770,11 @@ const STRINGS = {
     appSignedIn: "Accesso come {name}",
     appNotYou: "Non sei tu?",
     appOffline: "Sei offline: questi sono i link della tua ultima visita.",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "Chiama {team}",
+    voiceReservations: "le prenotazioni",
+    voiceFrontDesk: "la reception",
+    voiceLeave: "Lascia un messaggio",
   },
 
   pt: {
@@ -809,6 +854,11 @@ const STRINGS = {
     appSignedIn: "Conectado como {name}",
     appNotYou: "Não é você?",
     appOffline: "Você está offline: estes são os links da sua última visita.",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "Ligar para {team}",
+    voiceReservations: "reservas",
+    voiceFrontDesk: "a recepção",
+    voiceLeave: "Deixar mensagem",
   },
 
   nl: {
@@ -888,6 +938,11 @@ const STRINGS = {
     appSignedIn: "Ingelogd als {name}",
     appNotYou: "Niet jij?",
     appOffline: "Je bent offline. Dit zijn de links van je vorige bezoek.",
+    // The softphone button (Vibe Crafted voice widget).
+    voiceCallTeam: "{team} bellen",
+    voiceReservations: "Reserveringen",
+    voiceFrontDesk: "Receptie",
+    voiceLeave: "Bericht achterlaten",
   },
 };
 

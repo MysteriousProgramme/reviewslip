@@ -42,6 +42,7 @@ const shift = require('./shift');
 const welcome = require('./welcome');
 const signups = require('./signups');
 const { throttled } = require('./throttle');
+const market = require('./market');
 const health = require('./health');
 const marketRouter = require('./marketrouter');
 const adminRouter = require('./admin');
@@ -403,6 +404,9 @@ app.get('/api/welcome', requireTenant, (req, res) => {
     venue: req.subscriber.name,
     hasLogo: Boolean(resolved.theme?.logo),
     showName: theme.showsName(resolved.theme),
+    // The venue's softphone, so the Guest App's call tiles reach the staff
+    // in the browser. Empty when the venue has none.
+    voiceSite: market.parseProfile(req.subscriber.market_profile).contact.voiceSite || '',
   });
 });
 

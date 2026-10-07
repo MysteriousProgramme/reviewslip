@@ -4640,3 +4640,30 @@ test('a cancellation email says who cancelled and what to do next', () => {
   assert.match(theirs.text, /Baanpong Lodge has cancelled your booking/);
   assert.match(theirs.text, /\+66 81 234 5678/);
 });
+
+test('a changed booking emails the guest a replacement confirmation and the venue what moved', () => {
+  const mine = emails.bookingChangedEmail({
+    venue: 'Baanpong Lodge', reference: 'RS01JNRVYZ', guestName: 'Marta', roomName: 'Garden Room · Bed & breakfast',
+    arrival: '2026-10-21', departure: '2026-10-24', nights: 3, party: '2 adults', total: 'THB 6,600',
+    cancellation: 'Free cancellation until 2026-10-18.', link: 'https://reviewslip.com/stays/booking/RS01JNRVYZ?k=x',
+  });
+  assert.match(mine.subject, /Booking changed .*RS01JNRVYZ/);
+  assert.match(mine.text, /replaces your earlier confirmation/);
+  assert.match(mine.text, /2026-10-21 to 2026-10-24 \(3 nights\)/);
+
+  const theirs = emails.bookingChangeAlertEmail({
+    reference: 'RS01JNRVYZ', guestName: 'Marta', roomName: 'Garden Room',
+    oldArrival: '2026-10-20', oldDeparture: '2026-10-22', oldParty: '2 adults',
+    arrival: '2026-10-21', departure: '2026-10-24', party: '2 adults, 1 child', total: 'THB 6,600',
+  });
+  assert.match(theirs.text, /Was: 2026-10-20 to 2026-10-22/);
+  assert.match(theirs.text, /Now: 2026-10-21 to 2026-10-24, 2 adults, 1 child/);
+});
+
+test('a venue softphone key is a plain lowercase key, or none', () => {
+  assert.equal(market.validateProfile({ contact: { voiceSite: ' BaanpongLodge ' } }).profile.contact.voiceSite, 'baanponglodge');
+  assert.equal(market.validateProfile({ contact: { voiceSite: '' } }).profile.contact.voiceSite, '');
+  assert.equal(market.validateProfile({ contact: { voiceSite: 'bad key!' } }).ok, false);
+  assert.equal(market.validateProfile({ contact: { voiceSite: '"><script>' } }).ok, false);
+  assert.equal(market.parseProfile('{}').contact.voiceSite, '');
+});

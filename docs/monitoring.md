@@ -10,7 +10,7 @@ Built 2026-10-07.
 | `GET /api/health` (website) | Up, and able to reach the review app. 503 when it cannot. |
 | `scripts/monitor.js` | Every 5 minutes via `reviewslip-monitor.timer`. Reads the services, both health endpoints, the public site and a venue address through nginx and TLS, Postgres (connections, longest query, open transactions, size, cache hit), disk, memory, swap, load, certificate expiry and the last nightly backup. |
 | `monitorrules.js` | Pure, tested: thresholds, when to email, what the email says. |
-| Staff **Server** page | `admin.reviewslip.com/server` — the monitor's last readings plus what the review app sees right now. |
+| **Server** page | **Admin › Server** in the dashboard sidebar, for admin accounts only (`/dashboard/server`), and the same page at `admin.reviewslip.com/server`. The monitor's last readings plus what the review app sees right now. |
 
 ## Emails
 
