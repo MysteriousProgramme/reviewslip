@@ -62,3 +62,29 @@ sudo bash deploy/tune-server.sh
 - The configuration is parsed before Postgres restarts; if it is rejected, or Postgres does not
   come back, the previous file is restored. A few seconds of downtime on the restart.
 - Rerun it after resizing the instance.
+
+## The Server page, in detail (2026-10-12)
+
+Four tabs: **Overview** (status, four tiles with a day's trend, open problems, services, backups and
+certificates), **Database**, **System** and **Services**.
+
+- **Database → Who Is Connected** groups every client connection by the application that opened it
+  (the review app names its pool `reviewslip-app`, the monitor `reviewslip-monitor`; pg_dump and psql
+  name themselves), with how many are running a query, idle, or holding a transaction open. **Where
+  Each Connection Comes From** adds the database user, the address, the state and how long it has
+  been in it. Postgres's own background processes are listed apart and not counted. Read live
+  through the review app (`pgstats.js`), so it is right now, not five minutes ago. Also: database
+  sizes and the largest tables.
+- **System** shows memory and swap, the processes using the memory (grouped: Postgres, the website,
+  the review app), and where the disk goes (`du` of the app folders, logs and swap, plus the
+  databases).
+- **Services** shows each service's uptime, memory and restart count from systemd, response-time
+  trends for both apps, public pages, certificates and the backup.
+- Trends are the monitor's last 288 checks (a day at five-minute steps), kept in its state file.
+
+## Postgres connections
+
+The review app's pool keeps at most 5 connections and now closes an idle one after 10 seconds (it was
+30), so at rest it holds none — each held connection is a Postgres process using memory on a 1 GB box.
+The Server page reads its breakdown one query at a time, so drawing it opens a single connection. The
+connections warning names who holds most of them.

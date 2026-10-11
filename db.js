@@ -36,11 +36,17 @@ if (!CONNECTION) {
 
 // Small on purpose. One Node process, against a server tuned for twenty
 // backends — a pool bigger than the work queue only costs memory.
+//
+// Idle connections close after ten seconds rather than thirty: traffic comes
+// in bursts (a guest page, a dashboard load) and each held connection is a
+// Postgres process using memory on a one-gigabyte box. At rest the app holds
+// none. The name is what the Server page groups connections by.
 const pool = new Pool({
   connectionString: CONNECTION,
   max: 5,
-  idleTimeoutMillis: 30_000,
+  idleTimeoutMillis: 10_000,
   connectionTimeoutMillis: 5_000,
+  application_name: 'reviewslip-app',
 });
 
 // An idle client dropped by the server — a restart, a network blip — surfaces

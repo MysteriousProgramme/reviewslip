@@ -28,6 +28,7 @@ const APP_DIR = path.resolve(__dirname, '..');
 require(path.join(APP_DIR, 'node_modules', 'dotenv')).config({ path: path.join(APP_DIR, '.env') });
 
 const rules = require(path.join(APP_DIR, 'monitorrules'));
+const pgstats = require(path.join(APP_DIR, 'pgstats'));
 const mailer = require(path.join(APP_DIR, 'mailer'));
 
 const TO = String(process.env.MONITOR_EMAIL || 'info@reviewslip.com').trim();
@@ -134,9 +135,10 @@ async function postgres() {
   });
   try {
     await client.connect();
+    // In turn on the one connection: pg queues concurrent queries on a client
+    // and is deprecating it.
     const { rows } = await client.query(`
       SELECT current_setting('max_connections')::int AS max_connections,
-             (SELECT count(*) FROM pg_stat_activity)::int AS connections,
              (SELECT coalesce(max(extract(epoch FROM now() - query_start)), 0)
                 FROM pg_stat_activity
                WHERE state = 'active' AND pid <> pg_backend_pid()
@@ -147,11 +149,19 @@ async function postgres() {
              (SELECT round(100.0 * sum(blks_hit) / nullif(sum(blks_hit) + sum(blks_read), 0), 1)
                 FROM pg_stat_database) AS cache_hit
     `);
+    const breakdown = await pgstats.connections(client);
+    const databases = await pgstats.databases(client);
+    const tables = await pgstats.tables(client);
     const r = rows[0];
     return {
       ok: true,
       maxConnections: r.max_connections,
-      connections: r.connections,
+      // Client connections only, not counting this check's own: Postgres's
+      // background workers are listed apart in the breakdown.
+      connections: breakdown.total,
+      breakdown,
+      databases,
+      tables,
       longestQuerySeconds: Math.round(Number(r.longest_query)),
       idleInTransactionSeconds: Math.round(Number(r.idle_tx)),
       sizeMb: Math.round(Number(r.size) / 1024 ** 2),
@@ -202,6 +212,67 @@ function backup() {
   };
 }
 
+/** Each service's memory, restarts and how long it has been up, from systemd. */
+function serviceDetail(name) {
+  const r = run('systemctl', ['show', name, '--property=MemoryCurrent,NRestarts,ActiveEnterTimestampMonotonic,MainPID']);
+  const props = Object.fromEntries(r.out.trim().split('\n').map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
+  const mono = Number(props.ActiveEnterTimestampMonotonic) || 0;
+  const memory = Number(props.MemoryCurrent);
+  return {
+    memoryMb: Number.isFinite(memory) && memory > 0 && memory < 2 ** 60 ? Math.round(memory / 1024 ** 2) : null,
+    restarts: Number(props.NRestarts) || 0,
+    upHours: mono ? Math.round(((os.uptime() * 1e6 - mono) / 3.6e9) * 10) / 10 : null,
+  };
+}
+
+/**
+ * The processes using the most memory, grouped by what they are: Postgres is
+ * a dozen processes and the page should say "Postgres", not list each one.
+ */
+function processes() {
+  if (process.platform !== 'linux') return [];
+  const r = run('ps', ['-eo', 'rss=,pcpu=,comm=,args=']);
+  const groups = new Map();
+  for (const line of r.out.split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+([\d.]+)\s+(\S+)\s+(.*)$/);
+    if (!m) continue;
+    const [, rss, cpu, comm, args] = m;
+    const label = /reviewslip-site|next-server/.test(args) ? 'Website (Next.js)'
+      : /monitor\.js/.test(args) ? 'Server monitor'
+      : /reviewslip.*server\.js|server\.js/.test(args) && comm === 'node' ? 'Review app'
+      : comm.startsWith('postgres') ? 'Postgres'
+      : comm.startsWith('nginx') ? 'nginx'
+      : comm;
+    const g = groups.get(label) || { name: label, memoryMb: 0, cpuPct: 0, count: 0 };
+    g.memoryMb += Number(rss) / 1024;
+    g.cpuPct += Number(cpu);
+    g.count += 1;
+    groups.set(label, g);
+  }
+  return [...groups.values()]
+    .map((g) => ({ ...g, memoryMb: Math.round(g.memoryMb), cpuPct: Math.round(g.cpuPct * 10) / 10 }))
+    .sort((a, b) => b.memoryMb - a.memoryMb)
+    .slice(0, 8);
+}
+
+/**
+ * Where the disk goes, for the folders this server is about. du prints what it
+ * can read and skips the rest (Postgres's own folder is not ours to read; its
+ * size comes from the database breakdown instead).
+ */
+function diskBreakdown() {
+  if (process.platform !== 'linux') return [];
+  const paths = ['/opt/reviewslip', '/opt/reviewslip-site', '/var/log', '/swapfile', '/var/lib/postgresql'];
+  const r = run('du', ['-sm', ...paths]);
+  return r.out
+    .trim()
+    .split('\n')
+    .map((l) => l.match(/^(\d+)\s+(.+)$/))
+    .filter(Boolean)
+    .map(([, mb, p]) => ({ path: p, mb: Number(mb) }))
+    .sort((a, b) => b.mb - a.mb);
+}
+
 async function readings() {
   const [web, db, certs] = await Promise.all([
     http(),
@@ -212,7 +283,9 @@ async function readings() {
   return {
     at: new Date().toISOString(),
     host: os.hostname(),
-    services: services(),
+    services: services().map((s) => ({ ...s, ...serviceDetail(s.name) })),
+    processes: processes(),
+    disk: diskBreakdown(),
     http: web.map(({ body: _body, ...rest }) => rest),
     app,
     system: system(),
@@ -278,7 +351,24 @@ async function main() {
   const state = mailed && !mailed.sent ? { ...previous, open: previous.open ?? {} } : step.state;
   if (daily && (!email || mailed?.sent)) state.dailySentFor = daily;
 
-  writeState({ ...state, lastRun: new Date(now).toISOString(), readings: r, problems });
+  // A day of readings at five-minute steps, for the Server page's trend lines.
+  // Only the numbers a trend is drawn from: the full readings are kept once.
+  const http = (name) => r.http.find((h) => h.name === name);
+  const sample = {
+    t: now,
+    disk: r.system.diskUsedPct,
+    memory: r.system.memoryAvailablePct,
+    swap: r.system.swapUsedPct,
+    load: r.system.load1 === null ? null : Math.round(r.system.load1 * 100) / 100,
+    connections: r.postgres.ok ? r.postgres.connections : null,
+    dbMs: r.app?.database?.ms ?? null,
+    appMs: http('Review app')?.ok ? http('Review app').ms : null,
+    siteMs: http('Website')?.ok ? http('Website').ms : null,
+    failures: r.app?.failures5m ?? null,
+  };
+  const history = [...(previous.history ?? []), sample].slice(-288);
+
+  writeState({ ...state, lastRun: new Date(now).toISOString(), readings: r, problems, history });
 
   const line = problems.length ? problems.map((p) => `${p.severity}: ${p.summary}`).join('; ') : 'all good';
   const told = !email ? '' : mailed?.sent ? ` — emailed "${email.subject}"` : ' — email NOT sent, will retry next run';

@@ -22,6 +22,25 @@ const { throttled } = require('./throttle');
 
 const router = express.Router();
 
+/**
+ * Open to every website.
+ *
+ * Other sites build their own booking pages on this API (docs/
+ * booking-page-prompt.md), often with nothing but browser code, so it answers
+ * cross-origin requests from anywhere. Safe because nothing here uses a cookie
+ * or a session: a booking is made by what the request says, the same as from
+ * reviewslip.com, and opened again only with its key. The throttles still key
+ * on the caller's IP, which from a browser is the guest's own.
+ */
+router.use((req, res, next) => {
+  res.set('Access-Control-Allow-Origin', '*');
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  res.set('Access-Control-Max-Age', '86400');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  next();
+});
+
 // Where the guest's "see your booking" link points: the website, which owns
 // the pages. Not this app's host, which serves venues' own pages.
 const SITE = String(process.env.SITE_URL || 'https://reviewslip.com').replace(/\/$/, '');

@@ -6,7 +6,8 @@ const accounts = require('./accounts');
 const plans = require('./plans');
 const rewards = require('./rewards');
 const { publicUrl } = require('./tenant');
-const { one, all } = require('./db');
+const { pool, one, all } = require('./db');
+const pgstats = require('./pgstats');
 const tickets = require('./tickets');
 const mailer = require('./mailer');
 const emails = require('./emails');
@@ -134,11 +135,29 @@ router.get('/health', async (req, res, next) => {
         lastRun: state.lastRun ?? null,
         problems: Object.values(state.open ?? {}),
         readings: state.readings ?? null,
+        history: state.history ?? [],
       };
     } catch {
       // Not installed yet, or not run yet: the page says so.
     }
-    res.json({ now: Date.now(), live: await health.check(), monitor, limits: monitorrules.LIMITS });
+
+    // Who holds Postgres connections right now, through this app's own pool —
+    // the monitor's copy is up to five minutes old, and "what is using the
+    // connections" is usually asked while it is happening. Never fatal: the
+    // page still shows everything else when the database is the problem.
+    // In turn, on one connection at a time: a page about connection use
+    // should not open four to draw itself.
+    const live = await health.check();
+    const connections = await pgstats.connections(pool).catch(() => null);
+    const databases = await pgstats.databases(pool).catch(() => null);
+    const tables = await pgstats.tables(pool).catch(() => null);
+
+    res.json({
+      now: Date.now(),
+      live: { ...live, connections, databases, tables },
+      monitor,
+      limits: monitorrules.LIMITS,
+    });
   } catch (err) {
     next(err);
   }

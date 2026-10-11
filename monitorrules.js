@@ -122,7 +122,10 @@ function evaluate(r = {}, limits = LIMITS) {
     } else {
       const pct = db.maxConnections ? Math.round((db.connections / db.maxConnections) * 100) : 0;
       if (pct >= limits.connectionsWarnPct) {
-        out.push(problem('db:connections', 'warning', `${db.connections} of ${db.maxConnections} Postgres connections in use`));
+        // Who holds most of them, so the email says where to look.
+        const top = db.breakdown?.byApp?.[0];
+        const most = top ? ` — most by ${top.label} (${top.count})` : '';
+        out.push(problem('db:connections', 'warning', `${db.connections} of ${db.maxConnections} Postgres connections in use${most}`));
       }
       if (db.longestQuerySeconds >= limits.longQuerySeconds) {
         out.push(problem('db:long-query', 'warning', `A query has been running for ${Math.round(db.longestQuerySeconds / 60)} min`));

@@ -4667,3 +4667,10 @@ test('a venue softphone key is a plain lowercase key, or none', () => {
   assert.equal(market.validateProfile({ contact: { voiceSite: '"><script>' } }).ok, false);
   assert.equal(market.parseProfile('{}').contact.voiceSite, '');
 });
+
+test('a connections warning names who holds most of them', () => {
+  const r = { postgres: { ok: true, maxConnections: 20, connections: 17, longestQuerySeconds: 0, idleInTransactionSeconds: 0,
+    breakdown: { byApp: [{ app: 'reviewslip-app', label: 'Review app', count: 12 }, { app: 'psql', label: 'psql session', count: 5 }] } } };
+  const p = monitorrules.evaluate(r).find((x) => x.key === 'db:connections');
+  assert.equal(p.summary, '17 of 20 Postgres connections in use — most by Review app (12)');
+});

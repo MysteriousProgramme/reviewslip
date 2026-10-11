@@ -97,3 +97,15 @@ book is a dead end. Rooms and prices are not edited there: the Rooms and Rates s
 
 Selling rooms to guests is not the guest relations manager's job ([app-charter.md](app-charter.md));
 bookings belong to vcs-bookings. Built here by decision, recorded in the charter's Outside table.
+
+## On other websites
+
+Two ways, both in [booking-page-prompt.md](booking-page-prompt.md):
+
+- **Embed** — `public/embed.js` on the website puts the Stays pages in an iframe on any site
+  (`<div data-reviewslip-booking data-venue="…">` + the script). Embed mode is carried in the address
+  (`embed=1`, `venue` to lock to one venue, `accent`, `theme`) so every link, form and redirect stays in
+  the frame; `components/stays/EmbedFrame.tsx` hides the site's header and footer, applies the accent
+  and theme, and posts its height to the host. Each venue's code is on its Online Booking screen.
+- **API** — `/api/market` answers cross-origin requests from any website (CORS `*`, no credentials),
+  so a site can build its own pages in any stack, from the browser or a server.
