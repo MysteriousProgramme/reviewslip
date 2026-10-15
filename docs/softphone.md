@@ -18,6 +18,23 @@ per-minute cost: audio goes browser to browser over WebRTC, and the review app o
 A button shows only while its line can answer or take a message (**open** / **voicemail**). With
 nobody answering at all (**off**) it stays hidden and the phone link beside it is what the guest gets.
 
+## Two phones
+
+Every venue has its phone; Reviewslip has its own for Sales and Support. They are separate apps:
+
+| | Venue phone | Reviewslip's phone |
+|---|---|---|
+| Address | `/phone/` | `/phone/reviewslip/` |
+| Opened from | Dashboard → a venue → *Calls* → **Open the Phone** | Dashboard → Admin → *Sales & Support* → **Open the Phone** |
+| Rings for | the account's venues (or, for invited staff, the venues ticked for them) | Call Sales and Call Support |
+| Who | the venue's own login, staff it invites | admin accounts only |
+
+A login that is both a venue owner and an admin has one of each, and they never mix: separate duty,
+hours, push subscription and sign-in cookie (`rs_phone`, `rs_phone_rs`), so the front desk can be on
+duty while the office phone is off, in the same browser. Each installs as its own app. Under the hood an
+answerer row (`voice_agents`) is one person on one phone — `scope` is `venues` or `reviewslip`
+(migration 36).
+
 ## Who answers
 
 - **A venue's own login.** Dashboard → *Calls* → **Open the Phone**. The first time makes them an
@@ -26,17 +43,24 @@ nobody answering at all (**off**) it stays hidden and the phone link beside it i
   email to set a password (or the owner gets the link, without email set up) and sign in on the phone
   page only. They answer that venue, nothing else, and never see the dashboard. One phone login per
   email address.
-- **Reviewslip's team.** Every admin account answers Sales and Support. Admin → *Calls* shows both
-  lines and who takes which.
+- **Reviewslip's team.** Every admin account can answer Sales and Support on Reviewslip's phone.
+  Admin → *Sales & Support* shows both lines and who takes which.
 
-On the phone each person:
+On a phone each person:
 
 - presses **Go on duty**. Duty is kept by the server: a reload, a closed tab or a dropped network never
-  takes anyone off duty — only **Go off duty** or signing out;
-- ticks which lines they take under *Taking calls for* (when they have more than one);
-- turns on **Ring this phone when the page is closed** (Web Push), which on a phone is the ring;
-- may set **My hours**: a week of shifts in their time zone, overnight shifts allowed. No hours means
-  whenever on duty.
+  takes anyone off duty — only **Go off duty** (on the card, or in the menu) or signing out;
+- picks which lines they take under *Taking calls for* (when they have more than one);
+- turns on **Ringing when closed** in the menu (Web Push), which on a phone is the ring;
+- may set **My hours** in the menu: a week of shifts in their time zone, overnight shifts allowed.
+  Outside them the card reads *Off duty — outside your hours* and callers are offered a message; it comes
+  back on by itself when they start. No hours means whenever on duty.
+
+The page, after the Vibe Crafted portal's phone: the duty state as one big pill, **How this works**
+written into the page, and four tabs — **New messages**, **Messages** (both with *Group by* Time or Line,
+and one line at a time), **Recent calls**, and **Who's on**: everyone on your lines and whether a call
+would reach them now (available, on a call, outside hours, phone closed, off duty), refreshed every 30
+seconds while open.
 
 ## What happens on a call
 
@@ -61,14 +85,15 @@ On the phone each person:
 | `voicehub.js` | The WebSocket: ringing, first answer wins, signalling relay, push, timeouts |
 | `voicerouter.js` | `/api/voice`: button status and voicemail (open to any origin, no credentials); the phone page's API (the `rs_phone` cookie, same origin only) |
 | `public/voice-call.js` | The call button widget, 11 languages |
-| `public/phone/` | The phone page, its service worker (push) and manifest (installable) |
+| `public/phone/` | The phone page (both phones), its service worker (push) and manifest; `reviewslip/` holds the Sales and Support phone's own manifest and worker |
 | `customer.js` | Open the Phone (one-time handoff), Who Answers, Admin's Reviewslip lines |
-| Website | `components/VoiceCall.tsx`, `app/api/phone/route.ts`, `dashboard/[slug]/calls`, `dashboard/calls` |
-| `db.js` migration 35 | `voice_agents`, `voice_agent_venues`, `voice_lines_off`, `voice_hours`, `voice_push`, `voice_sessions`, `voice_calls`, `voice_voicemails` |
+| Website | `components/VoiceCall.tsx`, `app/api/phone/route.ts` (`?phone=reviewslip` for Reviewslip's), `dashboard/[slug]/calls`, `dashboard/calls` |
+| `db.js` migrations 35, 36 | `voice_agents`, `voice_agent_venues`, `voice_lines_off`, `voice_hours`, `voice_push`, `voice_sessions`, `voice_calls`, `voice_voicemails` |
 
-The phone page lives on the review app's host (`VOICE_URL`, by default `https://api.reviewslip.com/phone/`),
-so it shares an origin with its socket and its service worker. The dashboard reaches it through
-`/api/phone`, which trades the website session for a one-time token in the URL's fragment.
+The phone pages live on the review app's host (`VOICE_URL`, by default `https://api.reviewslip.com`),
+so they share an origin with their socket and service workers. The dashboard reaches them through
+`/api/phone`, which trades the website session for a one-time token in the URL's fragment, made for one
+phone and refused by the other.
 
 **One process.** Ringing state is in memory. The review app runs as one process; two would each
 ring only their own pages. A restart drops calls in progress (both pages say so) and phone pages
@@ -81,8 +106,9 @@ reconnect on their own.
 - Calls are accepted only from Reviewslip's own pages: `reviewslip.com`, its venue subdomains, and
   any origin in `VOICE_ORIGINS`. Booking pages embedded on other websites are served from
   reviewslip.com, so their calls are too.
-- The phone's socket and API take the `rs_phone` cookie (httpOnly, SameSite=Lax, 30 days) only from
-  the phone page's own origin.
+- Each phone's socket and API take that phone's cookie (`rs_phone` or `rs_phone_rs`; httpOnly,
+  SameSite=Lax, 30 days) only from the phone page's own origin. Invited staff's passwords open the venue
+  phone only.
 - Handoff and invite tokens travel in the fragment, are hashed at rest, and work once (handoff: two
   minutes; invite: 14 days).
 - Throttles: 6 calls a minute per address, 4 voicemails a minute, 8 sign-in attempts a minute.

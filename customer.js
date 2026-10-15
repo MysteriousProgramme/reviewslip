@@ -2821,17 +2821,20 @@ router.get(
 /* -------------------------------------------------------------- softphone */
 
 /**
- * Open the phone: a one-time link that signs this account in on the phone
- * page (voicerouter.js /handoff), so nobody types a password twice. The
- * account's agent is made here the first time.
+ * Open the phone: a one-time link that signs this account in on a phone page
+ * (voicerouter.js /handoff), so nobody types a password twice. `phone` picks
+ * which — the venue phone, or Reviewslip's Sales and Support phone (admins
+ * only). The account's agent on that phone is made here the first time.
  */
 router.post('/voice/handoff', requireAccount, async (req, res, next) => {
   try {
-    const agent = await voice.forAccount(req.account);
+    const phone = voice.scopeOf(req.body?.phone);
+    const agent = await voice.forAccount(req.account, phone);
     const token = await voice.startSession(agent.id, 'handoff');
-    // The first time, their venues' lines go from off to taking messages.
+    // The first time, their lines go from off to taking messages.
     voicehub.changed();
-    res.json({ url: `${voicehub.VOICE_URL}/phone/#handoff=${token}` });
+    const page = phone === 'reviewslip' ? '/phone/reviewslip/' : '/phone/';
+    res.json({ url: `${voicehub.VOICE_URL}${page}#handoff=${token}` });
   } catch (err) {
     next(err);
   }
@@ -2850,7 +2853,7 @@ router.get('/voice/reviewslip', requireAccount, async (req, res, next) => {
     res.json({
       sales,
       support,
-      phoneUrl: `${voicehub.VOICE_URL}/phone/`,
+      phoneUrl: `${voicehub.VOICE_URL}/phone/reviewslip/`,
       people: people.map((p) => ({
         id: p.id,
         name: p.name,
@@ -2870,7 +2873,7 @@ router.get('/voice/reviewslip', requireAccount, async (req, res, next) => {
 /** Who answers this venue's calls: the account itself and the staff it invited. */
 async function voiceTeam(req) {
   const [own, staff, status] = await Promise.all([
-    voice.byAccount(req.account.id),
+    voice.byAccount(req.account.id, 'venues'),
     voice.staffFor(req.account.id, req.venue.id),
     voicehub.status(req.venue.slug, 'sales'),
   ]);

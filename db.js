@@ -1354,6 +1354,24 @@ const MIGRATIONS = [
       )
     `);
   },
+
+  /*
+   * Two phones. A venue's phone answers venues; Reviewslip's phone answers
+   * Sales and Support. One login that is both an owner and an admin has a row
+   * for each, so duty, hours, push and presence are kept apart: the front desk
+   * can be on duty while the office phone is off. Existing rows were venue
+   * phones — an admin's Sales and Support move to their new Reviewslip row
+   * the first time they open it.
+   */
+  async (c) => {
+    await c.query(`ALTER TABLE voice_agents ADD COLUMN scope text NOT NULL DEFAULT 'venues'
+                     CHECK (scope IN ('venues', 'reviewslip'))`);
+    await c.query('ALTER TABLE voice_agents DROP CONSTRAINT voice_agents_account_id_key');
+    await c.query(
+      'CREATE UNIQUE INDEX voice_agents_account_scope ON voice_agents (account_id, scope) WHERE account_id IS NOT NULL'
+    );
+    await c.query(`DELETE FROM voice_lines_off WHERE line IN ('sales', 'support')`);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

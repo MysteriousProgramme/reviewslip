@@ -29,6 +29,12 @@ const { throttled } = require('./throttle');
  */
 
 const SOCKET_PATH = '/api/voice/ws';
+
+/**
+ * The cookie each phone signs in with. Two, so one browser can keep the venue
+ * phone and Reviewslip's phone open side by side on the same login.
+ */
+const COOKIES = { venues: 'rs_phone', reviewslip: 'rs_phone_rs' };
 const PING_MS = 25_000;
 const STATUS_CACHE_MS = 10_000;
 const MAX_CALLERS = 300;
@@ -275,7 +281,8 @@ async function startCall(ws, msg) {
         callId: call.id,
         title: call.title,
         caller: call.callerName,
-        url: `${VOICE_URL}/phone/?call=${call.id}`,
+        // The phone the line belongs to: a venue's, or Reviewslip's own.
+        url: `${VOICE_URL}${line.subscriberId ? '/phone/' : '/phone/reviewslip/'}?call=${call.id}`,
       },
       rules.RING_SECONDS + rules.PUSH_EXTRA_SECONDS
     );
@@ -487,7 +494,8 @@ function attach(server) {
           sameOrigin = false;
         }
         if (!sameOrigin) return refuse(socket, 403, 'Forbidden');
-        const agent = await voice.fromSession(cookieOf(req, 'rs_phone'));
+        const phone = voice.scopeOf(url.searchParams.get('phone'));
+        const agent = await voice.fromSession(cookieOf(req, COOKIES[phone]), phone);
         if (!agent) return refuse(socket, 401, 'Unauthorized');
         wss.handleUpgrade(req, socket, head, (ws) => {
           ws.isAlive = true;
@@ -539,6 +547,27 @@ function attach(server) {
   return wss;
 }
 
+/**
+ * Everyone on each of these lines and where they stand right now (see
+ * voicerules.personState), for the phone's Who's on. Names only.
+ */
+async function whosOn(lines, selfId) {
+  const busy = busyIds();
+  const now = Date.now();
+  const out = [];
+  for (const line of lines) {
+    const people = await voice.agentsOn(line);
+    out.push({
+      key: line.key,
+      name: line.name,
+      people: people
+        .map((a) => ({ name: a.name, you: a.id === selfId, state: rules.personState(liveState(a, busy), now) }))
+        .sort((x, y) => Number(y.you) - Number(x.you) || x.name.localeCompare(y.name)),
+    });
+  }
+  return out;
+}
+
 /** Who on a list is on the phone right now, for the dashboard. */
 function presence(agentIds) {
   const busy = busyIds();
@@ -556,6 +585,8 @@ module.exports = {
   status,
   changed,
   presence,
+  whosOn,
+  COOKIES,
   iceServers,
   resolveLine,
 };

@@ -163,6 +163,19 @@ function reachable(a, now = Date.now()) {
 }
 
 /**
+ * Where someone stands, for Who's on, in the order it matters: on a call,
+ * off duty, outside their hours, ringable, or on duty with no way to ring them.
+ *
+ * @returns {'call'|'off'|'hours'|'available'|'closed'}
+ */
+function personState(a, now = Date.now()) {
+  if (a.busy) return 'call';
+  if (!a.onDuty) return 'off';
+  if (!inHours(a.hours, a.timezone, new Date(now))) return 'hours';
+  return reachable(a, now) ? 'available' : 'closed';
+}
+
+/**
  * What a call button says.
  *
  *   open       someone would ring now — "Call Reservations"
@@ -291,6 +304,7 @@ module.exports = {
   localTime,
   inHours,
   reachable,
+  personState,
   lineStatus,
   originAllowed,
   checkVoicemail,

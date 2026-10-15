@@ -19,20 +19,26 @@ const { throttled } = require('./throttle');
  *     origin and uncredentialed: they say only whether a line can be called,
  *     and take a message for a call that just went unanswered.
  *
- *   The phone page, /phone/ on this host   everything else — the rs_phone
- *     cookie, and only from the page's own origin.
+ *   The phone pages on this host   everything else — the phone's cookie,
+ *     and only from the page's own origin. Two phones: /phone/ for venues
+ *     and /phone/reviewslip/ for Sales and Support. Each request says which
+ *     with ?phone=, and each phone has its own cookie (voicehub.COOKIES), so
+ *     one browser can keep both open on one login.
  *
  * Mounted before the tenant resolver: the phone answers for every venue.
  */
 
 const router = express.Router();
 
-const COOKIE = 'rs_phone';
 const COOKIE_DAYS = 30;
 const secureCookies = hub.VOICE_URL.startsWith('https:');
 
-function setCookie(res, token) {
-  res.cookie(COOKIE, token, {
+function phoneOf(req) {
+  return voice.scopeOf(req.query.phone);
+}
+
+function setCookie(req, res, token) {
+  res.cookie(hub.COOKIES[phoneOf(req)], token, {
     httpOnly: true,
     secure: secureCookies,
     sameSite: 'lax',
@@ -42,9 +48,10 @@ function setCookie(res, token) {
 }
 
 function cookieOf(req) {
+  const name = hub.COOKIES[phoneOf(req)];
   for (const part of String(req.headers.cookie || '').split(';')) {
     const [k, ...v] = part.trim().split('=');
-    if (k === COOKIE) return decodeURIComponent(v.join('='));
+    if (k === name) return decodeURIComponent(v.join('='));
   }
   return '';
 }
@@ -110,6 +117,16 @@ async function tellVoicemail(saved, vm) {
 
 /* ------------------------------------------------------- the phone page */
 
+// The website, for the phone's "Open the dashboard" link.
+const SITE = String(
+  process.env.SITE_URL || (hub.VOICE_URL.startsWith('http://localhost') ? 'http://localhost:3001' : 'https://reviewslip.com')
+).replace(/\/$/, '');
+
+router.get('/config', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ siteUrl: SITE });
+});
+
 /**
  * The phone page's own origin only. The cookie is SameSite=Lax, which already
  * keeps other sites' POSTs from carrying it; this holds for a browser that
@@ -132,7 +149,7 @@ router.use(sameOrigin);
 
 async function requireAgent(req, res, next) {
   try {
-    const agent = await voice.fromSession(cookieOf(req));
+    const agent = await voice.fromSession(cookieOf(req), phoneOf(req));
     if (!agent) return res.status(401).json({ error: 'Sign in first.' });
     req.agent = agent;
     next();
@@ -145,8 +162,11 @@ router.post('/login', async (req, res) => {
   if (throttled(`voice-login:${req.ip}`, { max: 8 })) {
     return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
   }
+  if (phoneOf(req) !== 'venues') {
+    return res.status(400).json({ error: 'Open this phone from the dashboard: Admin, Sales & Support.' });
+  }
   try {
-    setCookie(res, await voice.login(req.body?.email, req.body?.password));
+    setCookie(req, res, await voice.login(req.body?.email, req.body?.password));
     res.json({ ok: true });
   } catch (err) {
     sendError(res, err);
@@ -159,7 +179,7 @@ router.post('/handoff', async (req, res) => {
     return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
   }
   try {
-    setCookie(res, await voice.exchangeHandoff(String(req.body?.token || '')));
+    setCookie(req, res, await voice.exchangeHandoff(String(req.body?.token || ''), phoneOf(req)));
     res.json({ ok: true });
   } catch (err) {
     sendError(res, err);
@@ -179,7 +199,7 @@ router.post('/invite', async (req, res) => {
     return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
   }
   try {
-    setCookie(res, await voice.acceptInvite(String(req.body?.token || ''), req.body?.password));
+    setCookie(req, res, await voice.acceptInvite(String(req.body?.token || ''), req.body?.password));
     hub.changed();
     res.json({ ok: true });
   } catch (err) {
@@ -189,7 +209,7 @@ router.post('/invite', async (req, res) => {
 
 router.post('/logout', async (req, res) => {
   await voice.endSession(cookieOf(req)).catch(() => {});
-  res.clearCookie(COOKIE, { path: '/' });
+  res.clearCookie(hub.COOKIES[phoneOf(req)], { path: '/' });
   res.json({ ok: true });
 });
 
@@ -198,10 +218,14 @@ router.get('/me', requireAgent, async (req, res) => {
     const [lines, hours] = await Promise.all([voice.linesFor(req.agent.id), voice.hoursFor(req.agent.id)]);
     res.set('Cache-Control', 'no-store');
     res.json({
+      phone: req.agent.scope,
       agent: { id: req.agent.id, name: req.agent.name, email: req.agent.email, onDuty: req.agent.onDuty },
       lines,
       timezone: req.agent.timezone,
       hours: rules.hoursOut(hours),
+      // On duty but outside these hours reads as off duty on the page, and
+      // comes back on by itself when they start.
+      inHours: rules.inHours(hours, req.agent.timezone),
       pushKey: hub.PUSH_PUBLIC_KEY,
     });
   } catch (err) {
@@ -292,6 +316,17 @@ router.post('/voicemails/:id/heard', requireAgent, async (req, res) => {
     const lines = await voice.linesFor(req.agent.id);
     await voice.markHeard(req.params.id, lines, req.agent, req.body?.heard !== false);
     res.json({ voicemails: await voice.voicemailsFor(lines) });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+/** Everyone on the lines this person answers, and whether a call would reach them now. */
+router.get('/colleagues', requireAgent, async (req, res) => {
+  try {
+    const lines = await voice.linesFor(req.agent.id);
+    res.set('Cache-Control', 'no-store');
+    res.json({ lines: await hub.whosOn(lines, req.agent.id) });
   } catch (err) {
     sendError(res, err);
   }

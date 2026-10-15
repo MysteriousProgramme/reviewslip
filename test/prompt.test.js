@@ -4776,3 +4776,15 @@ test('a voicemail email says who and how to reach them, never the recording', ()
   const invite = emails.voiceInviteEmail({ name: 'Noi', venue: 'Baan Pong Lodge', by: 'owner@example.com', url: 'https://x/phone/#invite=abc' });
   assert.match(invite.text, /owner@example.com added you to answer calls for Baan Pong Lodge/);
 });
+
+test('who is on: on a call, off duty, outside hours, ringable, or on duty with no way to ring', () => {
+  const now = Date.parse('2026-10-12T03:00:00Z'); // Monday 10:00 in Bangkok
+  const base = { onDuty: true, connected: true, hasPush: false, busy: false, hours: [], timezone: 'Asia/Bangkok' };
+  const evenings = voicerules.checkHours([{ day: 1, from: '18:00', to: '23:00' }]).rows;
+  assert.equal(voicerules.personState({ ...base, busy: true }, now), 'call');
+  assert.equal(voicerules.personState({ ...base, onDuty: false }, now), 'off');
+  assert.equal(voicerules.personState({ ...base, hours: evenings }, now), 'hours');
+  assert.equal(voicerules.personState(base, now), 'available');
+  assert.equal(voicerules.personState({ ...base, connected: false }, now), 'closed');
+  assert.equal(voicerules.personState({ ...base, connected: false, hasPush: true }, now), 'available');
+});

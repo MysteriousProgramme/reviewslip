@@ -1,0 +1,12 @@
+{
+  "id": "/phone/reviewslip/",
+  "name": "Reviewslip Sales & Support",
+  "short_name": "RS Sales",
+  "description": "Answer calls to Reviewslip Sales and Support.",
+  "start_url": "/phone/reviewslip/",
+  "scope": "/phone/reviewslip/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
+  "icons": [{ "src": "/phone/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

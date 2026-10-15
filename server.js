@@ -227,6 +227,14 @@ app.get('/welcome.webmanifest', resolveTenant, (req, res) => {
   });
 });
 
+// Reviewslip's own Sales and Support phone is the phone page at its own
+// address, so it installs and takes pushes apart from a venue's. Its manifest
+// and service worker are files beside it; the page is the shared one.
+app.get(['/phone/reviewslip', '/phone/reviewslip/'], (req, res) => {
+  if (!req.path.endsWith('/')) return res.redirect(301, '/phone/reviewslip/');
+  res.sendFile(path.join(__dirname, 'public', 'phone', 'index.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public'), { etag: true }));
 
 // Admin first, and outside tenant resolution: creating the first subscriber

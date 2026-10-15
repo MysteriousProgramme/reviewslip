@@ -11,8 +11,21 @@ const rules = require('./voicerules');
  * page, hours, push subscriptions, and the calls and voicemails themselves.
  *
  * Rules live in voicerules.js and ringing in voicehub.js; this only reads and
- * writes. See db.js migration 35 for why the tables are shaped as they are.
+ * writes. See db.js migrations 35 and 36 for why the tables are shaped as
+ * they are.
+ *
+ * There are two phones, and an agent row is one person on one of them:
+ *
+ *   venues      a venue's phone: the owner's login (every venue on the
+ *               account) and the staff they invite (the venues ticked for them)
+ *   reviewslip  Reviewslip's phone: admins, answering Sales and Support
  */
+
+const SCOPES = ['venues', 'reviewslip'];
+
+function scopeOf(value) {
+  return value === 'reviewslip' ? 'reviewslip' : 'venues';
+}
 
 const SESSION_DAYS = 30;
 const HANDOFF_SECONDS = 120;
@@ -38,6 +51,7 @@ function agentOut(row) {
     email: row.email,
     onDuty: row.on_duty,
     timezone: row.timezone,
+    scope: row.scope,
     accountId: row.account_id,
     ownerAccountId: row.owner_account_id,
     invited: !row.account_id && !row.password_hash,
@@ -49,24 +63,30 @@ async function byId(id) {
   return row ? agentOut(row) : null;
 }
 
-/** An account's own agent, if they have opened the phone. */
-async function byAccount(accountId) {
-  const row = await one('SELECT * FROM voice_agents WHERE account_id = $1', [accountId]);
+/** An account's own agent on one phone, if they have opened it. */
+async function byAccount(accountId, scope = 'venues') {
+  const row = await one('SELECT * FROM voice_agents WHERE account_id = $1 AND scope = $2', [
+    accountId,
+    scopeOf(scope),
+  ]);
   return row ? agentOut(row) : null;
 }
 
 /**
- * The agent for a signed-in account: a venue's own login, or an admin. Made
- * the first time they open the phone, named as their account is.
+ * The agent for a signed-in account on one phone: a venue's own login on the
+ * venue phone, an admin on Reviewslip's. Made the first time they open it,
+ * named as their account is. Reviewslip's phone is for admins only.
  */
-async function forAccount(account) {
-  const found = await one('SELECT * FROM voice_agents WHERE account_id = $1', [account.id]);
+async function forAccount(account, scope = 'venues') {
+  const phone = scopeOf(scope);
+  if (phone === 'reviewslip' && !account.is_admin) throw fail(404, 'Not found.');
+  const found = await one('SELECT * FROM voice_agents WHERE account_id = $1 AND scope = $2', [account.id, phone]);
   if (found) return agentOut(found);
   const row = await one(
-    `INSERT INTO voice_agents (account_id, email, name) VALUES ($1, $2, $3)
-     ON CONFLICT (account_id) DO UPDATE SET email = EXCLUDED.email
+    `INSERT INTO voice_agents (account_id, scope, email, name) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (account_id, scope) WHERE account_id IS NOT NULL DO UPDATE SET email = EXCLUDED.email
      RETURNING *`,
-    [account.id, account.email, account.username || account.email.split('@')[0]]
+    [account.id, phone, account.email, account.username || account.email.split('@')[0]]
   );
   return agentOut(row);
 }
@@ -75,19 +95,34 @@ async function forAccount(account) {
  * Every line an agent may answer, and whether they are taking it right now.
  *
  * Worked out each time rather than stored: an account that adds a venue
- * answers it from then on, and an admin answers Sales and Support.
+ * answers it from then on. On Reviewslip's phone an admin answers Sales and
+ * Support, and nothing else; on a venue phone, venues and nothing else.
  *
  * @returns {Promise<{key: string, subscriberId: number|null, team: string|null,
  *   name: string, slug: string|null, taking: boolean}[]>}
  */
 async function linesFor(agentId) {
   const agent = await one(
-    `SELECT a.id, a.account_id, coalesce(acc.is_admin, false) AS is_admin
+    `SELECT a.id, a.account_id, a.scope, coalesce(acc.is_admin, false) AS is_admin
        FROM voice_agents a LEFT JOIN accounts acc ON acc.id = a.account_id
       WHERE a.id = $1`,
     [agentId]
   );
   if (!agent) return [];
+  const off = new Set(
+    (await all('SELECT line FROM voice_lines_off WHERE agent_id = $1', [agentId])).map((r) => r.line)
+  );
+  const mark = (l) => {
+    const key = rules.lineKey(l);
+    return { key, ...l, taking: !off.has(key) };
+  };
+  if (agent.scope === 'reviewslip') {
+    if (!agent.is_admin) return [];
+    return [
+      { subscriberId: null, team: 'sales', name: 'Reviewslip Sales', slug: null },
+      { subscriberId: null, team: 'support', name: 'Reviewslip Support', slug: null },
+    ].map(mark);
+  }
   const venues = agent.account_id
     ? await all(
         `SELECT id, slug, name FROM subscribers WHERE account_id = $1 AND status = 'active' ORDER BY name`,
@@ -98,20 +133,7 @@ async function linesFor(agentId) {
           WHERE v.agent_id = $1 AND s.status = 'active' ORDER BY s.name`,
         [agentId]
       );
-  const off = new Set(
-    (await all('SELECT line FROM voice_lines_off WHERE agent_id = $1', [agentId])).map((r) => r.line)
-  );
-  const lines = venues.map((v) => ({ subscriberId: v.id, team: null, name: v.name, slug: v.slug }));
-  if (agent.is_admin) {
-    lines.push(
-      { subscriberId: null, team: 'sales', name: 'Reviewslip Sales', slug: null },
-      { subscriberId: null, team: 'support', name: 'Reviewslip Support', slug: null }
-    );
-  }
-  return lines.map((l) => {
-    const key = rules.lineKey(l);
-    return { key, ...l, taking: !off.has(key) };
-  });
+  return venues.map((v) => mark({ subscriberId: v.id, team: null, name: v.name, slug: v.slug }));
 }
 
 /** Which of their lines an agent is not taking. Unknown keys are dropped. */
@@ -162,13 +184,16 @@ async function agentsOn(line) {
     ? await all(
         `SELECT a.* FROM voice_agents a
            JOIN subscribers s ON s.id = $1 AND s.account_id = a.account_id
+          WHERE a.scope = 'venues'
          UNION
          SELECT a.* FROM voice_agents a
-           JOIN voice_agent_venues v ON v.agent_id = a.id AND v.subscriber_id = $1`,
+           JOIN voice_agent_venues v ON v.agent_id = a.id AND v.subscriber_id = $1
+          WHERE a.scope = 'venues'`,
         [line.subscriberId]
       )
     : await all(
-        `SELECT a.* FROM voice_agents a JOIN accounts acc ON acc.id = a.account_id AND acc.is_admin`
+        `SELECT a.* FROM voice_agents a JOIN accounts acc ON acc.id = a.account_id AND acc.is_admin
+          WHERE a.scope = 'reviewslip'`
       );
   if (!rows.length) return [];
   const ids = rows.map((r) => r.id);
@@ -202,12 +227,13 @@ async function agentsOn(line) {
 }
 
 /**
- * Reviewslip's own team: every admin who has opened the phone, and which of
- * Sales and Support each is taking.
+ * Reviewslip's own team: every admin who has opened Reviewslip's phone, and
+ * which of Sales and Support each is taking.
  */
 async function adminTeam() {
   const rows = await all(
     `SELECT a.* FROM voice_agents a JOIN accounts acc ON acc.id = a.account_id AND acc.is_admin
+      WHERE a.scope = 'reviewslip'
       ORDER BY lower(a.name)`
   );
   const off = await all(
@@ -234,13 +260,13 @@ async function startSession(agentId, kind = 'session') {
   return token;
 }
 
-/** The agent behind a phone session cookie, or null. */
-async function fromSession(token) {
+/** The agent behind a phone session cookie, on that phone, or null. */
+async function fromSession(token, scope = 'venues') {
   if (!token) return null;
   const row = await one(
     `SELECT a.* FROM voice_sessions s JOIN voice_agents a ON a.id = s.agent_id
-      WHERE s.token_hash = $1 AND s.kind = 'session' AND s.expires_at > now()`,
-    [hashToken(token)]
+      WHERE s.token_hash = $1 AND s.kind = 'session' AND s.expires_at > now() AND a.scope = $2`,
+    [hashToken(token), scopeOf(scope)]
   );
   return row ? agentOut(row) : null;
 }
@@ -249,12 +275,14 @@ async function endSession(token) {
   if (token) await query('DELETE FROM voice_sessions WHERE token_hash = $1', [hashToken(token)]);
 }
 
-/** A dashboard handoff, used once, for a phone session. */
-async function exchangeHandoff(token) {
+/** A dashboard handoff, used once, for a session on the phone it was made for. */
+async function exchangeHandoff(token, scope = 'venues') {
   const row = await one(
-    `DELETE FROM voice_sessions WHERE token_hash = $1 AND kind = 'handoff' AND expires_at > now()
-     RETURNING agent_id`,
-    [hashToken(token)]
+    `DELETE FROM voice_sessions s USING voice_agents a
+      WHERE s.token_hash = $1 AND s.kind = 'handoff' AND s.expires_at > now()
+        AND a.id = s.agent_id AND a.scope = $2
+     RETURNING s.agent_id`,
+    [hashToken(token), scopeOf(scope)]
   );
   if (!row) throw fail(401, 'That link has expired. Open the phone again from the dashboard.');
   return startSession(row.agent_id);
@@ -263,7 +291,7 @@ async function exchangeHandoff(token) {
 /** Invited staff sign in with the password they set. */
 async function login(email, password) {
   const row = await one(
-    'SELECT * FROM voice_agents WHERE account_id IS NULL AND lower(email) = lower($1)',
+    `SELECT * FROM voice_agents WHERE account_id IS NULL AND scope = 'venues' AND lower(email) = lower($1)`,
     [String(email || '').trim()]
   );
   const ok = row && row.password_hash && (await accounts.verifyPassword(password, row.password_hash));
@@ -533,12 +561,14 @@ async function voicemailsFor(lines, limit = 100) {
     id: r.id,
     line: rules.callTitle({ venueName: r.venue_name, team: r.team }),
     team: r.team,
+    venue: Boolean(r.subscriber_id),
     caller: r.caller_name || '',
     contact: r.caller_contact || '',
     page: r.page || '',
     seconds: r.seconds,
     at: r.created_at,
     heard: Boolean(r.heard_at),
+    heardAt: r.heard_at,
     heardBy: r.heard_name || '',
   }));
 }
@@ -596,6 +626,8 @@ async function prune() {
 }
 
 module.exports = {
+  SCOPES,
+  scopeOf,
   byId,
   byAccount,
   forAccount,
