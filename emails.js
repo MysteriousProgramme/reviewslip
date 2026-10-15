@@ -425,7 +425,56 @@ function ticketAlertEmail({ opened, from, venue, title, body, url }) {
   return { subject, text, html: '' };
 }
 
+/**
+ * Someone left a voicemail, to everyone who answers that line.
+ *
+ * Says who and how to reach them, not the recording: that stays behind the
+ * phone page's sign-in, where playing it marks it heard for everyone else.
+ */
+function voicemailEmail({ line, caller, contact, seconds, url }) {
+  const who = clean(caller, 80) || 'A caller';
+  const subject = `Voicemail for ${clean(line, 80)} from ${who}`;
+  const length = seconds >= 60 ? `${Math.floor(seconds / 60)} min ${seconds % 60} s` : `${seconds} s`;
+  const lines = [
+    `${who} left a ${length} message for ${clean(line, 80)}.`,
+    contact ? `They can be reached at: ${clean(contact, 120)}` : 'They left no number or email.',
+  ];
+
+  const text = [...lines, '', `Listen on the phone: ${url}`, '', '— Reviewslip'].join('\n');
+  const html = [
+    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">',
+    ...lines.map((l) => `<p>${escapeHtml(l)}</p>`),
+    `<p><a href="${escapeHtml(url)}" style="color:#2f5f4c">Listen on the phone</a></p>`,
+    '<p style="font-size:0.9em;color:#5a6b63">— Reviewslip</p>',
+    '</div>',
+  ].join('');
+  return { subject, text, html };
+}
+
+/** A customer added someone to answer their venue's calls. */
+function voiceInviteEmail({ name, venue, by, url }) {
+  const who = clean(name, 60);
+  const place = clean(venue, 120);
+  const subject = `Answer calls for ${place}`;
+  const body = [
+    `${clean(by, 120) || place} added you to answer calls for ${place} on Reviewslip.`,
+    'Guests press Call on the venue’s pages and your phone or computer rings. Set a password to start; the link works for 14 days.',
+  ];
+  const text = [who ? `Hello ${who},` : 'Hello,', '', ...body, '', url, '', '— Reviewslip'].join('\n');
+  const html = [
+    '<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.6;color:#1b2a23;max-width:34rem">',
+    `<p>${who ? `Hello ${escapeHtml(who)},` : 'Hello,'}</p>`,
+    ...body.map((l) => `<p>${escapeHtml(l)}</p>`),
+    `<p><a href="${escapeHtml(url)}" style="color:#2f5f4c">Set your password</a></p>`,
+    '<p style="font-size:0.9em;color:#5a6b63">— Reviewslip</p>',
+    '</div>',
+  ].join('');
+  return { subject, text, html };
+}
+
 module.exports = {
+  voicemailEmail,
+  voiceInviteEmail,
   bookingEmail,
   bookingAlertEmail,
   bookingCancelledEmail,

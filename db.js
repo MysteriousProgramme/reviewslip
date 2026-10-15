@@ -1224,6 +1224,136 @@ const MIGRATIONS = [
     await c.query('ALTER TABLE bookings ADD COLUMN cancelled_at timestamptz');
     await c.query('ALTER TABLE bookings ADD COLUMN cancelled_by text');
   },
+
+  /*
+   * The softphone: guests and customers ring a venue's desk, or Reviewslip's
+   * Sales and Support, from a browser.
+   *
+   * An agent is someone who answers. A venue's own login and every admin is
+   * one through their account (account_id); staff a customer invites to
+   * answer for some of their venues have a phone-only login of their own
+   * (owner_account_id, password_hash). Exactly one of the two is set.
+   *
+   * Which lines an account's agent answers is worked out, not stored: every
+   * venue of the account, plus Sales and Support for an admin. Invited staff
+   * answer the venues in voice_agent_venues. voice_lines_off is "not taking
+   * this one right now", kept apart so the owner re-saving venues never
+   * undoes it.
+   *
+   * Hours are one week per person. No rows means any time they are on duty;
+   * a shift ending before it starts runs past midnight.
+   *
+   * Voicemail audio is kept in the row: two minutes at most, a few hundred
+   * KB, and backed up with everything else every night.
+   */
+  async (c) => {
+    await c.query(`
+      CREATE TABLE voice_agents (
+        id               integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        account_id       integer UNIQUE REFERENCES accounts (id) ON DELETE CASCADE,
+        owner_account_id integer REFERENCES accounts (id) ON DELETE CASCADE,
+        email            text NOT NULL,
+        name             text NOT NULL,
+        password_hash    text,
+        invite_hash      text,
+        invite_expires   timestamptz,
+        on_duty          boolean NOT NULL DEFAULT false,
+        timezone         text NOT NULL DEFAULT 'Asia/Bangkok',
+        created_at       timestamptz NOT NULL DEFAULT now(),
+        CHECK ((account_id IS NULL) <> (owner_account_id IS NULL))
+      )
+    `);
+    // One phone login per address. An account's own row is keyed by the account.
+    await c.query(
+      'CREATE UNIQUE INDEX voice_agents_staff_email ON voice_agents (lower(email)) WHERE account_id IS NULL'
+    );
+    await c.query('CREATE INDEX voice_agents_owner ON voice_agents (owner_account_id)');
+    await c.query('CREATE UNIQUE INDEX voice_agents_invite ON voice_agents (invite_hash) WHERE invite_hash IS NOT NULL');
+
+    await c.query(`
+      CREATE TABLE voice_agent_venues (
+        agent_id      integer NOT NULL REFERENCES voice_agents (id) ON DELETE CASCADE,
+        subscriber_id integer NOT NULL REFERENCES subscribers (id) ON DELETE CASCADE,
+        PRIMARY KEY (agent_id, subscriber_id)
+      )
+    `);
+    await c.query('CREATE INDEX voice_agent_venues_venue ON voice_agent_venues (subscriber_id)');
+
+    await c.query(`
+      CREATE TABLE voice_lines_off (
+        agent_id integer NOT NULL REFERENCES voice_agents (id) ON DELETE CASCADE,
+        line     text NOT NULL,
+        PRIMARY KEY (agent_id, line)
+      )
+    `);
+
+    await c.query(`
+      CREATE TABLE voice_hours (
+        agent_id  integer NOT NULL REFERENCES voice_agents (id) ON DELETE CASCADE,
+        weekday   smallint NOT NULL CHECK (weekday BETWEEN 1 AND 7),
+        start_min smallint NOT NULL CHECK (start_min BETWEEN 0 AND 1439),
+        end_min   smallint NOT NULL CHECK (end_min BETWEEN 1 AND 1440)
+      )
+    `);
+    await c.query('CREATE INDEX voice_hours_agent ON voice_hours (agent_id)');
+
+    await c.query(`
+      CREATE TABLE voice_push (
+        endpoint   text PRIMARY KEY,
+        agent_id   integer NOT NULL REFERENCES voice_agents (id) ON DELETE CASCADE,
+        p256dh     text NOT NULL,
+        auth       text NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+    await c.query('CREATE INDEX voice_push_agent ON voice_push (agent_id)');
+
+    // A phone session, or a one-time handoff from the dashboard to the phone.
+    await c.query(`
+      CREATE TABLE voice_sessions (
+        token_hash text PRIMARY KEY,
+        agent_id   integer NOT NULL REFERENCES voice_agents (id) ON DELETE CASCADE,
+        kind       text NOT NULL,
+        expires_at timestamptz NOT NULL
+      )
+    `);
+    await c.query('CREATE INDEX voice_sessions_agent ON voice_sessions (agent_id)');
+
+    // subscriber_id null is Reviewslip's own line, where team picks Sales or
+    // Support. On a venue's line team is only which desk the page asked for.
+    await c.query(`
+      CREATE TABLE voice_calls (
+        id            text PRIMARY KEY,
+        subscriber_id integer REFERENCES subscribers (id) ON DELETE CASCADE,
+        team          text NOT NULL,
+        caller_name   text,
+        page          text,
+        started_at    timestamptz NOT NULL DEFAULT now(),
+        answered_at   timestamptz,
+        answered_by   integer REFERENCES voice_agents (id) ON DELETE SET NULL,
+        answered_name text,
+        ended_at      timestamptz,
+        outcome       text
+      )
+    `);
+    await c.query('CREATE INDEX voice_calls_line ON voice_calls (subscriber_id, team, started_at DESC)');
+
+    await c.query(`
+      CREATE TABLE voice_voicemails (
+        id             integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        call_id        text NOT NULL UNIQUE REFERENCES voice_calls (id) ON DELETE CASCADE,
+        audio          bytea NOT NULL,
+        mime           text NOT NULL,
+        seconds        integer NOT NULL,
+        caller_name    text,
+        caller_contact text,
+        created_at     timestamptz NOT NULL DEFAULT now(),
+        heard_at       timestamptz,
+        heard_by       integer REFERENCES voice_agents (id) ON DELETE SET NULL,
+        heard_name     text
+      )
+    `);
+  },
 ];
 
 // Any constant will do; it only has to be the same in every process.

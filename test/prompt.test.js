@@ -46,6 +46,7 @@ const shift = require('../shift');
 const welcome = require('../welcome');
 const market = require('../market');
 const monitorrules = require('../monitorrules');
+const voicerules = require('../voicerules');
 const csvFile = require('../csv');
 const roomstatus = require('../roomstatus');
 const checklist = require('../checklist');
@@ -4660,17 +4661,118 @@ test('a changed booking emails the guest a replacement confirmation and the venu
   assert.match(theirs.text, /Now: 2026-10-21 to 2026-10-24, 2 adults, 1 child/);
 });
 
-test('a venue softphone key is a plain lowercase key, or none', () => {
-  assert.equal(market.validateProfile({ contact: { voiceSite: ' BaanpongLodge ' } }).profile.contact.voiceSite, 'baanponglodge');
-  assert.equal(market.validateProfile({ contact: { voiceSite: '' } }).profile.contact.voiceSite, '');
-  assert.equal(market.validateProfile({ contact: { voiceSite: 'bad key!' } }).ok, false);
-  assert.equal(market.validateProfile({ contact: { voiceSite: '"><script>' } }).ok, false);
-  assert.equal(market.parseProfile('{}').contact.voiceSite, '');
-});
-
 test('a connections warning names who holds most of them', () => {
   const r = { postgres: { ok: true, maxConnections: 20, connections: 17, longestQuerySeconds: 0, idleInTransactionSeconds: 0,
     breakdown: { byApp: [{ app: 'reviewslip-app', label: 'Review app', count: 12 }, { app: 'psql', label: 'psql session', count: 5 }] } } };
   const p = monitorrules.evaluate(r).find((x) => x.key === 'db:connections');
   assert.equal(p.summary, '17 of 20 Postgres connections in use — most by Review app (12)');
+});
+
+/* --------------------------------------------------------------- softphone */
+
+test('a line is a venue by id, or Reviewslip by team', () => {
+  assert.equal(voicerules.lineKey({ subscriberId: 7, team: 'support' }), 'v7');
+  assert.equal(voicerules.lineKey({ subscriberId: null, team: 'support' }), 'support');
+  assert.equal(voicerules.lineKey({ subscriberId: null, team: 'nonsense' }), 'sales');
+});
+
+test('hours: a week of shifts, midnight as an end, overnight shifts', () => {
+  const ok = voicerules.checkHours([
+    { day: 1, from: '09:00', to: '17:00' },
+    { day: 5, from: '22:00', to: '06:00' },
+    { day: 6, from: '18:00', to: '00:00' },
+  ]);
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.rows[2], { weekday: 6, startMin: 1080, endMin: 1440 });
+  assert.deepEqual(voicerules.hoursOut(ok.rows)[2], { day: 6, from: '18:00', to: '00:00' });
+
+  assert.equal(voicerules.checkHours([{ day: 8, from: '09:00', to: '10:00' }]).ok, false);
+  assert.equal(voicerules.checkHours([{ day: 1, from: '9am', to: '10:00' }]).ok, false);
+  assert.equal(voicerules.checkHours([{ day: 1, from: '10:00', to: '10:00' }]).ok, false);
+  assert.equal(voicerules.checkHours('every day').ok, false);
+});
+
+test('in hours: no hours is any time, and a night shift runs into the next morning', () => {
+  const rows = voicerules.checkHours([
+    { day: 1, from: '09:00', to: '17:00' },
+    { day: 5, from: '22:00', to: '06:00' },
+  ]).rows;
+  // 2026-10-12 is a Monday. Bangkok is UTC+7.
+  const at = (iso) => new Date(iso);
+  assert.equal(voicerules.inHours([], 'Asia/Bangkok', at('2026-10-12T20:00:00Z')), true);
+  assert.equal(voicerules.inHours(rows, 'Asia/Bangkok', at('2026-10-12T03:00:00Z')), true); // Mon 10:00
+  assert.equal(voicerules.inHours(rows, 'Asia/Bangkok', at('2026-10-12T11:00:00Z')), false); // Mon 18:00
+  assert.equal(voicerules.inHours(rows, 'Asia/Bangkok', at('2026-10-16T16:00:00Z')), true); // Fri 23:00
+  assert.equal(voicerules.inHours(rows, 'Asia/Bangkok', at('2026-10-16T21:30:00Z')), true); // Sat 04:30
+  assert.equal(voicerules.inHours(rows, 'Asia/Bangkok', at('2026-10-17T00:00:00Z')), false); // Sat 07:00
+  // The same instant is Monday 10:00 in Bangkok but Monday 04:00 in London.
+  assert.equal(voicerules.inHours(rows, 'Europe/London', at('2026-10-12T03:00:00Z')), false);
+});
+
+test('a line is open while someone would ring, voicemail when nobody is free, off with nobody at all', () => {
+  const now = Date.parse('2026-10-12T03:00:00Z');
+  const base = { onDuty: true, connected: true, hasPush: false, busy: false, hours: [], timezone: 'Asia/Bangkok' };
+  assert.equal(voicerules.lineStatus([], now), 'off');
+  assert.equal(voicerules.lineStatus([base], now), 'open');
+  assert.equal(voicerules.lineStatus([{ ...base, onDuty: false }], now), 'voicemail');
+  assert.equal(voicerules.lineStatus([{ ...base, busy: true }], now), 'voicemail');
+  // Page closed: reachable by push, or for a short grace after dropping.
+  assert.equal(voicerules.lineStatus([{ ...base, connected: false }], now), 'voicemail');
+  assert.equal(voicerules.lineStatus([{ ...base, connected: false, hasPush: true }], now), 'open');
+  assert.equal(voicerules.lineStatus([{ ...base, connected: false, droppedAt: now - 30_000 }], now), 'open');
+  assert.equal(voicerules.lineStatus([{ ...base, connected: false, droppedAt: now - 300_000 }], now), 'voicemail');
+});
+
+test('calls come only from Reviewslip pages, or a listed origin', () => {
+  const prod = { baseDomain: 'reviewslip.com', extra: ['https://partner.example'] };
+  assert.equal(voicerules.originAllowed('https://reviewslip.com', prod), true);
+  assert.equal(voicerules.originAllowed('https://baanponglodge.reviewslip.com', prod), true);
+  assert.equal(voicerules.originAllowed('https://partner.example', prod), true);
+  assert.equal(voicerules.originAllowed('http://reviewslip.com', prod), false);
+  assert.equal(voicerules.originAllowed('https://evilreviewslip.com', prod), false);
+  assert.equal(voicerules.originAllowed('https://reviewslip.com.evil.io', prod), false);
+  assert.equal(voicerules.originAllowed('https://reviewslip.com:8443', prod), false);
+  assert.equal(voicerules.originAllowed('', prod), false);
+  assert.equal(voicerules.originAllowed('null', prod), false);
+
+  const dev = { baseDomain: 'localhost' };
+  assert.equal(voicerules.originAllowed('http://localhost:3001', dev), true);
+  assert.equal(voicerules.originAllowed('http://baanpong.localhost:3000', dev), true);
+  assert.equal(voicerules.originAllowed('http://example.com', dev), false);
+});
+
+test('a voicemail: a playable type, a real recording, at most two minutes', () => {
+  const audio = Buffer.alloc(4000, 1).toString('base64');
+  const ok = voicerules.checkVoicemail({ mime: 'audio/webm;codecs=opus', audio, seconds: 12.4, name: ' Marta\n ', contact: '+66 81 234 5678' });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.value.mime, 'audio/webm');
+  assert.equal(ok.value.seconds, 12);
+  assert.equal(ok.value.name, 'Marta');
+  assert.equal(ok.value.audio.length, 4000);
+
+  assert.equal(voicerules.checkVoicemail({ mime: 'text/html', audio, seconds: 3 }).ok, false);
+  assert.equal(voicerules.checkVoicemail({ mime: 'audio/webm', audio: 'AAAA', seconds: 3 }).ok, false);
+  assert.equal(voicerules.checkVoicemail({ mime: 'audio/webm', audio: '<script>', seconds: 3 }).ok, false);
+  assert.equal(voicerules.checkVoicemail({ mime: 'audio/webm', audio, seconds: 400 }).ok, false);
+  const big = Buffer.alloc(1_300_000, 1).toString('base64');
+  assert.equal(voicerules.checkVoicemail({ mime: 'audio/webm', audio: big, seconds: 60 }).ok, false);
+});
+
+test('an invite needs a name and an email; the page a call came from loses its query', () => {
+  assert.deepEqual(voicerules.checkInvite({ name: ' Noi ', email: ' NOI@Example.com ' }).value, { name: 'Noi', email: 'noi@example.com' });
+  assert.equal(voicerules.checkInvite({ name: '', email: 'noi@example.com' }).ok, false);
+  assert.equal(voicerules.checkInvite({ name: 'Noi', email: 'noi' }).ok, false);
+  assert.equal(voicerules.pageOf('https://reviewslip.com/en/stays/booking/RS01?k=secret'), '/en/stays/booking/RS01');
+  assert.equal(voicerules.pageOf('not a url'), '');
+  assert.equal(voicerules.callTitle({ venueName: 'Baan Pong Lodge', team: 'sales' }), 'Baan Pong Lodge');
+  assert.equal(voicerules.callTitle({ venueName: null, team: 'support' }), 'Reviewslip Support');
+});
+
+test('a voicemail email says who and how to reach them, never the recording', () => {
+  const mail = emails.voicemailEmail({ line: 'Baan Pong Lodge', caller: 'Marta', contact: '+66 81 234 5678', seconds: 75, url: 'https://api.reviewslip.com/phone/' });
+  assert.equal(mail.subject, 'Voicemail for Baan Pong Lodge from Marta');
+  assert.match(mail.text, /1 min 15 s message/);
+  assert.match(mail.text, /\+66 81 234 5678/);
+  const invite = emails.voiceInviteEmail({ name: 'Noi', venue: 'Baan Pong Lodge', by: 'owner@example.com', url: 'https://x/phone/#invite=abc' });
+  assert.match(invite.text, /owner@example.com added you to answer calls for Baan Pong Lodge/);
 });

@@ -42,9 +42,10 @@ const shift = require('./shift');
 const welcome = require('./welcome');
 const signups = require('./signups');
 const { throttled } = require('./throttle');
-const market = require('./market');
 const health = require('./health');
 const marketRouter = require('./marketrouter');
+const voiceRouter = require('./voicerouter');
+const voicehub = require('./voicehub');
 const adminRouter = require('./admin');
 const customerRouter = require('./customer');
 const { requireSubscriber, ADMIN_TOKEN } = require('./auth');
@@ -113,6 +114,8 @@ app.get('/healthz', async (_req, res) => {
 
 app.use('/api/customer', express.json({ limit: DASHBOARD_LIMIT }));
 app.use('/api/admin', express.json({ limit: DASHBOARD_LIMIT }));
+// A voicemail is up to two minutes of audio as base64 (voicerules.js).
+app.use('/api/voice/voicemail', express.json({ limit: '2mb' }));
 app.use(express.json({ limit: '16kb' }));
 // No max-age: the files are small and served off the same box, and a stale
 // index.html on a guest's phone is far more annoying than a revalidation.
@@ -236,6 +239,9 @@ app.use('/api/customer', customerRouter);
 // The marketplace answers for every listed venue at once, so it sits before
 // the tenant resolver: it is reached on the API's own host, not a venue's.
 app.use('/api/market', express.json({ limit: '32kb' }), marketRouter);
+// The softphone answers for every venue and for Reviewslip itself, so it sits
+// here too. The phone page is public/phone/, served as a static file.
+app.use('/api/voice', voiceRouter);
 
 /**
  * The venue's palette, as a stylesheet.
@@ -404,9 +410,13 @@ app.get('/api/welcome', requireTenant, (req, res) => {
     venue: req.subscriber.name,
     hasLogo: Boolean(resolved.theme?.logo),
     showName: theme.showsName(resolved.theme),
-    // The venue's softphone, so the Guest App's call tiles reach the staff
-    // in the browser. Empty when the venue has none.
-    voiceSite: market.parseProfile(req.subscriber.market_profile).contact.voiceSite || '',
+    // The venue's line on the softphone. The call tile shows only once the
+    // line answers its status check, so a venue nobody answers for keeps its
+    // phone number tile alone.
+    voiceLine: req.subscriber.slug,
+    // Where the call tile rings through: the API's host, which is the one
+    // nginx passes WebSockets for — not every venue's.
+    voiceApi: voicehub.VOICE_URL,
   });
 });
 
@@ -1480,7 +1490,7 @@ async function start() {
   // arrive the moment we listen.
   await ready;
 
-  app.listen(PORT, async () => {
+  const server = app.listen(PORT, async () => {
     const imported = await importLegacy();
     const count = await subscribers.count();
 
@@ -1523,6 +1533,9 @@ async function start() {
       }
     }
   });
+
+  // Call buttons and the phone page ring through a WebSocket on this server.
+  voicehub.attach(server);
 }
 
 // A store that will not answer is not something to serve around: without it

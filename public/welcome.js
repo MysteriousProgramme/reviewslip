@@ -32,7 +32,8 @@ const lang =
 
 let venue = '';
 // The venue's softphone site key, from /api/welcome; empty when it has none.
-let voiceSite = '';
+let voiceLine = '';
+let voiceApi = '';
 let guest = '';
 
 function t(key) {
@@ -141,26 +142,27 @@ function showHome({ name, links }, { offline = false } = {}) {
     a.append(...tileFace(link.icon, link.label));
 
     const li = document.createElement('li');
-    // A phone number, when the venue has the softphone: an in-browser call to
-    // the front desk, with the number behind it for a browser that cannot.
-    if (voiceSite && /^tel:/i.test(link.url)) {
+    // A phone number: an in-browser call to the front desk, with the number
+    // behind it for a browser that cannot, or a venue nobody answers for.
+    if (voiceLine && /^tel:/i.test(link.url)) {
       phoned = true;
       a.classList.add('tile-fallback');
-      li.append(voiceTile(link.label), a);
+      li.append(voiceTile(link.label, decodeURIComponent(link.url.slice(4))), a);
     } else {
       li.append(a);
     }
     list.append(li);
   }
-  // No phone tile of the venue's own, but a softphone: the front desk first.
-  if (voiceSite && !phoned) {
+  // No phone tile of the venue's own: the front desk first, shown only once
+  // someone answers for it.
+  if (voiceLine && !phoned) {
     const li = document.createElement('li');
-    li.append(voiceTile(t('voiceFrontDesk')));
+    li.append(voiceTile(t('voiceCallTeam').replace('{team}', t('voiceFrontDesk'))));
     list.prepend(li);
   }
   $('no-links').hidden = links.length > 0;
 
-  if (voiceSite) startVoice();
+  if (voiceLine) startVoice();
   offerInstall();
 }
 
@@ -176,16 +178,21 @@ function tileFace(iconName, text) {
 }
 
 /**
- * A softphone tile. Hidden until the widget hears the venue's Support team
- * can answer or take a message; it then writes its own label in place of
- * this one ("Call Front Desk", in the guest's language, from VOICE_I18N).
+ * A call tile. Hidden until the venue's line answers its status check
+ * (voice-call.js): open shows it as it is, voicemail relabels it to leave a
+ * message, and a venue nobody answers for never shows it.
  */
-function voiceTile(text) {
+function voiceTile(text, phone) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'tile tile-voice';
   button.dataset.voiceCall = '';
+  button.dataset.voiceLine = voiceLine;
+  // The front desk, not reservations: the guest is already staying.
   button.dataset.voiceTeam = 'support';
+  button.dataset.voiceLeave = t('voiceLeave');
+  if (guest) button.dataset.voiceCaller = guest;
+  if (phone) button.dataset.voicePhone = phone;
   button.hidden = true;
   const [picture, label] = tileFace('phone', text);
   label.dataset.voiceLabel = '';
@@ -196,34 +203,24 @@ function voiceTile(text) {
 /* ---------------------------------------------------------------- softphone */
 
 /**
- * The Vibe Crafted softphone, loaded once the venue's key is known.
+ * Reviewslip's call buttons (public/voice-call.js), from the API's host.
  *
  * It binds every [data-voice-call] element through one click listener on the
- * document, so tiles drawn later still work; their labels and visibility wait
- * for its next status check unless it is asked now (VOICE_REFRESH).
+ * document and notices tiles drawn later on its own; asking it to refresh
+ * checks the line again now rather than at its next poll.
  */
 let voiceLoaded = false;
 function startVoice() {
-  window.VOICE_I18N = {
-    callTeam: t('voiceCallTeam'),
-    teamSales: t('voiceReservations'),
-    teamSupport: t('voiceFrontDesk'),
-    leave: t('voiceLeave'),
-  };
-  // The front desk sees who is calling: the name they signed up with.
-  if (guest) window.VOICE_CALLER = guest;
   if (voiceLoaded) {
-    if (window.VOICE_REFRESH) window.VOICE_REFRESH();
+    if (window.ReviewslipVoice) window.ReviewslipVoice.refresh();
     return;
   }
   voiceLoaded = true;
   const script = document.createElement('script');
-  script.src = 'https://portal.vibecraftedsoftware.com/assets/voice-widget.js';
+  script.src = `${voiceApi}/voice-call.js`;
   script.defer = true;
-  script.dataset.voiceApi = 'https://portal.vibecraftedsoftware.com';
-  script.dataset.voiceSite = voiceSite;
-  // The tiles are the buttons; no floating bubble on top of them.
-  script.dataset.voiceFab = 'off';
+  script.dataset.voiceApi = voiceApi;
+  script.dataset.voiceLang = document.documentElement.lang || '';
   document.body.appendChild(script);
 }
 
@@ -338,7 +335,8 @@ async function loadVenue() {
     if (!res.ok) return;
     const data = await res.json();
     venue = data.venue || '';
-    voiceSite = String(data.voiceSite || '');
+    voiceLine = String(data.voiceLine || '');
+    voiceApi = String(data.voiceApi || '');
     if (data.showName !== false) $('eyebrow').textContent = venue;
     $('bar-name').textContent = venue;
     $('app-title').content = venue || 'Welcome';

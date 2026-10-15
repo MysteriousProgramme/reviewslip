@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#09090b" media="(prefers-color-scheme: dark)" />
+    <title>Reviewslip Phone</title>
+    <link rel="manifest" href="/phone/manifest.webmanifest" />
+    <link rel="icon" href="/phone/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/phone/icon.svg" />
+    <link rel="stylesheet" href="/phone/phone.css" />
+  </head>
+  <body>
+    <!--
+      The phone for everyone who answers Reviewslip calls: a venue's own login
+      (opened from the dashboard), staff a venue invited, and Reviewslip's own
+      team on Sales and Support. Nothing on it navigates away — leaving the page
+      would drop a call in progress.
+    -->
+    <header class="bar">
+      <span class="brand"><span class="brand-mark" aria-hidden="true"></span><span data-t="brand">Reviewslip Phone</span></span>
+      <div class="menu" id="menu" hidden>
+        <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false">
+          <span class="avatar" id="avatar" aria-hidden="true"></span>
+          <span class="menu-name" id="me-name"></span>
+        </button>
+        <div class="menu-list" id="menu-list" role="menu" hidden>
+          <p class="menu-email" id="me-email"></p>
+          <button type="button" role="menuitem" id="lang-toggle"></button>
+          <button type="button" role="menuitem" id="sign-out" data-t="signOut">Sign out</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="page">
+      <!-- Signed out -->
+      <section class="card narrow" id="view-login" hidden>
+        <h1 data-t="signInTitle">Sign in to answer calls</h1>
+        <p class="muted" data-t="signInNote">Staff a venue invited sign in here. Venue owners open the phone from their dashboard.</p>
+        <form id="login-form" class="form">
+          <label class="field"><span data-t="email">Email</span><input name="email" type="email" autocomplete="username" required /></label>
+          <label class="field"><span data-t="password">Password</span><input name="password" type="password" autocomplete="current-password" required /></label>
+          <p class="error" id="login-error" role="alert" hidden></p>
+          <button class="btn primary" type="submit" data-t="signIn">Sign in</button>
+        </form>
+      </section>
+
+      <!-- Invite: set a password -->
+      <section class="card narrow" id="view-invite" hidden>
+        <h1 id="invite-title"></h1>
+        <p class="muted" id="invite-note"></p>
+        <form id="invite-form" class="form">
+          <label class="field"><span data-t="email">Email</span><input id="invite-email" type="email" autocomplete="username" readonly /></label>
+          <label class="field"><span data-t="newPassword">Choose a password</span><input name="password" type="password" autocomplete="new-password" minlength="8" required /></label>
+          <p class="error" id="invite-error" role="alert" hidden></p>
+          <button class="btn primary" type="submit" data-t="start">Start answering calls</button>
+        </form>
+      </section>
+
+      <!-- Signed in -->
+      <div id="view-phone" hidden>
+        <p class="flash" id="flash" role="alert" hidden></p>
+        <button type="button" class="sound-banner" id="sound-banner" hidden data-t="tapForSound">Tap anywhere to turn the ringtone on</button>
+
+        <section id="rings" class="rings" aria-live="assertive"></section>
+
+        <section class="card call" id="call" hidden aria-live="polite">
+          <p class="eyebrow" id="call-line"></p>
+          <h2 id="call-who"></h2>
+          <p class="call-time" id="call-time">0:00</p>
+          <div class="row">
+            <button type="button" class="btn round" id="mute" aria-pressed="false" data-t="mute">Mute</button>
+            <button type="button" class="btn round danger" id="hang-up" data-t="hangUp">Hang up</button>
+          </div>
+        </section>
+
+        <section class="card duty" id="duty">
+          <div class="duty-head">
+            <span class="dot" id="duty-dot" aria-hidden="true"></span>
+            <div>
+              <h2 id="duty-title"></h2>
+              <p class="muted" id="duty-note"></p>
+            </div>
+          </div>
+          <div class="row">
+            <button type="button" class="btn primary" id="duty-on" data-t="goOn">Go on duty</button>
+            <button type="button" class="btn" id="duty-off" data-t="goOff" hidden>Go off duty</button>
+          </div>
+          <fieldset class="lines" id="lines" hidden>
+            <legend data-t="takingFor">Taking calls for</legend>
+            <div id="lines-list"></div>
+          </fieldset>
+          <div class="push" id="push" hidden>
+            <div>
+              <p class="push-title" data-t="pushTitle">Ring this phone when the page is closed</p>
+              <p class="muted small" id="push-note"></p>
+            </div>
+            <button type="button" class="btn" id="push-button"></button>
+          </div>
+        </section>
+
+        <nav class="tabs" role="tablist">
+          <button type="button" role="tab" id="tab-voicemail" aria-selected="true" aria-controls="panel-voicemail">
+            <span data-t="voicemail">Voicemail</span> <span class="count" id="vm-count" hidden></span>
+          </button>
+          <button type="button" role="tab" id="tab-calls" aria-selected="false" aria-controls="panel-calls" data-t="recent">Recent calls</button>
+          <button type="button" role="tab" id="tab-hours" aria-selected="false" aria-controls="panel-hours" data-t="hours">My hours</button>
+        </nav>
+
+        <section class="card" id="panel-voicemail" role="tabpanel">
+          <ul class="list" id="vm-list"></ul>
+          <p class="empty" id="vm-empty" data-t="noVoicemail" hidden>No messages.</p>
+        </section>
+
+        <section class="card" id="panel-calls" role="tabpanel" hidden>
+          <ul class="list" id="call-list"></ul>
+          <p class="empty" id="calls-empty" data-t="noCalls" hidden>No calls yet.</p>
+        </section>
+
+        <section class="card" id="panel-hours" role="tabpanel" hidden>
+          <p class="muted" data-t="hoursNote">Tick the days you work. With no day ticked, this phone rings whenever you are on duty.</p>
+          <form id="hours-form" class="form">
+            <div id="hours-days" class="days"></div>
+            <label class="field"><span data-t="timezone">Time zone</span><select id="hours-tz"></select></label>
+            <p class="error" id="hours-error" role="alert" hidden></p>
+            <div class="row"><button class="btn primary" type="submit" data-t="save">Save</button><span class="muted small" id="hours-saved" hidden data-t="saved">Saved</span></div>
+          </form>
+        </section>
+      </div>
+    </main>
+
+    <script src="/phone/phone.js"></script>
+  </body>
+</html>

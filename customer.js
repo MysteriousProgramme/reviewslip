@@ -47,6 +47,8 @@ const roomstatus = require('./roomstatus');
 const sitefacts = require('./sitefacts');
 const themenote = require('./themenote');
 const { PLATFORMS } = require('./platforms');
+const voice = require('./voice');
+const voicehub = require('./voicehub');
 
 /**
  * The customer API: sign up, sign in, and manage your own businesses.
@@ -2815,6 +2817,139 @@ router.get(
     }
   }
 );
+
+/* -------------------------------------------------------------- softphone */
+
+/**
+ * Open the phone: a one-time link that signs this account in on the phone
+ * page (voicerouter.js /handoff), so nobody types a password twice. The
+ * account's agent is made here the first time.
+ */
+router.post('/voice/handoff', requireAccount, async (req, res, next) => {
+  try {
+    const agent = await voice.forAccount(req.account);
+    const token = await voice.startSession(agent.id, 'handoff');
+    // The first time, their venues' lines go from off to taking messages.
+    voicehub.changed();
+    res.json({ url: `${voicehub.VOICE_URL}/phone/#handoff=${token}` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Reviewslip's own Sales and Support lines, for admins. */
+router.get('/voice/reviewslip', requireAccount, async (req, res, next) => {
+  if (!req.account.is_admin) return res.status(404).json({ error: 'Not found.' });
+  try {
+    const [sales, support, people] = await Promise.all([
+      voicehub.status('reviewslip', 'sales'),
+      voicehub.status('reviewslip', 'support'),
+      voice.adminTeam(),
+    ]);
+    const presence = voicehub.presence(people.map((p) => p.id));
+    res.json({
+      sales,
+      support,
+      phoneUrl: `${voicehub.VOICE_URL}/phone/`,
+      people: people.map((p) => ({
+        id: p.id,
+        name: p.name,
+        email: p.email,
+        you: p.accountId === req.account.id,
+        onDuty: p.onDuty,
+        presence: presence[p.id],
+        sales: p.sales,
+        support: p.support,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Who answers this venue's calls: the account itself and the staff it invited. */
+async function voiceTeam(req) {
+  const [own, staff, status] = await Promise.all([
+    voice.byAccount(req.account.id),
+    voice.staffFor(req.account.id, req.venue.id),
+    voicehub.status(req.venue.slug, 'sales'),
+  ]);
+  const people = [own, ...staff].filter(Boolean);
+  const presence = voicehub.presence(people.map((p) => p.id));
+  const row = (p) => ({
+    id: p.id,
+    name: p.name,
+    email: p.email,
+    you: p.accountId === req.account.id,
+    invited: p.invited,
+    onDuty: p.onDuty,
+    presence: presence[p.id],
+  });
+  return {
+    status,
+    phoneUrl: `${voicehub.VOICE_URL}/phone/`,
+    canEmail: mailer.configured,
+    opened: Boolean(own),
+    people: people.map(row),
+  };
+}
+
+router.get('/businesses/:slug/voice', requireAccount, requireOwnVenue, async (req, res, next) => {
+  try {
+    res.json(await voiceTeam(req));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Emails the invite. Without mail configured the link comes back instead, so
+ * the owner can send it themselves.
+ */
+async function sendVoiceInvite(req, agent, token) {
+  const url = `${voicehub.VOICE_URL}/phone/#invite=${token}`;
+  if (!mailer.configured) return url;
+  await mailer.send({
+    to: agent.email,
+    ...emails.voiceInviteEmail({ name: agent.name, venue: req.venue.name, by: req.account.email, url }),
+  });
+  return null;
+}
+
+router.post('/businesses/:slug/voice/staff', requireAccount, requireOwnVenue, async (req, res, next) => {
+  try {
+    const { agent, token } = await voice.invite(req.account.id, req.venue.id, req.body || {});
+    const link = token ? await sendVoiceInvite(req, agent, token) : null;
+    res.status(201).json({ ...(await voiceTeam(req)), link });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post(
+  '/businesses/:slug/voice/staff/:id/invite',
+  requireAccount,
+  requireOwnVenue,
+  async (req, res, next) => {
+    try {
+      const { agent, token } = await voice.reinvite(req.account.id, Number(req.params.id));
+      const link = await sendVoiceInvite(req, agent, token);
+      res.json({ ...(await voiceTeam(req)), link });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+router.delete('/businesses/:slug/voice/staff/:id', requireAccount, requireOwnVenue, async (req, res, next) => {
+  try {
+    await voice.removeStaff(req.account.id, req.venue.id, Number(req.params.id));
+    voicehub.changed();
+    res.json(await voiceTeam(req));
+  } catch (err) {
+    next(err);
+  }
+});
 
 /* ------------------------------------------------------------------ errors */
 

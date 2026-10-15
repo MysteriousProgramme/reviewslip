@@ -141,7 +141,7 @@ interface Venue {
   reviewUrl: string;                                            // the venue's Reviewslip review page
   profile: {
     about: string; amenities: string[];
-    contact: { phone: string; email: string; line: string; whatsapp: string; voiceSite?: string };
+    contact: { phone: string; email: string; line: string; whatsapp: string };
     checkIn: string; checkOut: string;                          // "14:00"
     payment: { mode: "full" | "deposit"; depositPct: number | null };
   };
@@ -231,16 +231,17 @@ Email, each shown only when set.
 - Phone → `tel:` with the digits. Email → `mailto:`. WhatsApp → `https://wa.me/<digits without +>`.
   LINE → the value if it is already an `https://line.me/…` or `lin.ee` link, else
   `https://line.me/R/ti/p/@<id>`.
-- If `contact.voiceSite` is set, the Call button is an in-browser call to the venue's reservations team
-  through the Vibe Crafted softphone, with the phone link kept as the fallback. Load
-  `https://portal.vibecraftedsoftware.com/assets/voice-widget.js` once with `data-voice-api`
-  `https://portal.vibecraftedsoftware.com`, `data-voice-site` = that key and `data-voice-fab="off"`;
-  render `<button data-voice-call data-voice-team="sales" hidden><span data-voice-label>Call</span></button>`
-  followed by the `tel:` link, and hide the link with CSS once the button is visible
-  (`[data-voice-call]:not([hidden]) + a { display: none }`). The widget reads its site once per page
-  load, so reload the page when moving to a venue with a different key. Your domain must be added to
-  that site's allowed origins in the softphone portal, or the button never appears and the phone link
-  is what guests use.
+- **Call in the browser.** Every venue has a line on Reviewslip's softphone. Load
+  `https://api.reviewslip.com/voice-call.js` once (`<script defer src="…">`) and render
+  `<button data-voice-call data-voice-line="<venue slug>" data-voice-team="sales" data-voice-phone="<phone>" hidden><span data-voice-label>Call Reservations</span></button>`
+  followed by the `tel:` link; hide the link with CSS once the button is visible
+  (`[data-voice-call]:not([hidden]) + a { display: none }`). The script shows the button only while
+  someone at the venue can answer or take a message, relabels it "Leave a message" when only a message
+  can be left, and opens its own call panel; buttons added later are picked up on their own. Optional:
+  `data-voice-caller` (the guest's name, shown to whoever answers) and `data-voice-leave` (your own
+  words for "Leave a message"). Calls are accepted only from Reviewslip's pages and origins Reviewslip
+  has added to `VOICE_ORIGINS` — ask for yours to be added, or the button never appears and guests
+  use the phone link.
 
 ### Amenities
 

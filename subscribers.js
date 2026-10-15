@@ -36,6 +36,7 @@ const RESERVED = new Set([
   'status', 'blog', 'docs', 'test', 'staging', 'dev', 'localhost',
 
   'billing', 'venues', 'businesses', 'account', 'plans', 'pricing', 'login', 'signup',
+  'calls', 'phone',
 ]);
 
 /** @returns {{ok: boolean, error?: string}} */
